@@ -62,7 +62,7 @@ try
     for i = 0 to (packageResult.Diagnostics.Count - 1) do
     (
         local diagnostic = packageResult.Diagnostics.Item[i]
-        format "Diagnostic[%].Severity=%\n" i diagnostic.Severity to:writer
+        format "Diagnostic[%].Severity=%\n" i (diagnostic.Severity.ToString()) to:writer
         format "Diagnostic[%].Message=%\n" i diagnostic.Message to:writer
     )
 

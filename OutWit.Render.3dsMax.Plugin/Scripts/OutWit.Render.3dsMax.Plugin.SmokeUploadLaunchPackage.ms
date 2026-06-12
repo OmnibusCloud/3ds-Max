@@ -85,14 +85,14 @@ try
     format "ManifestPath=%\n" packageResult.ManifestPath to:writer
     format "PackageArchivePath=%\n" packageResult.PackageArchivePath to:writer
     format "PrimaryArtifactPath=%\n" packageResult.PrimaryArtifactPath to:writer
-    format "UploadedBlobId=%\n" uploadResult.UploadedBlobId to:writer
+    format "UploadedBlobId=%\n" (uploadResult.UploadedBlobId.ToString()) to:writer
     format "UploadReceiptPath=%\n" uploadResult.UploadReceiptPath to:writer
     format "DiagnosticsCount=%\n" uploadResult.Diagnostics.Count to:writer
 
     for i = 0 to (uploadResult.Diagnostics.Count - 1) do
     (
         local diagnostic = uploadResult.Diagnostics.Item[i]
-        format "Diagnostic[%].Severity=%\n" i diagnostic.Severity to:writer
+        format "Diagnostic[%].Severity=%\n" i (diagnostic.Severity.ToString()) to:writer
         format "Diagnostic[%].Message=%\n" i diagnostic.Message to:writer
     )
 

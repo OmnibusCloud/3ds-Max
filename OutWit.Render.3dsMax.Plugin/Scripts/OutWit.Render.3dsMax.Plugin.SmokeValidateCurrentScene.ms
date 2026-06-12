@@ -78,7 +78,7 @@ try
     for i = 0 to (jsonResult.Diagnostics.Count - 1) do
     (
         local diagnostic = jsonResult.Diagnostics.Item[i]
-        format "Diagnostic[%].Severity=%\n" i diagnostic.Severity to:writer
+        format "Diagnostic[%].Severity=%\n" i (diagnostic.Severity.ToString()) to:writer
         format "Diagnostic[%].Message=%\n" i diagnostic.Message to:writer
     )
 
