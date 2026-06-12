@@ -36,11 +36,15 @@ internal static class MaxBatchSmokeTestUtils
 
     private const string OMNIBUSCLOUD_API_KEY_ENVIRONMENT_VARIABLE_NAME = "OUTWIT_3DSMAX_OMNIBUSCLOUD_API_KEY";
 
-    private const string DEFAULT_OMNIBUSCLOUD_URL = "http://engine.omnibuscloud.com";
+    private const string GENERIC_OMNIBUSCLOUD_URL_ENVIRONMENT_VARIABLE_NAME = "OMNIBUSCLOUD_SERVER_URL";
 
-    private const string DEFAULT_OMNIBUSCLOUD_IDENTITY_URL = "https://id.waveslogic.com";
+    private const string GENERIC_OMNIBUSCLOUD_IDENTITY_URL_ENVIRONMENT_VARIABLE_NAME = "OMNIBUSCLOUD_IDENTITY_URL";
 
-    private const string DEFAULT_OMNIBUSCLOUD_API_KEY = "wit_sk_u1hYCrcoanPomhlMoXaQ8CfNGl6wXXVGdqDEilCI";
+    private const string GENERIC_OMNIBUSCLOUD_API_KEY_ENVIRONMENT_VARIABLE_NAME = "OMNIBUSCLOUD_API_KEY";
+
+    private const string DEFAULT_OMNIBUSCLOUD_URL = "https://engine.omnibuscloud.com";
+
+    private const string DEFAULT_OMNIBUSCLOUD_IDENTITY_URL = "https://auth.omnibuscloud.com";
 
     private const string SMOKE_SCENE_ROOT_RELATIVE_PATH = "@Data\\3ds_max\\Scenes\\Raytrace\\AdvancedExamples";
 
@@ -444,8 +448,12 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+
+        // Drain stdout/stderr asynchronously: a synchronous ReadToEnd() blocks until the
+        // process exits, which silently disables the WaitForExit timeout below when
+        // 3ds Max hangs (and a hung Max never closes its output pipes).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds))
         {
@@ -459,6 +467,9 @@ internal static class MaxBatchSmokeTestUtils
 
             throw new TimeoutException("3ds Max Batch smoke process timed out after 10 minutes.");
         }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return new MaxBatchProcessRunResult
         {
@@ -880,17 +891,25 @@ internal static class MaxBatchSmokeTestUtils
 
     private static string ResolveOmnibusCloudUrl()
     {
-        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_URL_ENVIRONMENT_VARIABLE_NAME) ?? DEFAULT_OMNIBUSCLOUD_URL;
+        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_URL_ENVIRONMENT_VARIABLE_NAME)
+               ?? Environment.GetEnvironmentVariable(GENERIC_OMNIBUSCLOUD_URL_ENVIRONMENT_VARIABLE_NAME)
+               ?? DEFAULT_OMNIBUSCLOUD_URL;
     }
 
     private static string ResolveOmnibusCloudIdentityUrl()
     {
-        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_IDENTITY_URL_ENVIRONMENT_VARIABLE_NAME) ?? DEFAULT_OMNIBUSCLOUD_IDENTITY_URL;
+        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_IDENTITY_URL_ENVIRONMENT_VARIABLE_NAME)
+               ?? Environment.GetEnvironmentVariable(GENERIC_OMNIBUSCLOUD_IDENTITY_URL_ENVIRONMENT_VARIABLE_NAME)
+               ?? DEFAULT_OMNIBUSCLOUD_IDENTITY_URL;
     }
 
     private static string ResolveOmnibusCloudApiKey()
     {
-        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_API_KEY_ENVIRONMENT_VARIABLE_NAME) ?? DEFAULT_OMNIBUSCLOUD_API_KEY;
+        // No committed fallback: the credential comes from the environment (see the
+        // repo-root .env) or the smoke self-skips with the set-the-variable hint.
+        return Environment.GetEnvironmentVariable(OMNIBUSCLOUD_API_KEY_ENVIRONMENT_VARIABLE_NAME)
+               ?? Environment.GetEnvironmentVariable(GENERIC_OMNIBUSCLOUD_API_KEY_ENVIRONMENT_VARIABLE_NAME)
+               ?? string.Empty;
     }
 
     private static string ResolveConfiguration(string pluginAssemblyPath)

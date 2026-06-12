@@ -3,7 +3,8 @@ using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 
 /// <summary>
-/// Owns the first connected-render boundary for the 3ds Max plugin while remote OmnibusCloud submission is still being phased in.
+/// Owns the connected-render boundary for the 3ds Max plugin: preflight, launch-package
+/// preparation, and submission through the configured transport.
 /// </summary>
 public sealed class MaxConnectedRenderService
 {
@@ -31,9 +32,12 @@ public sealed class MaxConnectedRenderService
     #region Functions
 
     /// <summary>
-    /// Launches the first local connected-render step by preparing a submission package and returning a trackable job state.
+    /// Launches a connected render: runs preflight, prepares the launch package, and submits it through the configured transport.
     /// </summary>
-    public MaxConnectedRenderJobState LaunchRender(MaxSceneLaunchPackageRequest request)
+    /// <param name="request">The launch request.</param>
+    /// <param name="cancellationToken">Cancels the launch.</param>
+    /// <returns>The trackable connected render job state.</returns>
+    public async Task<MaxConnectedRenderJobState> LaunchRenderAsync(MaxSceneLaunchPackageRequest request, CancellationToken cancellationToken = default)
     {
         var preflight = m_preflightService.Run(request);
         var now = DateTime.UtcNow;
@@ -54,16 +58,19 @@ public sealed class MaxConnectedRenderService
         }
 
         var package = m_launchPreparationService.Prepare(request);
-        return m_submissionService.Submit(request, package);
+        return await m_submissionService.SubmitAsync(request, package, cancellationToken);
     }
 
     /// <summary>
-    /// Refreshes the current placeholder connected-render state until real remote submission is wired.
+    /// Refreshes one previously launched connected-render job through the configured transport.
     /// </summary>
-    public MaxConnectedRenderJobState RefreshJob(MaxConnectedRenderJobState jobState)
+    /// <param name="jobState">The job state to refresh.</param>
+    /// <param name="cancellationToken">Cancels the refresh.</param>
+    /// <returns>The refreshed job state.</returns>
+    public Task<MaxConnectedRenderJobState> RefreshJobAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(jobState);
-        return m_submissionService.Refresh(jobState);
+        return m_submissionService.RefreshAsync(jobState, cancellationToken);
     }
 
     #endregion

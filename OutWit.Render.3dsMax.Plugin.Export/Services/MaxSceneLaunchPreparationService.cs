@@ -121,6 +121,8 @@ public sealed class MaxSceneLaunchPreparationService
             ManifestPath = manifestPath,
             PackageArchivePath = packageArchivePath,
             PrimaryArtifactPath = packageArchivePath,
+            Scene = jsonResult.Scene,
+            SceneFilePath = jsonResult.Summary.SceneFilePath,
             StatusText = "Prepared a local launch package for future OmnibusCloud submission.",
             Diagnostics = diagnostics
         };

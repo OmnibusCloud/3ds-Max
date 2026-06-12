@@ -1,3 +1,5 @@
+using OutWit.Controller.Render.Dcc.Model;
+
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 /// <summary>
@@ -20,6 +22,16 @@ public sealed class MaxSceneLaunchPackageResult
     public string PackageArchivePath { get; set; } = string.Empty;
 
     public string PrimaryArtifactPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The exported neutral scene payload (in-memory only — what the package artifacts were written from).
+    /// </summary>
+    public DccSceneData? Scene { get; set; }
+
+    /// <summary>
+    /// The source .max file path; used to resolve relative texture paths during attachment upload.
+    /// </summary>
+    public string SceneFilePath { get; set; } = string.Empty;
 
     public List<MaxSceneDiagnosticItem> Diagnostics { get; set; } = [];
 

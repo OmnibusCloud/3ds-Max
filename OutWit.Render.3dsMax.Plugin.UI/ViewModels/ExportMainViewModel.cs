@@ -80,14 +80,14 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
         }
     }
 
-    private void LaunchRender()
+    private async void LaunchRender()
     {
         UpdateStatus("Launching Render");
 
         var outputFolder = Path.Combine(OptionsVm.OutputFolder, "OmnibusCloudLaunches");
         Directory.CreateDirectory(outputFolder);
 
-        var result = ApplicationVm.ConnectedRenderService.LaunchRender(new MaxSceneLaunchPackageRequest
+        var request = new MaxSceneLaunchPackageRequest
         {
             CloudUrl = CloudVm.CloudUrl,
             IdentityUrl = CloudVm.IdentityUrl,
@@ -100,14 +100,16 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
             UseAllClients = LaunchVm.UseAllClients,
             SelectedGroupName = LaunchVm.SelectedGroupName,
             OutputFolder = outputFolder
-        });
+        };
+
+        var result = await Task.Run(() => ApplicationVm.ConnectedRenderService.LaunchRenderAsync(request));
 
         CurrentJobState = result;
         LaunchVm.ApplyJobState(result);
         DiagnosticsVm.Apply(result.Diagnostics);
         DiagnosticsVm.SetLogText(BuildJobLogText(result));
         LastOutputPath = result.PrimaryArtifactPath;
-        UpdateStatus("Launch Package Ready");
+        UpdateStatus(Guid.TryParse(result.JobId, out _) ? "Render Submitted" : "Launch Failed");
     }
 
     private async void LoadExecutionScope()
@@ -154,13 +156,14 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus(result.CanLaunch ? "Preflight Ready" : "Failed");
     }
 
-    private void RefreshJob()
+    private async void RefreshJob()
     {
         if (CurrentJobState is null)
             return;
 
         UpdateStatus("Refreshing Job");
-        CurrentJobState = ApplicationVm.ConnectedRenderService.RefreshJob(CurrentJobState);
+        var jobState = CurrentJobState;
+        CurrentJobState = await Task.Run(() => ApplicationVm.ConnectedRenderService.RefreshJobAsync(jobState));
         LaunchVm.ApplyJobState(CurrentJobState);
         DiagnosticsVm.Apply(CurrentJobState.Diagnostics);
         DiagnosticsVm.SetLogText(BuildJobLogText(CurrentJobState));

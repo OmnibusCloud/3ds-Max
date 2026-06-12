@@ -13,7 +13,24 @@ public sealed class MaxConnectedRenderSubmissionTransportLocalPlaceholder : IMax
     /// <summary>
     /// Records a local placeholder submission receipt for the prepared launch package.
     /// </summary>
-    public MaxConnectedRenderJobState Submit(MaxSceneLaunchPackageRequest request, MaxSceneLaunchPackageResult package)
+    public Task<MaxConnectedRenderJobState> SubmitAsync(MaxSceneLaunchPackageRequest request, MaxSceneLaunchPackageResult package, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Submit(request, package));
+    }
+
+    /// <summary>
+    /// Refreshes one previously recorded local placeholder submission.
+    /// </summary>
+    public Task<MaxConnectedRenderJobState> RefreshAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(Refresh(jobState));
+    }
+
+    #endregion
+
+    #region Tools
+
+    private static MaxConnectedRenderJobState Submit(MaxSceneLaunchPackageRequest request, MaxSceneLaunchPackageResult package)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(package);
@@ -85,10 +102,7 @@ public sealed class MaxConnectedRenderSubmissionTransportLocalPlaceholder : IMax
         };
     }
 
-    /// <summary>
-    /// Refreshes one previously recorded local placeholder submission.
-    /// </summary>
-    public MaxConnectedRenderJobState Refresh(MaxConnectedRenderJobState jobState)
+    private static MaxConnectedRenderJobState Refresh(MaxConnectedRenderJobState jobState)
     {
         ArgumentNullException.ThrowIfNull(jobState);
 

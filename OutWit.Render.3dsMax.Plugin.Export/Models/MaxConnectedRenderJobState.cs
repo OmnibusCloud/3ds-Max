@@ -9,6 +9,8 @@ public sealed class MaxConnectedRenderJobState
 
     public string JobId { get; set; } = string.Empty;
 
+    public string CloudUrl { get; set; } = string.Empty;
+
     public string StatusText { get; set; } = string.Empty;
 
     public double ProgressPercent { get; set; }
@@ -32,6 +34,8 @@ public sealed class MaxConnectedRenderJobState
     public string PrimaryArtifactPath { get; set; } = string.Empty;
 
     public Guid? UploadedPackageBlobId { get; set; }
+
+    public Guid? ResultBlobId { get; set; }
 
     public string UploadReceiptPath { get; set; } = string.Empty;
 

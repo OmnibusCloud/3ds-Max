@@ -356,14 +356,14 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void LaunchRenderReturnsBlockedJobStateWhenPreflightFailsTest()
+    public async Task LaunchRenderReturnsBlockedJobStateWhenPreflightFailsTest()
     {
         var service = MaxSceneExportTestData.CreateConnectedRenderService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
         var outputDirectory = Path.Combine(Path.GetTempPath(), $"OutWit.3dsMax.ConnectedRender.Blocked.Tests.{Guid.NewGuid():N}");
 
         try
         {
-            var result = service.LaunchRender(new MaxSceneLaunchPackageRequest
+            var result = await service.LaunchRenderAsync(new MaxSceneLaunchPackageRequest
             {
                 RenderMode = "RenderStill",
                 ResolutionX = 1920,
@@ -635,7 +635,7 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void DownloadConnectedRenderArtifactCopiesPreparedArchiveTest()
+    public async Task DownloadConnectedRenderArtifactCopiesPreparedArchiveTest()
     {
         var renderService = MaxSceneExportTestData.CreateConnectedRenderService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
         var downloadService = MaxSceneExportTestData.CreateConnectedRenderDownloadService();
@@ -644,7 +644,7 @@ public sealed class MaxSceneExportServiceTests
 
         try
         {
-            var job = renderService.LaunchRender(new MaxSceneLaunchPackageRequest
+            var job = await renderService.LaunchRenderAsync(new MaxSceneLaunchPackageRequest
             {
                 CloudUrl = "https://omnibuscloud.local",
                 IdentityUrl = "https://identity.omnibuscloud.local",
@@ -679,14 +679,14 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void LaunchRenderWritesSubmissionReceiptJsonTest()
+    public async Task LaunchRenderWritesSubmissionReceiptJsonTest()
     {
         var service = MaxSceneExportTestData.CreateConnectedRenderService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
         var outputDirectory = Path.Combine(Path.GetTempPath(), $"OutWit.3dsMax.ConnectedRender.Receipt.Tests.{Guid.NewGuid():N}");
 
         try
         {
-            var result = service.LaunchRender(new MaxSceneLaunchPackageRequest
+            var result = await service.LaunchRenderAsync(new MaxSceneLaunchPackageRequest
             {
                 CloudUrl = "https://omnibuscloud.local",
                 IdentityUrl = "https://identity.omnibuscloud.local",
@@ -746,14 +746,14 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void LaunchRenderCreatesTrackablePlaceholderJobStateTest()
+    public async Task LaunchRenderCreatesTrackablePlaceholderJobStateTest()
     {
         var service = MaxSceneExportTestData.CreateConnectedRenderService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
         var outputDirectory = Path.Combine(Path.GetTempPath(), $"OutWit.3dsMax.ConnectedRender.Tests.{Guid.NewGuid():N}");
 
         try
         {
-            var result = service.LaunchRender(new MaxSceneLaunchPackageRequest
+            var result = await service.LaunchRenderAsync(new MaxSceneLaunchPackageRequest
             {
                 CloudUrl = "https://omnibuscloud.local",
                 IdentityUrl = "https://identity.omnibuscloud.local",
@@ -779,7 +779,7 @@ public sealed class MaxSceneExportServiceTests
                 Assert.That(result.PrimaryArtifactPath, Does.EndWith(".zip"));
             });
 
-            var refreshed = service.RefreshJob(result);
+            var refreshed = await service.RefreshJobAsync(result);
 
             Assert.Multiple(() =>
             {

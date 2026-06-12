@@ -20,7 +20,8 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
         LaunchPreparationService = new MaxSceneLaunchPreparationService(sceneExportService);
         ConnectedRenderPreflightService = new MaxConnectedRenderPreflightService(sceneExportService);
         ConnectedExecutionScopeService = new MaxConnectedExecutionScopeService(CloudSessionService, CloudConnectionService);
-        ConnectedRenderSubmissionService = new MaxConnectedRenderSubmissionService(new MaxConnectedRenderSubmissionTransportLocalPlaceholder());
+        ConnectedRenderSubmissionService = new MaxConnectedRenderSubmissionService(
+            new MaxConnectedRenderSubmissionTransportOmnibusCloudSession(CloudConnectionService, new MaxConnectedRenderSceneAttachmentService()));
         ConnectedRenderService = new MaxConnectedRenderService(LaunchPreparationService, ConnectedRenderPreflightService, ConnectedRenderSubmissionService);
         ConnectedRenderPackageUploadService = new MaxConnectedRenderPackageUploadService(new MaxConnectedRenderArchiveUploaderOmnibusCloudApiKey());
         ConnectedRenderDownloadService = new MaxConnectedRenderDownloadService();
