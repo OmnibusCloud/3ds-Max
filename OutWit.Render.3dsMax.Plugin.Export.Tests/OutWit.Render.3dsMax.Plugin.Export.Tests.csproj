@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <ThreeDsMaxPluginProjectPath>..\OutWit.Render.3dsMax.Plugin\OutWit.Render.3dsMax.Plugin.csproj</ThreeDsMaxPluginProjectPath>
+    <ThreeDsMaxPluginOutputPath>..\OutWit.Render.3dsMax.Plugin\bin\x64\$(Configuration)\net10.0-windows\</ThreeDsMaxPluginOutputPath>
+    <ThreeDsMaxPluginTestOutputPath>$(OutDir)3dsmax-plugin\</ThreeDsMaxPluginTestOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="8.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageReference Include="NUnit" Version="4.5.1" />
+    <PackageReference Include="NUnit.Analyzers" Version="4.12.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="NUnit3TestAdapter" Version="6.1.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OutWit.Render.3dsMax.Plugin.Export\OutWit.Render.3dsMax.Plugin.Export.csproj" />
+  </ItemGroup>
+
+  <!-- INTERIM: same compile-against-module-content workaround as in the Export csproj —
+       tests exercise DccSceneValidationService and (via reflection) DccSceneBuildInputFactory
+       from the module assembly. Remove when the validation facade moves into
+       OutWit.Controller.Render.Dcc.Model. -->
+  <ItemGroup>
+    <PackageReference Include="OutWit.Controller.Render.Dcc" Version="1.0.6" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+    <Reference Include="OutWit.Controller.Render.Dcc">
+      <HintPath>$(PkgOutWit_Controller_Render_Dcc)\content\module\OutWit.Controller.Render.Dcc.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="NUnit.Framework" />
+  </ItemGroup>
+
+  <Target Name="BuildThreeDsMaxPluginForSmokeTests" BeforeTargets="Build">
+    <MSBuild Projects="$(ThreeDsMaxPluginProjectPath)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=x64" />
+  </Target>
+
+  <Target Name="CopyThreeDsMaxPluginForSmokeTests" AfterTargets="Build">
+    <ItemGroup>
+      <ThreeDsMaxPluginFiles Include="$(ThreeDsMaxPluginOutputPath)**\*.*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(ThreeDsMaxPluginTestOutputPath)" />
+    <Copy SourceFiles="@(ThreeDsMaxPluginFiles)"
+          DestinationFiles="@(ThreeDsMaxPluginFiles->'$(ThreeDsMaxPluginTestOutputPath)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

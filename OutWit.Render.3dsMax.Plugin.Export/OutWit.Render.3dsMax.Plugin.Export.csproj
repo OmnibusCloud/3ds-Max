@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RootNamespace>OutWit.Render.ThreeDsMax.Plugin.Export</RootNamespace>
+    <AssemblyName>OutWit.Render.3dsMax.Plugin.Export</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OutWit.Cloud.SDK" Version="1.1.*" />
+    <PackageReference Include="OutWit.Controller.Render.Dcc.Model" Version="1.0.*" />
+  </ItemGroup>
+
+  <!-- INTERIM: OutWit.Controller.Render.Dcc is a runtime controller-module package
+       (lib/ ships no compile assembly), but DccSceneValidationService — the plugin-side
+       mirror of the server preflight — lives in the module assembly. Compile against
+       the assembly from the package content until the validation facade moves into
+       OutWit.Controller.Render.Dcc.Model. -->
+  <ItemGroup>
+    <PackageReference Include="OutWit.Controller.Render.Dcc" Version="1.0.6" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+    <Reference Include="OutWit.Controller.Render.Dcc">
+      <HintPath>$(PkgOutWit_Controller_Render_Dcc)\content\module\OutWit.Controller.Render.Dcc.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

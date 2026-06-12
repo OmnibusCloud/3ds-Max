@@ -69,17 +69,24 @@ dist/
 # Internal working docs/plans live locally only — this is a public repo.
 @Archive/
 
-# Local-only test fixtures: large .blend scenes, golden renders,
-# blender / ffmpeg runtime binaries. Tests `Assert.Ignore` when
-# these are missing — CI stays green, but a local dev with these
-# folders populated can run the full Render.Tests suite. See
-# Render/OutWit.Controller.Render.Tests/README.md for layout.
+# Local-only test fixtures: large .max demo scenes (Autodesk samples —
+# size + license forbid committing them). Tests `Assert.Ignore` when
+# these are missing — CI stays green, but a local dev with @Data
+# populated can run the full 3dsmaxbatch smoke suite. See @Data/README.md.
 @Prerequisites/
-# Ignore @Data contents (large demo scenes) but re-include the small, committed canonical
-# example scenes below. (Must be @Data/* not @Data/ so children can be re-included.)
+# Ignore @Data contents but re-include the README (scene provenance) and the
+# small, committed canonical scenes. (Must be @Data/* not @Data/ so children
+# can be re-included.)
 @Data/*
+!@Data/README.md
 !@Data/canonical/
-@Data/canonical/*.blend1
+
+# Autodesk managed SDK assembly: dropped locally into Libs/ from a 3ds Max
+# install (or resolved via ADSK_3DSMAX_x64_* env var); never committed.
+OutWit.Render.3dsMax.Plugin/Libs/Autodesk.Max.dll
+
+# Staged plugin payload assembled next to test output for 3dsmaxbatch runs
+3dsmax-plugin/
 
 # Per-project test output (NUnit/MSTest trx files, coverage reports)
 TestResults/
@@ -109,7 +116,3 @@ Migrations/
 .idea/
 .idea_modules/
 
-# Python (Blender addon) compiled cache
-__pycache__/
-*.py[cod]
-*.egg-info/

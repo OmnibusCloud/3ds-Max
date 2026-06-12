@@ -1,2 +1,7 @@
 <Solution>
+  <Project Path="OutWit.Render.3dsMax.Plugin/OutWit.Render.3dsMax.Plugin.csproj" />
+  <Project Path="OutWit.Render.3dsMax.Plugin.Export/OutWit.Render.3dsMax.Plugin.Export.csproj" />
+  <Project Path="OutWit.Render.3dsMax.Plugin.UI/OutWit.Render.3dsMax.Plugin.UI.csproj" />
+  <Project Path="OutWit.Render.3dsMax.Plugin.Export.Tests/OutWit.Render.3dsMax.Plugin.Export.Tests.csproj" />
+  <Project Path="OutWit.Render.3dsMax.Plugin.LocalTests/OutWit.Render.3dsMax.Plugin.LocalTests.csproj" />
 </Solution>
