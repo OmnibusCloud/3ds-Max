@@ -514,8 +514,12 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+
+        // Drain stdout/stderr asynchronously: a synchronous ReadToEnd() blocks until the
+        // process exits, which silently disables the WaitForExit timeout below when
+        // 3ds Max hangs (and a hung Max never closes its output pipes).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds))
         {
@@ -529,6 +533,9 @@ internal static class MaxBatchSmokeTestUtils
 
             throw new TimeoutException("3ds Max render smoke process timed out after 10 minutes.");
         }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return new MaxBatchProcessRunResult
         {
@@ -567,8 +574,12 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+
+        // Drain stdout/stderr asynchronously: a synchronous ReadToEnd() blocks until the
+        // process exits, which silently disables the WaitForExit timeout below when
+        // 3ds Max hangs (and a hung Max never closes its output pipes).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds))
         {
@@ -582,6 +593,9 @@ internal static class MaxBatchSmokeTestUtils
 
             throw new TimeoutException("3ds Max upload smoke process timed out after 10 minutes.");
         }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return new MaxBatchProcessRunResult
         {
@@ -620,8 +634,12 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+
+        // Drain stdout/stderr asynchronously: a synchronous ReadToEnd() blocks until the
+        // process exits, which silently disables the WaitForExit timeout below when
+        // 3ds Max hangs (and a hung Max never closes its output pipes).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds))
         {
@@ -635,6 +653,9 @@ internal static class MaxBatchSmokeTestUtils
 
             throw new TimeoutException("3ds Max launch-package smoke process timed out after 10 minutes.");
         }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return new MaxBatchProcessRunResult
         {
@@ -673,8 +694,12 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+
+        // Drain stdout/stderr asynchronously: a synchronous ReadToEnd() blocks until the
+        // process exits, which silently disables the WaitForExit timeout below when
+        // 3ds Max hangs (and a hung Max never closes its output pipes).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds))
         {
@@ -688,6 +713,9 @@ internal static class MaxBatchSmokeTestUtils
 
             throw new TimeoutException("3ds Max installed-package smoke process timed out after 10 minutes.");
         }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return new MaxBatchProcessRunResult
         {
@@ -937,9 +965,11 @@ internal static class MaxBatchSmokeTestUtils
         };
 
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         if (process.ExitCode != 0)
         {
