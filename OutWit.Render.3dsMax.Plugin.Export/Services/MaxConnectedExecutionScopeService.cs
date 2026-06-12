@@ -1,69 +1,97 @@
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 
 /// <summary>
-/// Loads the first plugin-side execution scope options while the real authenticated OmnibusCloud scope query is still being phased in.
+/// Loads the execution scope options (groups / all-clients permission) the signed-in
+/// user may launch on, through the authenticated OmnibusCloud connection.
 /// </summary>
 public sealed class MaxConnectedExecutionScopeService
 {
+    #region Fields
+
+    private readonly IMaxCloudSessionService m_sessionService;
+
+    private readonly IMaxCloudConnectionService m_connectionService;
+
+    #endregion
+
+    #region Constructors
+
+    public MaxConnectedExecutionScopeService(IMaxCloudSessionService sessionService, IMaxCloudConnectionService connectionService)
+    {
+        m_sessionService = sessionService;
+        m_connectionService = connectionService;
+    }
+
+    #endregion
+
     #region Functions
 
     /// <summary>
-    /// Loads execution scope options for the current connected plugin shell.
+    /// Loads execution scope options for the signed-in user.
     /// </summary>
-    public MaxConnectedExecutionScopeResult Load(MaxConnectedExecutionScopeRequest request)
+    /// <param name="request">The scope request with the engine endpoint.</param>
+    /// <param name="cancellationToken">Cancels the load.</param>
+    /// <returns>The execution scope load result.</returns>
+    public async Task<MaxConnectedExecutionScopeResult> LoadAsync(MaxConnectedExecutionScopeRequest request, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         var diagnostics = new List<MaxSceneDiagnosticItem>();
 
-        if (string.IsNullOrWhiteSpace(request.CloudUrl) && string.IsNullOrWhiteSpace(request.IdentityUrl))
+        if (string.IsNullOrWhiteSpace(request.CloudUrl))
         {
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "OmnibusCloud URL or Identity URL is required before loading execution scope options."));
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "OmnibusCloud URL is required before loading execution scope options."));
             return CreateFailureResult("Execution scope load failed. Cloud endpoint is missing.", diagnostics);
         }
 
-        if (string.IsNullOrWhiteSpace(request.SessionStatusText) || request.SessionStatusText.Equals("Signed out", StringComparison.OrdinalIgnoreCase))
+        var sessionState = m_sessionService.GetState();
+        if (!sessionState.IsSignedIn)
         {
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Start browser sign-in before loading execution scope options."));
-            return CreateFailureResult("Execution scope load failed. Sign-in has not started yet.", diagnostics);
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Sign in before loading execution scope options."));
+            return CreateFailureResult("Execution scope load failed. No signed-in session.", diagnostics);
         }
 
-        var userLabel = BuildUserDisplayName(request.CloudUrl, request.IdentityUrl);
-        diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, "Loaded placeholder execution scope options from the local 3ds Max plugin shell."));
-
-        return new MaxConnectedExecutionScopeResult
+        try
         {
-            IsSuccess = true,
-            StatusText = "Execution scope options loaded locally.",
-            UserDisplayName = userLabel,
-            SessionStatusText = "Scope options loaded (local placeholder)",
-            CanRunOnAllClients = true,
-            Groups =
-            [
-                new MaxConnectedExecutionGroupOption
-                {
-                    GroupId = "group-artists",
-                    Name = "Artists",
-                    Description = "Primary render group for artist-initiated launches."
-                },
-                new MaxConnectedExecutionGroupOption
-                {
-                    GroupId = "group-preview",
-                    Name = "Preview",
-                    Description = "Smaller preview group for quick validation renders."
-                }
-            ],
-            Diagnostics = diagnostics
-        };
-    }
+            var client = await m_connectionService.GetClientAsync(request.CloudUrl, cancellationToken);
+            if (client == null)
+            {
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Could not connect to OmnibusCloud at '{request.CloudUrl}'."));
+                return CreateFailureResult("Execution scope load failed. Cloud connection unavailable.", diagnostics);
+            }
 
-    private static string BuildUserDisplayName(string cloudUrl, string identityUrl)
-    {
-        var source = !string.IsNullOrWhiteSpace(cloudUrl) ? cloudUrl : identityUrl;
-        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri))
-            return "OmnibusCloud User (placeholder)";
+            var scope = await client.GetExecutionScopeOptionsAsync(cancellationToken);
 
-        return $"OmnibusCloud User @ {uri.Host}";
+            diagnostics.Add(CreateDiagnostic(
+                MaxSceneDiagnosticSeverity.Info,
+                $"Loaded execution scope: {scope.Groups.Length} groups, all-clients={scope.CanRunOnAllClients}."));
+
+            return new MaxConnectedExecutionScopeResult
+            {
+                IsSuccess = true,
+                StatusText = "Execution scope options loaded.",
+                UserDisplayName = sessionState.DisplayName,
+                SessionStatusText = $"Signed in as {sessionState.DisplayName}",
+                CanRunOnAllClients = scope.CanRunOnAllClients,
+                Groups = scope.Groups
+                    .Select(me => new MaxConnectedExecutionGroupOption
+                    {
+                        GroupId = me.GroupId?.ToString() ?? string.Empty,
+                        Name = me.Name,
+                        Description = me.Description
+                    })
+                    .ToList(),
+                Diagnostics = diagnostics
+            };
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Execution scope query failed: {ex.Message}"));
+            return CreateFailureResult("Execution scope load failed.", diagnostics);
+        }
     }
 
     private static MaxConnectedExecutionScopeResult CreateFailureResult(string statusText, List<MaxSceneDiagnosticItem> diagnostics)

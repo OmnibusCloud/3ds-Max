@@ -1,7 +1,9 @@
 using System.Text.Json;
+using OutWit.Cloud.Data.Access;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Snapshots;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services.Auth;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services;
 
@@ -439,42 +441,87 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void LoadExecutionScopeFailsWhenSignedOutTest()
+    public async Task LoadExecutionScopeFailsWhenSignedOutTest()
     {
-        var service = MaxSceneExportTestData.CreateConnectedExecutionScopeService();
-
-        var result = service.Load(new MaxConnectedExecutionScopeRequest
+        var sessionService = new FakeMaxCloudSessionService
         {
-            CloudUrl = "https://omnibuscloud.local",
-            SessionStatusText = "Signed out"
+            State = new MaxConnectedSessionState { IsSignedIn = false }
+        };
+        var service = MaxSceneExportTestData.CreateConnectedExecutionScopeService(sessionService);
+
+        var result = await service.LoadAsync(new MaxConnectedExecutionScopeRequest
+        {
+            CloudUrl = "https://omnibuscloud.local"
         });
 
         Assert.Multiple(() =>
         {
             Assert.That(result.IsSuccess, Is.False);
-            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("browser sign-in", StringComparison.OrdinalIgnoreCase)), Is.True);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("sign in", StringComparison.OrdinalIgnoreCase)), Is.True);
         });
     }
 
     [Test]
-    public void LoadExecutionScopeReturnsPlaceholderGroupsAfterBrowserSignInStartedTest()
+    public async Task LoadExecutionScopeFailsWhenConnectionUnavailableTest()
     {
-        var service = MaxSceneExportTestData.CreateConnectedExecutionScopeService();
-
-        var result = service.Load(new MaxConnectedExecutionScopeRequest
+        var sessionService = new FakeMaxCloudSessionService
         {
-            CloudUrl = "https://omnibuscloud.local",
-            IdentityUrl = "https://identity.omnibuscloud.local",
-            SessionStatusText = "Browser sign-in started"
+            State = new MaxConnectedSessionState { IsSignedIn = true, DisplayName = "Artist One" }
+        };
+        var connectionService = new FakeMaxCloudConnectionService { Client = null };
+        var service = MaxSceneExportTestData.CreateConnectedExecutionScopeService(sessionService, connectionService);
+
+        var result = await service.LoadAsync(new MaxConnectedExecutionScopeRequest
+        {
+            CloudUrl = "https://omnibuscloud.local"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.False);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("connect", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task LoadExecutionScopeReturnsGroupsForSignedInUserTest()
+    {
+        var sessionService = new FakeMaxCloudSessionService
+        {
+            State = new MaxConnectedSessionState { IsSignedIn = true, DisplayName = "Artist One" }
+        };
+        var groupId = Guid.NewGuid();
+        var connectionService = new FakeMaxCloudConnectionService
+        {
+            Client = new FakeWitCloudClient
+            {
+                ScopeOptions = new ExecutionScopeOptions
+                {
+                    CanRunOnAllClients = true,
+                    Groups =
+                    [
+                        new ExecutionGroupOption { GroupId = groupId, Name = "Artists", Description = "Primary render group." },
+                        new ExecutionGroupOption { Name = "Preview", Description = "Preview group." }
+                    ]
+                }
+            }
+        };
+        var service = MaxSceneExportTestData.CreateConnectedExecutionScopeService(sessionService, connectionService);
+
+        var result = await service.LoadAsync(new MaxConnectedExecutionScopeRequest
+        {
+            CloudUrl = "https://omnibuscloud.local"
         });
 
         Assert.Multiple(() =>
         {
             Assert.That(result.IsSuccess, Is.True);
-            Assert.That(result.UserDisplayName, Does.Contain("omnibuscloud.local"));
-            Assert.That(result.SessionStatusText, Does.Contain("placeholder"));
+            Assert.That(result.UserDisplayName, Is.EqualTo("Artist One"));
+            Assert.That(result.SessionStatusText, Does.Contain("Artist One"));
             Assert.That(result.CanRunOnAllClients, Is.True);
             Assert.That(result.Groups.Select(me => me.Name), Is.EquivalentTo(new[] { "Artists", "Preview" }));
+            Assert.That(result.Groups.Single(me => me.Name == "Artists").GroupId, Is.EqualTo(groupId.ToString()));
+            Assert.That(connectionService.LastRequestedServerUrl, Is.EqualTo("https://omnibuscloud.local"));
         });
     }
 

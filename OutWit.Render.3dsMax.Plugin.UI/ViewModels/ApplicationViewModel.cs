@@ -1,5 +1,6 @@
 using OutWit.Common.MVVM.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 
@@ -10,9 +11,15 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
     public ApplicationViewModel(MaxSceneExportService sceneExportService) : base(null!)
     {
         SceneExportService = sceneExportService;
+        BrowserLauncher = new MaxSystemBrowserLauncherShell();
+        CloudSessionService = new MaxCloudSessionService(
+            new MaxSessionStoreDpapi(),
+            BrowserLauncher,
+            () => new MaxAuthorizationCallbackListenerLoopback());
+        CloudConnectionService = new MaxCloudConnectionService(CloudSessionService);
         LaunchPreparationService = new MaxSceneLaunchPreparationService(sceneExportService);
         ConnectedRenderPreflightService = new MaxConnectedRenderPreflightService(sceneExportService);
-        ConnectedExecutionScopeService = new MaxConnectedExecutionScopeService();
+        ConnectedExecutionScopeService = new MaxConnectedExecutionScopeService(CloudSessionService, CloudConnectionService);
         ConnectedRenderSubmissionService = new MaxConnectedRenderSubmissionService(new MaxConnectedRenderSubmissionTransportLocalPlaceholder());
         ConnectedRenderService = new MaxConnectedRenderService(LaunchPreparationService, ConnectedRenderPreflightService, ConnectedRenderSubmissionService);
         ConnectedRenderPackageUploadService = new MaxConnectedRenderPackageUploadService(new MaxConnectedRenderArchiveUploaderOmnibusCloudApiKey());
@@ -33,6 +40,12 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
     public RenderLaunchViewModel RenderLaunchVm { get; }
 
     public MaxSceneExportService SceneExportService { get; }
+
+    public IMaxSystemBrowserLauncher BrowserLauncher { get; }
+
+    public IMaxCloudSessionService CloudSessionService { get; }
+
+    public IMaxCloudConnectionService CloudConnectionService { get; }
 
     public MaxSceneLaunchPreparationService LaunchPreparationService { get; }
 

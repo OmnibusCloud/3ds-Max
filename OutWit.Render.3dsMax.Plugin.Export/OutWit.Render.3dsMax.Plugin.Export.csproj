@@ -13,6 +13,11 @@
   <ItemGroup>
     <PackageReference Include="OutWit.Cloud.SDK" Version="1.1.*" />
     <PackageReference Include="OutWit.Controller.Render.Dcc.Model" Version="1.0.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OutWit.Render.3dsMax.Plugin.Export.Tests" />
   </ItemGroup>
 
   <!-- INTERIM: OutWit.Controller.Render.Dcc is a runtime controller-module package

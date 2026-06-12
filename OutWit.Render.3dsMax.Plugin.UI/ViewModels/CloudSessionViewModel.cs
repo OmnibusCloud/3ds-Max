@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using OutWit.Common.Aspects;
 using OutWit.Common.MVVM.Commands;
 using OutWit.Common.MVVM.ViewModels;
+using OutWit.Render.ThreeDsMax.Plugin.Export;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
@@ -23,13 +23,14 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
 
     private void InitDefault()
     {
-        CloudUrl = string.Empty;
-        IdentityUrl = string.Empty;
+        CloudUrl = OmnibusCloudDefaults.SERVER_URL;
+        IdentityUrl = OmnibusCloudDefaults.IDENTITY_URL;
         ApiKey = string.Empty;
         SessionStatusText = "Signed out";
         UserDisplayName = string.Empty;
         ExecutionScopeSummary = "No scope loaded";
         SignInButtonText = "Sign In";
+        IsBusy = false;
     }
 
     private void InitCommands()
@@ -46,7 +47,8 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
         {
             if (e.PropertyName == nameof(CloudUrl)
                 || e.PropertyName == nameof(IdentityUrl)
-                || e.PropertyName == nameof(SessionStatusText))
+                || e.PropertyName == nameof(IsBusy)
+                || e.PropertyName == nameof(IsSignedIn))
             {
                 UpdateStatus();
             }
@@ -58,14 +60,32 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
     #region Functions
 
     /// <summary>
-    /// Marks the UI as having started the browser-based sign-in flow.
+    /// Attempts to silently restore the persisted session when the window opens.
     /// </summary>
-    public void MarkInteractiveSignInStarted()
+    public async Task RestoreSessionAsync()
     {
-        SessionStatusText = "Browser sign-in started";
-        ExecutionScopeSummary = "Waiting for authenticated session";
-        SignInButtonText = "Continue in Browser";
-        UpdateStatus();
+        if (IsBusy)
+            return;
+
+        IsBusy = true;
+        SessionStatusText = "Restoring session";
+
+        try
+        {
+            var restored = await Task.Run(() => ApplicationVm.CloudSessionService.TryRestoreSessionAsync());
+            if (restored)
+                ApplySessionState(ApplicationVm.CloudSessionService.GetState());
+            else
+                MarkSignedOut();
+        }
+        catch (Exception ex)
+        {
+            SessionStatusText = $"Session restore failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     /// <summary>
@@ -73,6 +93,7 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
     /// </summary>
     public void MarkSignedOut()
     {
+        IsSignedIn = false;
         UserDisplayName = string.Empty;
         SessionStatusText = "Signed out";
         ExecutionScopeSummary = "No scope loaded";
@@ -85,54 +106,96 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
     /// </summary>
     public void ApplyExecutionScope(MaxConnectedExecutionScopeResult result)
     {
-        UserDisplayName = result.UserDisplayName;
-        SessionStatusText = result.SessionStatusText;
+        if (!string.IsNullOrWhiteSpace(result.UserDisplayName))
+            UserDisplayName = result.UserDisplayName;
+
+        if (!string.IsNullOrWhiteSpace(result.SessionStatusText))
+            SessionStatusText = result.SessionStatusText;
+
         ExecutionScopeSummary = result.IsSuccess
             ? $"Loaded {result.Groups.Count} groups. All clients: {result.CanRunOnAllClients}"
             : result.StatusText;
         UpdateStatus();
     }
 
-    private void SignIn()
+    private async void SignIn()
     {
-        var signInUrl = ResolveSignInUrl();
+        if (IsBusy)
+            return;
 
-        Process.Start(new ProcessStartInfo(signInUrl)
+        IsBusy = true;
+        SessionStatusText = "Browser sign-in in progress";
+        SignInButtonText = "Continue in Browser";
+
+        try
         {
-            UseShellExecute = true
-        });
-
-        MarkInteractiveSignInStarted();
+            var identityUrl = IdentityUrl;
+            var state = await Task.Run(() => ApplicationVm.CloudSessionService.SignInAsync(identityUrl));
+            ApplySessionState(state);
+        }
+        catch (Exception ex)
+        {
+            SessionStatusText = $"Sign-in failed: {ex.Message}";
+            SignInButtonText = "Sign In";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
-    private void SignOut()
+    private async void SignOut()
     {
+        if (IsBusy)
+            return;
+
+        IsBusy = true;
+
+        try
+        {
+            await Task.Run(() => ApplicationVm.CloudSessionService.SignOutAsync());
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
         MarkSignedOut();
     }
 
     private void OpenCloud()
     {
-        Process.Start(new ProcessStartInfo(CloudUrl)
-        {
-            UseShellExecute = true
-        });
+        ApplicationVm.BrowserLauncher.Open(CloudUrl);
     }
 
-    private string ResolveSignInUrl()
+    private void ApplySessionState(MaxConnectedSessionState state)
     {
-        if (!string.IsNullOrWhiteSpace(IdentityUrl))
-            return IdentityUrl;
+        IsSignedIn = state.IsSignedIn;
 
-        if (!string.IsNullOrWhiteSpace(CloudUrl))
-            return CloudUrl;
+        if (state.IsSignedIn)
+        {
+            UserDisplayName = state.DisplayName;
+            SessionStatusText = $"Signed in as {state.DisplayName}";
+            SignInButtonText = "Sign In Again";
+        }
+        else
+        {
+            UserDisplayName = string.Empty;
+            SessionStatusText = string.IsNullOrWhiteSpace(state.LastError) ? "Signed out" : state.LastError;
+            SignInButtonText = "Sign In";
+        }
 
-        throw new InvalidOperationException("Either OmnibusCloud URL or Identity URL must be provided before sign-in.");
+        UpdateStatus();
     }
+
+    #endregion
+
+    #region Tools
 
     private void UpdateStatus()
     {
-        CanSignIn = !string.IsNullOrWhiteSpace(IdentityUrl) || !string.IsNullOrWhiteSpace(CloudUrl);
-        CanSignOut = !string.IsNullOrWhiteSpace(SessionStatusText) && !SessionStatusText.Equals("Signed out", StringComparison.OrdinalIgnoreCase);
+        CanSignIn = !IsBusy && !string.IsNullOrWhiteSpace(IdentityUrl);
+        CanSignOut = !IsBusy && IsSignedIn;
         CanOpenCloud = !string.IsNullOrWhiteSpace(CloudUrl);
 
         SignInCommand?.RaiseCanExecuteChanged();
@@ -158,6 +221,12 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public string ApiKey { get; set; }
+
+    [Notify]
+    public bool IsSignedIn { get; set; }
+
+    [Notify]
+    public bool IsBusy { get; set; }
 
     [Notify]
     public string SessionStatusText { get; set; }

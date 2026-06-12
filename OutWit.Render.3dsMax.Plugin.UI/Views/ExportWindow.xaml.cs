@@ -11,6 +11,7 @@ public partial class ExportWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        Loaded += async (_, _) => await viewModel.CloudVm.RestoreSessionAsync();
     }
 
     #endregion

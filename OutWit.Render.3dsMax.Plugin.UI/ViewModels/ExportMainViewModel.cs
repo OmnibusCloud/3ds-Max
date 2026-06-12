@@ -110,16 +110,17 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus("Launch Package Ready");
     }
 
-    private void LoadExecutionScope()
+    private async void LoadExecutionScope()
     {
         UpdateStatus("Loading Execution Scope");
 
-        var result = ApplicationVm.ConnectedExecutionScopeService.Load(new MaxConnectedExecutionScopeRequest
+        var request = new MaxConnectedExecutionScopeRequest
         {
             CloudUrl = CloudVm.CloudUrl,
-            IdentityUrl = CloudVm.IdentityUrl,
-            SessionStatusText = CloudVm.SessionStatusText
-        });
+            IdentityUrl = CloudVm.IdentityUrl
+        };
+
+        var result = await Task.Run(() => ApplicationVm.ConnectedExecutionScopeService.LoadAsync(request));
 
         CloudVm.ApplyExecutionScope(result);
         LaunchVm.ApplyExecutionScope(result);

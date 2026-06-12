@@ -1,6 +1,7 @@
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Snapshots;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services.Auth;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services;
 
@@ -29,9 +30,13 @@ internal static class MaxSceneExportTestData
         return new MaxConnectedRenderPreflightService(CreateService(snapshot));
     }
 
-    public static MaxConnectedExecutionScopeService CreateConnectedExecutionScopeService()
+    public static MaxConnectedExecutionScopeService CreateConnectedExecutionScopeService(
+        FakeMaxCloudSessionService? sessionService = null,
+        FakeMaxCloudConnectionService? connectionService = null)
     {
-        return new MaxConnectedExecutionScopeService();
+        return new MaxConnectedExecutionScopeService(
+            sessionService ?? new FakeMaxCloudSessionService(),
+            connectionService ?? new FakeMaxCloudConnectionService());
     }
 
     public static MaxConnectedRenderDownloadService CreateConnectedRenderDownloadService()
