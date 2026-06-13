@@ -196,6 +196,8 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 JobParametersSnapshot.Create(scene, request.FrameStart, request.FrameEnd, options)),
             "RenderVideo" => ("RenderDccSceneVideo",
                 JobParametersSnapshot.Create(scene, request.FrameStart, request.FrameEnd, options, CreateVideoOptions(scene))),
+            "ExportBlend" => ("RenderDccSceneExportBlend",
+                JobParametersSnapshot.Create(scene)),
             _ => ("RenderDccSceneStill",
                 JobParametersSnapshot.Create(scene, request.FrameStart, options))
         };

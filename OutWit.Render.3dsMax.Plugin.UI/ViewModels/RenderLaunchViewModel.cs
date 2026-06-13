@@ -13,7 +13,8 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
         "RenderStill",
         "RenderStillTiled",
         "RenderFrames",
-        "RenderVideo"
+        "RenderVideo",
+        "ExportBlend"
     ];
 
     #endregion
