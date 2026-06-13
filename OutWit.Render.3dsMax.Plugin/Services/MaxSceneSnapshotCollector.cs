@@ -295,6 +295,8 @@ internal sealed class MaxSceneSnapshotCollector
             Name = string.IsNullOrWhiteSpace(material.Name) ? materialId : material.Name
         };
 
+        ReadMaterialAppearance(material, materialSnapshot);
+
         var bitmapTexture = FindFirstBitmapTexture(material);
 
         if (bitmapTexture is not null)
@@ -313,6 +315,31 @@ internal sealed class MaxSceneSnapshotCollector
 
         m_summary.Materials.Add(materialSnapshot);
         return materialId;
+    }
+
+    private void ReadMaterialAppearance(IMtl material, MaxSceneMaterialSnapshotData snapshot)
+    {
+        // Read the standard material parameters 3ds Max exposes on IMtl. Materials that do not
+        // support them (or throw) keep the snapshot defaults rather than failing the export.
+        try
+        {
+            var time = m_coreInterface.Time;
+
+            var diffuse = material.GetDiffuse(time, false);
+            snapshot.BaseColor = new MaxSceneColorSnapshotData { R = diffuse.R, G = diffuse.G, B = diffuse.B, A = 1d };
+
+            var transparency = material.GetXParency(time, false);
+            snapshot.Opacity = Math.Clamp(1d - transparency, 0d, 1d);
+
+            // Max glossiness (0..1, higher = sharper highlight) maps inversely to Blender roughness.
+            var shininess = material.GetShininess(time, false);
+            snapshot.Roughness = Math.Clamp(1d - shininess, 0d, 1d);
+        }
+        catch
+        {
+            // Leave the snapshot defaults in place for material types that do not expose the
+            // legacy IMtl getters (e.g. some renderer-specific shaders).
+        }
     }
 
     private static void NormalizeMaterialIndices(MaxSceneMeshSnapshotData meshSnapshot, MaxMaterialBindingMap materialBindingMap)
