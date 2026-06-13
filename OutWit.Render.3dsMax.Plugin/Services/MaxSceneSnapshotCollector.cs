@@ -191,6 +191,35 @@ internal sealed class MaxSceneSnapshotCollector
         return meshData;
     }
 
+    private static double ReadMetalness(IMtl material, int time)
+    {
+        // The legacy IMtl surface has no PBR metalness; modern materials (Physical Material) expose
+        // it as a parameter-block float named "metalness". Look it up by parameter internal name so
+        // it works regardless of the material class, clamp, and treat any non-PBR material or read
+        // failure as non-metallic.
+        try
+        {
+            for (var blockIndex = 0; blockIndex < material.NumParamBlocks; blockIndex++)
+            {
+                if (material.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is "metalness" or "metallic" or "metal")
+                        return Math.Clamp(block.GetFloat(def.Id, time, 0), 0d, 1d);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return 0d;
+    }
+
     private void ReadMaterialTextureSlots(IMtl material, MaxSceneMaterialSnapshotData materialSnapshot)
     {
         // Route each of the material's texture slots to the matching neutral slot by its slot
@@ -443,6 +472,8 @@ internal sealed class MaxSceneSnapshotCollector
             // Max glossiness (0..1, higher = sharper highlight) maps inversely to Blender roughness.
             var shininess = material.GetShininess(time, false);
             snapshot.Roughness = Math.Clamp(1d - shininess, 0d, 1d);
+
+            snapshot.Metallic = ReadMetalness(material, time);
         }
         catch
         {
