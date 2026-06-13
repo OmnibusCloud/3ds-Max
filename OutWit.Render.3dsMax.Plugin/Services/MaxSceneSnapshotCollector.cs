@@ -328,8 +328,21 @@ internal sealed class MaxSceneSnapshotCollector
             var diffuse = material.GetDiffuse(time, false);
             snapshot.BaseColor = new MaxSceneColorSnapshotData { R = diffuse.R, G = diffuse.G, B = diffuse.B, A = 1d };
 
-            var transparency = material.GetXParency(time, false);
-            snapshot.Opacity = Math.Clamp(1d - transparency, 0d, 1d);
+            // Material-level transparency in 3ds Max is refractive (glass), so map it to the
+            // neutral material's transmission rather than alpha — alpha transparency comes from
+            // opacity texture maps, handled via texture slots. Opacity stays 1 for transmissive
+            // materials so the renderer refracts instead of alpha-blending.
+            var transparency = Math.Clamp(material.GetXParency(time, false), 0d, 1d);
+            snapshot.Transmission = transparency;
+            snapshot.Opacity = 1d;
+
+            // 3ds Max glass shaders (e.g. Raytrace) keep their visible tint in a separate
+            // transparency/filter channel and leave the diffuse near-black. A black base color on
+            // a transmissive material reads as opaque black glass that absorbs all light, so when
+            // a material is meaningfully transmissive but has a near-black diffuse, treat it as
+            // clear glass (white base) rather than letting it swallow the scene.
+            if (transparency > 0.1d && Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)) < 0.05d)
+                snapshot.BaseColor = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d };
 
             // Max glossiness (0..1, higher = sharper highlight) maps inversely to Blender roughness.
             var shininess = material.GetShininess(time, false);

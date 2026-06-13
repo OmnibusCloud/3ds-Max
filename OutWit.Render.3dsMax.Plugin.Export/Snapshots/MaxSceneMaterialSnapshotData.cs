@@ -18,6 +18,10 @@ public sealed class MaxSceneMaterialSnapshotData
 
     public double NormalStrength { get; set; } = 1d;
 
+    public double Transmission { get; set; }
+
+    public double Ior { get; set; } = 1.45d;
+
     public List<MaxSceneTextureSlotSnapshotData> TextureSlots { get; set; } = [];
 
     #endregion

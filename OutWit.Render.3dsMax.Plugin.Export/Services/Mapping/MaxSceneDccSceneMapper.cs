@@ -177,6 +177,8 @@ internal static class MaxSceneDccSceneMapper
                     Metallic = me.Metallic,
                     Roughness = me.Roughness,
                     NormalStrength = me.NormalStrength,
+                    Transmission = me.Transmission,
+                    Ior = me.Ior,
                     TextureSlots =
                     [
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData
