@@ -16,6 +16,8 @@ public sealed class MaxSceneNodeSnapshotData
 
     public MaxSceneTransformSnapshotData LocalTransform { get; set; } = new();
 
+    public List<MaxSceneTransformKeyframeSnapshotData> TransformKeyframes { get; set; } = [];
+
     public string? MeshId { get; set; }
 
     public string? CameraId { get; set; }

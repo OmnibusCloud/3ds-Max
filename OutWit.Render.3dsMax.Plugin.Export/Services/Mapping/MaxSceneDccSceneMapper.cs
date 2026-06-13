@@ -93,28 +93,16 @@ internal static class MaxSceneDccSceneMapper
                     Name = me.Name,
                     ParentId = me.ParentId,
                     Kind = me.Kind,
-                    LocalTransform = new DccTransformData
-                    {
-                        Translation = new DccVector3Data
+                    LocalTransform = MapNodeTransform(me.Kind, me.LocalTransform, nonMeshTranslationScale),
+                    TransformKeyframes =
+                    [
+                        .. me.TransformKeyframes.Select(kf => new DccTransformKeyframeData
                         {
-                            X = ResolveNodeTranslationX(me, nonMeshTranslationScale),
-                            Y = ResolveNodeTranslationY(me, nonMeshTranslationScale),
-                            Z = ResolveNodeTranslationZ(me, nonMeshTranslationScale)
-                        },
-                        Rotation = new DccQuaternionData
-                        {
-                            X = me.LocalTransform.Rotation.X,
-                            Y = me.LocalTransform.Rotation.Y,
-                            Z = me.LocalTransform.Rotation.Z,
-                            W = me.LocalTransform.Rotation.W
-                        },
-                        Scale = new DccVector3Data
-                        {
-                            X = ResolveNodeScaleX(me),
-                            Y = ResolveNodeScaleY(me),
-                            Z = ResolveNodeScaleZ(me)
-                        }
-                    },
+                            Frame = kf.Frame,
+                            Transform = MapNodeTransform(me.Kind, kf.Transform, nonMeshTranslationScale),
+                            InterpolationMode = DccKeyframeInterpolationMode.Linear
+                        })
+                    ],
                     MeshId = me.MeshId,
                     CameraId = me.CameraId,
                     LightId = me.LightId,
@@ -223,25 +211,35 @@ internal static class MaxSceneDccSceneMapper
         return Math.Min(DEFAULT_CAMERA_NEAR_CLIP, Math.Max(farClip * 0.5d, 0.001d));
     }
 
-    private static double ResolveNodeTranslationX(MaxSceneNodeSnapshotData node, double nonMeshTranslationScale)
+    private static DccTransformData MapNodeTransform(DccNodeKind kind, MaxSceneTransformSnapshotData transform, double nonMeshTranslationScale)
     {
-        return node.Kind == DccNodeKind.Mesh
-            ? node.LocalTransform.Translation.X
-            : node.LocalTransform.Translation.X * nonMeshTranslationScale;
-    }
-
-    private static double ResolveNodeTranslationY(MaxSceneNodeSnapshotData node, double nonMeshTranslationScale)
-    {
-        return node.Kind == DccNodeKind.Mesh
-            ? node.LocalTransform.Translation.Y
-            : node.LocalTransform.Translation.Y * nonMeshTranslationScale;
-    }
-
-    private static double ResolveNodeTranslationZ(MaxSceneNodeSnapshotData node, double nonMeshTranslationScale)
-    {
-        return node.Kind == DccNodeKind.Mesh
-            ? node.LocalTransform.Translation.Z
-            : node.LocalTransform.Translation.Z * nonMeshTranslationScale;
+        // Mesh nodes keep their raw translation and a forced unit scale (the mesh vertices already
+        // carry their world extent); non-mesh nodes (camera/light) get the import scale applied to
+        // their translation and keep their own scale. Shared by the static transform and every
+        // animation keyframe so they stay consistent.
+        var isMesh = kind == DccNodeKind.Mesh;
+        return new DccTransformData
+        {
+            Translation = new DccVector3Data
+            {
+                X = isMesh ? transform.Translation.X : transform.Translation.X * nonMeshTranslationScale,
+                Y = isMesh ? transform.Translation.Y : transform.Translation.Y * nonMeshTranslationScale,
+                Z = isMesh ? transform.Translation.Z : transform.Translation.Z * nonMeshTranslationScale
+            },
+            Rotation = new DccQuaternionData
+            {
+                X = transform.Rotation.X,
+                Y = transform.Rotation.Y,
+                Z = transform.Rotation.Z,
+                W = transform.Rotation.W
+            },
+            Scale = new DccVector3Data
+            {
+                X = isMesh ? 1d : transform.Scale.X,
+                Y = isMesh ? 1d : transform.Scale.Y,
+                Z = isMesh ? 1d : transform.Scale.Z
+            }
+        };
     }
 
     private static double ResolveNonMeshTranslationScale(MaxSceneSummaryData summary)
@@ -330,21 +328,6 @@ internal static class MaxSceneDccSceneMapper
         var dy = y - target.Y;
         var dz = z - target.Z;
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    private static double ResolveNodeScaleX(MaxSceneNodeSnapshotData node)
-    {
-        return node.Kind == DccNodeKind.Mesh ? 1d : node.LocalTransform.Scale.X;
-    }
-
-    private static double ResolveNodeScaleY(MaxSceneNodeSnapshotData node)
-    {
-        return node.Kind == DccNodeKind.Mesh ? 1d : node.LocalTransform.Scale.Y;
-    }
-
-    private static double ResolveNodeScaleZ(MaxSceneNodeSnapshotData node)
-    {
-        return node.Kind == DccNodeKind.Mesh ? 1d : node.LocalTransform.Scale.Z;
     }
 
     #endregion

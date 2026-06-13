@@ -72,6 +72,7 @@ internal sealed class MaxSceneSnapshotCollector
             var nodeId = $"node:{childNode.Handle}";
             var parentId = rootNode.IsRootNode ? null : $"node:{rootNode.Handle}";
             var localTransform = ExtractLocalTransform(childNode, rootNode);
+            var transformKeyframes = SampleTransformKeyframes(childNode, rootNode);
 
             if (sceneObject is ICameraObject cameraObject)
             {
@@ -85,6 +86,7 @@ internal sealed class MaxSceneSnapshotCollector
                     ParentId = parentId,
                     Kind = DccNodeKind.Camera,
                     LocalTransform = localTransform,
+                    TransformKeyframes = transformKeyframes,
                     CameraId = cameraId,
                     Visible = !childNode.IsNodeHidden(false),
                     Renderable = childNode.Renderable
@@ -104,6 +106,7 @@ internal sealed class MaxSceneSnapshotCollector
                     ParentId = parentId,
                     Kind = DccNodeKind.Light,
                     LocalTransform = localTransform,
+                    TransformKeyframes = transformKeyframes,
                     LightId = lightId,
                     Visible = !childNode.IsNodeHidden(false),
                     Renderable = childNode.Renderable
@@ -130,6 +133,7 @@ internal sealed class MaxSceneSnapshotCollector
                     ParentId = parentId,
                     Kind = DccNodeKind.Mesh,
                     LocalTransform = localTransform,
+                    TransformKeyframes = transformKeyframes,
                     MeshId = meshId,
                     MaterialBindingId = materialBindingId,
                     Visible = !childNode.IsNodeHidden(false),
@@ -571,14 +575,19 @@ internal sealed class MaxSceneSnapshotCollector
 
     private MaxSceneTransformSnapshotData ExtractLocalTransform(IINode node, IINode parentNode)
     {
+        return ExtractLocalTransformAtTime(node, parentNode, m_coreInterface.Time);
+    }
+
+    private MaxSceneTransformSnapshotData ExtractLocalTransformAtTime(IINode node, IINode parentNode, int time)
+    {
         try
         {
-            var nodeTm = node.GetNodeTM(m_coreInterface.Time, m_global.Interval.Create());
+            var nodeTm = node.GetNodeTM(time, m_global.Interval.Create());
             var localTm = nodeTm;
 
             if (!parentNode.IsRootNode)
             {
-                var parentTm = parentNode.GetNodeTM(m_coreInterface.Time, m_global.Interval.Create());
+                var parentTm = parentNode.GetNodeTM(time, m_global.Interval.Create());
                 var inverseParentTm = m_global.Matrix3.Create();
                 m_global.Inverse(parentTm, inverseParentTm);
                 var resultTm = m_global.Matrix3.Create();
@@ -592,6 +601,68 @@ internal sealed class MaxSceneSnapshotCollector
         {
             return new MaxSceneTransformSnapshotData();
         }
+    }
+
+    private List<MaxSceneTransformKeyframeSnapshotData> SampleTransformKeyframes(IINode node, IINode parentNode)
+    {
+        var keyframes = new List<MaxSceneTransformKeyframeSnapshotData>();
+
+        var frameStart = m_summary.FrameStart;
+        var frameEnd = m_summary.FrameEnd;
+        if (frameEnd <= frameStart)
+            return keyframes;
+
+        var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
+
+        var samples = new List<MaxSceneTransformKeyframeSnapshotData>();
+        for (var frame = frameStart; frame <= frameEnd; frame++)
+        {
+            samples.Add(new MaxSceneTransformKeyframeSnapshotData
+            {
+                Frame = frame,
+                Transform = ExtractLocalTransformAtTime(node, parentNode, frame * ticksPerFrame)
+            });
+        }
+
+        // Only emit keyframes when the node actually moves over the range; a static node keeps just
+        // its single LocalTransform and produces no animation.
+        if (!IsTransformAnimated(samples))
+            return keyframes;
+
+        return samples;
+    }
+
+    private static bool IsTransformAnimated(List<MaxSceneTransformKeyframeSnapshotData> samples)
+    {
+        if (samples.Count < 2)
+            return false;
+
+        var first = samples[0].Transform;
+        for (var i = 1; i < samples.Count; i++)
+        {
+            var t = samples[i].Transform;
+            if (!IsClose(t.Translation, first.Translation)
+                || !IsClose(t.Scale, first.Scale)
+                || !IsClose(t.Rotation, first.Rotation))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsClose(MaxSceneVector3SnapshotData a, MaxSceneVector3SnapshotData b)
+    {
+        const double epsilon = 1e-4;
+        return Math.Abs(a.X - b.X) < epsilon && Math.Abs(a.Y - b.Y) < epsilon && Math.Abs(a.Z - b.Z) < epsilon;
+    }
+
+    private static bool IsClose(MaxSceneQuaternionSnapshotData a, MaxSceneQuaternionSnapshotData b)
+    {
+        const double epsilon = 1e-4;
+        return Math.Abs(a.X - b.X) < epsilon && Math.Abs(a.Y - b.Y) < epsilon
+            && Math.Abs(a.Z - b.Z) < epsilon && Math.Abs(a.W - b.W) < epsilon;
     }
 
     private MaxSceneTransformSnapshotData ConvertMatrixToTransform(IMatrix3 matrix)

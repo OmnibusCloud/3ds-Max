@@ -1349,6 +1349,48 @@ public sealed class MaxSceneExportServiceTests
         Assert.That(result.Scene!.Lights.Single().Range, Is.EqualTo(0.01d));
     }
 
+    [Test]
+    public void ValidateCurrentSceneMapsTransformKeyframesWithNodeScaleRulesTest()
+    {
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        var meshNode = snapshot.Nodes.Single(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccNodeKind.Mesh);
+        meshNode.TransformKeyframes =
+        [
+            new MaxSceneTransformKeyframeSnapshotData
+            {
+                Frame = 1,
+                Transform = new MaxSceneTransformSnapshotData
+                {
+                    Translation = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 0d },
+                    Rotation = new MaxSceneQuaternionSnapshotData { W = 1d },
+                    Scale = new MaxSceneVector3SnapshotData { X = 2d, Y = 2d, Z = 2d }
+                }
+            },
+            new MaxSceneTransformKeyframeSnapshotData
+            {
+                Frame = 10,
+                Transform = new MaxSceneTransformSnapshotData
+                {
+                    Translation = new MaxSceneVector3SnapshotData { X = 5d, Y = 0d, Z = 0d },
+                    Rotation = new MaxSceneQuaternionSnapshotData { W = 1d },
+                    Scale = new MaxSceneVector3SnapshotData { X = 2d, Y = 2d, Z = 2d }
+                }
+            }
+        ];
+
+        var result = MaxSceneExportTestData.CreateService(snapshot).ValidateCurrentScene();
+
+        var mappedMesh = result.Scene!.Nodes.Single(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccNodeKind.Mesh);
+        Assert.Multiple(() =>
+        {
+            Assert.That(mappedMesh.TransformKeyframes, Has.Count.EqualTo(2));
+            Assert.That(mappedMesh.TransformKeyframes[1].Frame, Is.EqualTo(10));
+            Assert.That(mappedMesh.TransformKeyframes[1].Transform.Translation.X, Is.EqualTo(5d).Within(1e-9));
+            // Mesh node scale is forced to 1 — applied to keyframes too, not just the static transform.
+            Assert.That(mappedMesh.TransformKeyframes[0].Transform.Scale.X, Is.EqualTo(1d).Within(1e-9));
+        });
+    }
+
     private static void SetLightPosition(MaxSceneSnapshotData snapshot, double x, double y, double z)
     {
         var lightNode = snapshot.Nodes.Single(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccNodeKind.Light);
