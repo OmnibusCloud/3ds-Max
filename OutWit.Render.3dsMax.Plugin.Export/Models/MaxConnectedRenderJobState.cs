@@ -11,6 +11,12 @@ public sealed class MaxConnectedRenderJobState
 
     public string CloudUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The output mode the job was submitted with (e.g. RenderStill, RenderVideo, ExportBlend).
+    /// Determines the result file extension when the result blob is downloaded.
+    /// </summary>
+    public string RenderMode { get; set; } = string.Empty;
+
     public string StatusText { get; set; } = string.Empty;
 
     public double ProgressPercent { get; set; }

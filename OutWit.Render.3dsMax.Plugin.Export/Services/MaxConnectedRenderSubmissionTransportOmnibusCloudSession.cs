@@ -103,6 +103,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             {
                 JobId = handle.JobId.ToString("D"),
                 CloudUrl = request.CloudUrl,
+                RenderMode = request.RenderMode,
                 StatusText = $"Submitted to OmnibusCloud as job '{handle.JobId}'.",
                 ProgressPercent = 5d,
                 IsCompleted = false,
@@ -160,14 +161,22 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 ? $"OmnibusCloud job status: {info.Status}."
                 : $"OmnibusCloud job status: {info.Status}. {info.ErrorMessage}";
 
-            if (jobState.IsCompleted && jobState.ResultBlobId == null)
+            if (jobState.IsCompleted)
             {
-                var resultBlobId = await client.Jobs.GetResultAsync<Guid>(jobId, ct: cancellationToken);
-                if (resultBlobId != Guid.Empty)
+                if (jobState.ResultBlobId == null)
                 {
-                    jobState.ResultBlobId = resultBlobId;
-                    jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with result blob '{resultBlobId}'."));
+                    var resultBlobId = await client.Jobs.GetResultAsync<Guid>(jobId, ct: cancellationToken);
+                    if (resultBlobId != Guid.Empty)
+                    {
+                        jobState.ResultBlobId = resultBlobId;
+                        jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with result blob '{resultBlobId}'."));
+                    }
                 }
+
+                // Fetch the result blob to a local file so 'Download Result' copies the real cloud
+                // output (the .blend for ExportBlend, the image/video for renders) instead of the
+                // local launch-package placeholder. Idempotent + retried on later refreshes.
+                await TryDownloadResultBlobAsync(client, jobState, cancellationToken);
             }
 
             return jobState;
@@ -285,6 +294,51 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         File.WriteAllText(receiptPath, JsonSerializer.Serialize(receipt, new JsonSerializerOptions { WriteIndented = true }));
         return receiptPath;
     }
+
+    private static async Task TryDownloadResultBlobAsync(
+        IWitCloudClient client,
+        MaxConnectedRenderJobState jobState,
+        CancellationToken cancellationToken)
+    {
+        if (jobState.ResultBlobId is not Guid blobId || blobId == Guid.Empty)
+            return;
+
+        try
+        {
+            var resultPath = BuildResultPath(jobState, blobId);
+
+            // Idempotent across refreshes: if already downloaded, just point at it.
+            if (File.Exists(resultPath))
+            {
+                jobState.PrimaryArtifactPath = resultPath;
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(resultPath)!);
+            await client.Blobs.DownloadBlobToFileAsync(blobId, resultPath, ct: cancellationToken);
+            jobState.PrimaryArtifactPath = resultPath;
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Downloaded job result to '{resultPath}'."));
+        }
+        catch (Exception ex)
+        {
+            // Leave PrimaryArtifactPath as-is; the next refresh retries the download.
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, $"Result download failed (will retry on next refresh): {ex.Message}"));
+        }
+    }
+
+    private static string BuildResultPath(MaxConnectedRenderJobState jobState, Guid blobId)
+    {
+        var extension = ResolveResultExtension(jobState.RenderMode);
+        var jobFolder = string.IsNullOrWhiteSpace(jobState.JobId) ? blobId.ToString("N") : jobState.JobId.Replace('-', '_');
+        return Path.Combine(Path.GetTempPath(), "OmnibusCloudResults", jobFolder, $"result{extension}");
+    }
+
+    private static string ResolveResultExtension(string renderMode) => renderMode switch
+    {
+        "ExportBlend" => ".blend",
+        "RenderVideo" => ".mp4",
+        _ => ".png"
+    };
 
     private static MaxConnectedRenderJobState CreateFailedState(
         MaxSceneLaunchPackageResult package,
