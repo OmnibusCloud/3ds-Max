@@ -81,7 +81,7 @@ internal static class MaxSceneDccSceneMapper
                 ResolutionY = summary.RenderHeight,
                 FrameStart = summary.FrameStart,
                 FrameEnd = summary.FrameEnd,
-                Fps = 24,
+                Fps = summary.FrameRate > 0 ? summary.FrameRate : 30,
                 Samples = 64,
                 TargetEngine = RenderEngine.Cycles
             },

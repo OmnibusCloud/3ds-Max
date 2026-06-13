@@ -1117,6 +1117,7 @@ public sealed class MaxSceneExportServiceTests
         snapshot.SourceApplicationVersion = string.Empty;
         snapshot.FrameStart = 4;
         snapshot.FrameEnd = 12;
+        snapshot.FrameRate = 25;
         snapshot.RenderWidth = 2048;
         snapshot.RenderHeight = 858;
 
@@ -1140,7 +1141,7 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Scene.RenderSettings.ResolutionY, Is.EqualTo(858));
             Assert.That(result.Scene.RenderSettings.FrameStart, Is.EqualTo(4));
             Assert.That(result.Scene.RenderSettings.FrameEnd, Is.EqualTo(12));
-            Assert.That(result.Scene.RenderSettings.Fps, Is.EqualTo(24));
+            Assert.That(result.Scene.RenderSettings.Fps, Is.EqualTo(25));
             Assert.That(result.Scene.RenderSettings.Samples, Is.EqualTo(64));
             Assert.That(result.Scene.RenderSettings.TargetEngine, Is.EqualTo(OutWit.Controller.Render.Model.RenderEngine.Cycles));
         });

@@ -86,8 +86,8 @@ internal sealed class MaxSceneSnapshotCollector
                     Kind = DccNodeKind.Camera,
                     LocalTransform = localTransform,
                     CameraId = cameraId,
-                    Visible = true,
-                    Renderable = true
+                    Visible = !childNode.IsNodeHidden(false),
+                    Renderable = childNode.Renderable
                 });
                 m_summary.Cameras.Add(ExtractCamera(childNode, cameraObject, cameraId));
             }
@@ -105,8 +105,8 @@ internal sealed class MaxSceneSnapshotCollector
                     Kind = DccNodeKind.Light,
                     LocalTransform = localTransform,
                     LightId = lightId,
-                    Visible = true,
-                    Renderable = true
+                    Visible = !childNode.IsNodeHidden(false),
+                    Renderable = childNode.Renderable
                 });
                 m_summary.Lights.Add(ExtractLight(childNode, lightObject, lightId));
             }
@@ -132,8 +132,8 @@ internal sealed class MaxSceneSnapshotCollector
                     LocalTransform = localTransform,
                     MeshId = meshId,
                     MaterialBindingId = materialBindingId,
-                    Visible = true,
-                    Renderable = true
+                    Visible = !childNode.IsNodeHidden(false),
+                    Renderable = childNode.Renderable
                 });
                 m_summary.Meshes.Add(meshSnapshot);
             }

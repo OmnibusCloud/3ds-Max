@@ -38,6 +38,7 @@ public sealed class MaxSceneSummaryService
         var frameEnd = snapshot.FrameEnd < frameStart ? frameStart : snapshot.FrameEnd;
         var renderWidth = snapshot.RenderWidth <= 0 ? 1920 : snapshot.RenderWidth;
         var renderHeight = snapshot.RenderHeight <= 0 ? 1080 : snapshot.RenderHeight;
+        var frameRate = snapshot.FrameRate <= 0 ? 30 : snapshot.FrameRate;
 
         var summary = new MaxSceneSummaryData
         {
@@ -70,6 +71,7 @@ public sealed class MaxSceneSummaryService
             AnimatedChannelsCount = snapshot.AnimatedChannelsCount,
             FrameStart = frameStart,
             FrameEnd = frameEnd,
+            FrameRate = frameRate,
             RenderWidth = renderWidth,
             RenderHeight = renderHeight
         };

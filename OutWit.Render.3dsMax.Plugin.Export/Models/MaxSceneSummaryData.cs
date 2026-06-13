@@ -68,6 +68,8 @@ public sealed class MaxSceneSummaryData
 
     public int FrameEnd { get; set; } = 1;
 
+    public int FrameRate { get; set; } = 30;
+
     public int RenderWidth { get; set; } = 1920;
 
     public int RenderHeight { get; set; } = 1080;

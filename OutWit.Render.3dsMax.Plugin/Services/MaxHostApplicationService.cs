@@ -32,6 +32,7 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
             SourceApplicationVersion = "2027",
             FrameStart = ResolveFrameStart(coreInterface),
             FrameEnd = ResolveFrameEnd(coreInterface),
+            FrameRate = ResolveFrameRate(global),
             RenderWidth = coreInterface.RendWidth,
             RenderHeight = coreInterface.RendHeight,
             ActiveRenderCameraName = ResolveActiveRenderCameraName(renderCameraNode, activeView),
@@ -58,6 +59,24 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
     private static int ResolveFrameStart(IInterface coreInterface)
     {
         return ResolveFrameBoundary(coreInterface, "Start", 1);
+    }
+
+    private static int ResolveFrameRate(IGlobal global)
+    {
+        // Max's frame rate is the global GetFrameRate(); the typed managed surface does not expose
+        // it, so resolve it reflectively (the same pattern this service uses for other gaps) and
+        // fall back to 30 — Max's default — never Blender's 24, which would mistime video output.
+        try
+        {
+            var frameRate = global.GetType().GetMethod("GetFrameRate", BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes)?.Invoke(global, null);
+            if (frameRate is int value && value > 0)
+                return value;
+        }
+        catch
+        {
+        }
+
+        return 30;
     }
 
     private static int ResolveFrameEnd(IInterface coreInterface)
