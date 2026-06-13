@@ -4,9 +4,11 @@ name: plugin
 # Release. Triggered by a `plugin-v*` tag; can also be run manually (produces a 0.0.0-dev artifact
 # without a release).
 #
-# The build needs no 3ds Max install: Autodesk.Max.dll is vendored at
-# OutWit.Render.3dsMax.Plugin/Libs/ as a compile-time reference, so a clean windows-latest runner
-# builds the x64 / net10.0-windows plugin.
+# The build needs no 3ds Max install, but it DOES need the Autodesk.Max managed SDK assembly, which
+# is proprietary and not committed to this public repo (.gitignore'd). Set the repo secret
+# MAX_SDK_DLL_URL to a private direct-download of Autodesk.Max.dll (e.g. a pre-signed Azure/S3 blob
+# URL or a private release asset); the workflow fetches it into Libs/ before building. The matching
+# .deps.json / .xml metadata are committed, so only the DLL is fetched.
 #
 # SIGNING is optional and gated on a configured certificate (see Build-...Package.ps1 /
 # Invoke-OptionalSigning): set repo secrets WINDOWS_CERT_PFX_BASE64 (+ WINDOWS_CERT_PASSWORD) to
@@ -32,6 +34,27 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      # Autodesk.Max.dll is proprietary and not committed (public repo). Fetch it into Libs/ from a
+      # private URL the operator configures. The csproj references it via Exists(Libs/...), so the
+      # plugin project can only compile once it is present.
+      - name: Restore 3ds Max managed SDK
+        shell: pwsh
+        env:
+          MAX_SDK_DLL_URL: ${{ secrets.MAX_SDK_DLL_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MAX_SDK_DLL_URL)) {
+            Write-Host "::error::MAX_SDK_DLL_URL secret is not set. The plugin build needs Autodesk.Max.dll (proprietary, not committed to this public repo). Host it privately (pre-signed Azure/S3 blob URL or a private release asset) and set the MAX_SDK_DLL_URL repository secret to a direct download of Autodesk.Max.dll."
+            exit 1
+          }
+          $dest = "OutWit.Render.3dsMax.Plugin/Libs/Autodesk.Max.dll"
+          Invoke-WebRequest -Uri $env:MAX_SDK_DLL_URL -OutFile $dest -MaximumRedirection 5
+          $size = (Get-Item $dest).Length
+          if ($size -lt 100000) {
+            Write-Host "::error::Downloaded Autodesk.Max.dll is only $size bytes - the URL did not return the DLL."
+            exit 1
+          }
+          Write-Host "Restored Autodesk.Max.dll ($size bytes)."
 
       - name: Resolve version
         id: ver
