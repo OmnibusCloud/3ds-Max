@@ -191,6 +191,83 @@ internal sealed class MaxSceneSnapshotCollector
         return meshData;
     }
 
+    private void ReadMaterialTextureSlots(IMtl material, MaxSceneMaterialSnapshotData materialSnapshot)
+    {
+        // Route each of the material's texture slots to the matching neutral slot by its slot
+        // name, so PBR maps (normal/roughness/metalness/opacity) survive — not just the base
+        // colour. Slot-name matching is renderer-agnostic (Standard, Physical, and most third-party
+        // shaders all name their slots descriptively).
+        var assignedSlots = new HashSet<DccTextureSlotKind>();
+
+        for (var i = 0; i < material.NumSubTexmaps; i++)
+        {
+            var slotKind = ClassifyTextureSlot(material.GetSubTexmapSlotName(i, false));
+            if (slotKind is null || assignedSlots.Contains(slotKind.Value))
+                continue;
+
+            var texmap = material.GetSubTexmap(i);
+            var bitmap = texmap as IBitmapTex
+                         ?? (texmap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
+
+            if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
+                continue;
+
+            var imageAssetId = GetOrCreateImageAsset(bitmap);
+            if (string.IsNullOrWhiteSpace(imageAssetId))
+                continue;
+
+            materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
+            {
+                Slot = slotKind.Value,
+                ImageAssetId = imageAssetId
+            });
+            assignedSlots.Add(slotKind.Value);
+        }
+
+        // Fallback: a material with a bitmap but no recognised slot name still gets its base colour.
+        if (!assignedSlots.Contains(DccTextureSlotKind.BaseColor))
+        {
+            var fallbackBitmap = FindFirstBitmapTexture(material);
+            if (fallbackBitmap is not null && !string.IsNullOrWhiteSpace(fallbackBitmap.MapName))
+            {
+                var imageAssetId = GetOrCreateImageAsset(fallbackBitmap);
+                if (!string.IsNullOrWhiteSpace(imageAssetId))
+                {
+                    materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
+                    {
+                        Slot = DccTextureSlotKind.BaseColor,
+                        ImageAssetId = imageAssetId
+                    });
+                }
+            }
+        }
+    }
+
+    private static DccTextureSlotKind? ClassifyTextureSlot(string? slotName)
+    {
+        if (string.IsNullOrWhiteSpace(slotName))
+            return null;
+
+        var name = slotName.ToLowerInvariant();
+
+        if (name.Contains("base color") || name.Contains("base colour") || name.Contains("diffuse") || name.Contains("albedo"))
+            return DccTextureSlotKind.BaseColor;
+
+        if (name.Contains("normal") || name.Contains("bump"))
+            return DccTextureSlotKind.Normal;
+
+        if (name.Contains("roughness"))
+            return DccTextureSlotKind.Roughness;
+
+        if (name.Contains("metal"))
+            return DccTextureSlotKind.Metallic;
+
+        if (name.Contains("opacity") || name.Contains("transparency") || name.Contains("cutout"))
+            return DccTextureSlotKind.Opacity;
+
+        return null;
+    }
+
     private static IPoint3 ResolveVertexNormal(IMesh mesh, IFace face, int vertexIndex, IPoint3 faceNormal)
     {
         // 3ds Max stores per-vertex render normals split by smoothing group. A face with no
@@ -330,22 +407,7 @@ internal sealed class MaxSceneSnapshotCollector
         };
 
         ReadMaterialAppearance(material, materialSnapshot);
-
-        var bitmapTexture = FindFirstBitmapTexture(material);
-
-        if (bitmapTexture is not null)
-        {
-            var imageAssetId = GetOrCreateImageAsset(bitmapTexture);
-
-            if (!string.IsNullOrWhiteSpace(imageAssetId))
-            {
-                materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
-                {
-                    Slot = DccTextureSlotKind.BaseColor,
-                    ImageAssetId = imageAssetId
-                });
-            }
-        }
+        ReadMaterialTextureSlots(material, materialSnapshot);
 
         m_summary.Materials.Add(materialSnapshot);
         return materialId;
