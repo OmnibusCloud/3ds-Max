@@ -5,25 +5,26 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="OutWit Export"
-        Width="1080"
-        Height="720"
-        MinWidth="920"
-        MinHeight="600"
+        Width="900"
+        Height="680"
+        MinWidth="720"
+        MinHeight="520"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="16">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- Header -->
         <Border Grid.Row="0"
                 Padding="12"
                 Background="#FF1F2430"
                 CornerRadius="8">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock FontSize="22"
+                    <TextBlock FontSize="20"
                                FontWeight="SemiBold"
                                Foreground="White"
                                Text="OutWit Export" />
@@ -43,223 +44,249 @@
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1" Margin="0,16,0,16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="360" />
-                <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- Tabbed body -->
+        <TabControl Grid.Row="1" Margin="0,12,0,12">
 
-            <StackPanel Grid.Column="0">
-                <GroupBox Header="OmnibusCloud" Margin="0,0,0,12">
-                    <StackPanel Margin="8">
-                        <TextBlock Text="Cloud URL" />
-                        <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.CloudUrl, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="Identity URL" />
-                        <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.IdentityUrl, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="API Key (fallback)" />
-                        <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.ApiKey, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="Session" />
-                        <TextBlock Margin="0,4,0,4" FontWeight="SemiBold" Text="{Binding CloudVm.SessionStatusText}" />
-                        <TextBlock Text="User" />
-                        <TextBlock Margin="0,4,0,4" Text="{Binding CloudVm.UserDisplayName}" TextWrapping="Wrap" />
-                        <TextBlock Text="Scope" />
-                        <TextBlock Margin="0,4,0,8" Text="{Binding CloudVm.ExecutionScopeSummary}" TextWrapping="Wrap" />
-                        <UniformGrid Columns="4">
-                            <Button Margin="0,0,8,0" Command="{Binding CloudVm.SignInCommand}" Content="{Binding CloudVm.SignInButtonText}" />
-                            <Button Margin="0,0,8,0" Command="{Binding LoadExecutionScopeCommand}" Content="Load Scope" />
-                            <Button Margin="0,0,8,0" Command="{Binding CloudVm.SignOutCommand}" Content="Sign Out" />
-                            <Button Command="{Binding CloudVm.OpenCloudCommand}" Content="Open Cloud" />
-                        </UniformGrid>
+            <!-- 1. Connection -->
+            <TabItem Header="Connection">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="12" MaxWidth="560" HorizontalAlignment="Left">
+                        <GroupBox Header="OmnibusCloud">
+                            <StackPanel Margin="8">
+                                <TextBlock Text="Cloud URL" />
+                                <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.CloudUrl, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Text="Identity URL" />
+                                <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.IdentityUrl, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Text="API Key (fallback)" />
+                                <TextBox Margin="0,4,0,8" Text="{Binding CloudVm.ApiKey, UpdateSourceTrigger=PropertyChanged}" />
+                                <UniformGrid Columns="4" Margin="0,4,0,8">
+                                    <Button Margin="0,0,8,0" Command="{Binding CloudVm.SignInCommand}" Content="{Binding CloudVm.SignInButtonText}" />
+                                    <Button Margin="0,0,8,0" Command="{Binding LoadExecutionScopeCommand}" Content="Load Scope" />
+                                    <Button Margin="0,0,8,0" Command="{Binding CloudVm.SignOutCommand}" Content="Sign Out" />
+                                    <Button Command="{Binding CloudVm.OpenCloudCommand}" Content="Open Cloud" />
+                                </UniformGrid>
+                                <TextBlock Text="Session" />
+                                <TextBlock Margin="0,4,0,8" FontWeight="SemiBold" Text="{Binding CloudVm.SessionStatusText}" TextWrapping="Wrap" />
+                                <TextBlock Text="User" />
+                                <TextBlock Margin="0,4,0,8" Text="{Binding CloudVm.UserDisplayName}" TextWrapping="Wrap" />
+                                <TextBlock Text="Scope" />
+                                <TextBlock Margin="0,4,0,0" Text="{Binding CloudVm.ExecutionScopeSummary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Execution Target" Margin="0,12,0,0">
+                            <StackPanel Margin="8">
+                                <TextBlock Text="Execution scope" />
+                                <TextBlock Margin="0,4,0,8" Text="{Binding LaunchVm.ExecutionScopeSummary}" TextWrapping="Wrap" />
+                                <CheckBox Content="Run on all clients" IsChecked="{Binding LaunchVm.UseAllClients}" IsEnabled="{Binding LaunchVm.CanRunOnAllClientsOption}" />
+                                <TextBlock Margin="0,8,0,0" Text="Selected group" />
+                                <ComboBox Margin="0,4,0,0" IsEditable="True" ItemsSource="{Binding LaunchVm.AvailableGroupNames}" SelectedItem="{Binding LaunchVm.SelectedGroupName, UpdateSourceTrigger=PropertyChanged}" Text="{Binding LaunchVm.SelectedGroupName, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </GroupBox>
                     </StackPanel>
-                </GroupBox>
+                </ScrollViewer>
+            </TabItem>
 
-                <GroupBox Header="Scene Summary" Margin="0,0,0,12">
-                    <UniformGrid Columns="2" Margin="8">
-                        <TextBlock Text="Source" />
-                        <TextBlock Text="{Binding SummaryVm.SourceApplicationLabel}" />
-                        <TextBlock Text="File" />
-                        <TextBlock Text="{Binding SummaryVm.SceneFilePath}" TextWrapping="Wrap" />
-                        <TextBlock Text="Nodes" />
-                        <TextBlock Text="{Binding SummaryVm.NodesCount}" />
-                        <TextBlock Text="Meshes" />
-                        <TextBlock Text="{Binding SummaryVm.MeshesCount}" />
-                        <TextBlock Text="Materials" />
-                        <TextBlock Text="{Binding SummaryVm.MaterialsCount}" />
-                        <TextBlock Text="Textures" />
-                        <TextBlock Text="{Binding SummaryVm.TexturesCount}" />
-                        <TextBlock Text="Cameras" />
-                        <TextBlock Text="{Binding SummaryVm.CamerasCount}" />
-                        <TextBlock Text="Lights" />
-                        <TextBlock Text="{Binding SummaryVm.LightsCount}" />
-                        <TextBlock Text="Animated" />
-                        <TextBlock Text="{Binding SummaryVm.AnimatedChannelsCount}" />
-                        <TextBlock Text="Frames" />
-                        <TextBlock Text="{Binding SummaryVm.FrameRangeText}" />
-                        <TextBlock Text="Resolution" />
-                        <TextBlock Text="{Binding SummaryVm.RenderResolutionText}" />
-                        <TextBlock Text="Render Camera" />
-                        <TextBlock Text="{Binding SummaryVm.ActiveRenderCameraName}" />
-                    </UniformGrid>
-                </GroupBox>
+            <!-- 2. Scene -->
+            <TabItem Header="Scene">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
 
-                <GroupBox Header="Render Launch" Margin="0,0,0,12">
-                    <StackPanel Margin="8">
-                        <TextBlock Text="Render mode" />
-                        <ComboBox Margin="0,4,0,8" ItemsSource="{Binding LaunchVm.RenderModeOptions}" SelectedItem="{Binding LaunchVm.SelectedRenderMode}" />
-                        <TextBlock Text="Execution scope" />
-                        <TextBlock Margin="0,4,0,4" Text="{Binding LaunchVm.ExecutionScopeSummary}" TextWrapping="Wrap" />
-                        <CheckBox Content="Run on all clients" IsChecked="{Binding LaunchVm.UseAllClients}" IsEnabled="{Binding LaunchVm.CanRunOnAllClientsOption}" />
-                        <TextBlock Margin="0,8,0,0" Text="Selected group" />
-                        <ComboBox Margin="0,4,0,8" IsEditable="True" ItemsSource="{Binding LaunchVm.AvailableGroupNames}" SelectedItem="{Binding LaunchVm.SelectedGroupName, UpdateSourceTrigger=PropertyChanged}" Text="{Binding LaunchVm.SelectedGroupName, UpdateSourceTrigger=PropertyChanged}" />
-                        <UniformGrid Columns="2">
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="Resolution X" />
-                                <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.ResolutionX}" />
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="Resolution Y" />
-                                <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.ResolutionY}" />
-                            </StackPanel>
+                    <GroupBox Grid.Row="0" Header="Scene Summary">
+                        <UniformGrid Columns="4" Margin="8">
+                            <TextBlock Text="Source" />
+                            <TextBlock Text="{Binding SummaryVm.SourceApplicationLabel}" TextWrapping="Wrap" />
+                            <TextBlock Text="Render Camera" />
+                            <TextBlock Text="{Binding SummaryVm.ActiveRenderCameraName}" TextWrapping="Wrap" />
+                            <TextBlock Text="Nodes" />
+                            <TextBlock Text="{Binding SummaryVm.NodesCount}" />
+                            <TextBlock Text="Meshes" />
+                            <TextBlock Text="{Binding SummaryVm.MeshesCount}" />
+                            <TextBlock Text="Materials" />
+                            <TextBlock Text="{Binding SummaryVm.MaterialsCount}" />
+                            <TextBlock Text="Textures" />
+                            <TextBlock Text="{Binding SummaryVm.TexturesCount}" />
+                            <TextBlock Text="Cameras" />
+                            <TextBlock Text="{Binding SummaryVm.CamerasCount}" />
+                            <TextBlock Text="Lights" />
+                            <TextBlock Text="{Binding SummaryVm.LightsCount}" />
+                            <TextBlock Text="Animated" />
+                            <TextBlock Text="{Binding SummaryVm.AnimatedChannelsCount}" />
+                            <TextBlock Text="Frames" />
+                            <TextBlock Text="{Binding SummaryVm.FrameRangeText}" />
+                            <TextBlock Text="Resolution" />
+                            <TextBlock Text="{Binding SummaryVm.RenderResolutionText}" />
+                            <TextBlock Text="File" />
+                            <TextBlock Text="{Binding SummaryVm.SceneFilePath}" TextWrapping="Wrap" />
                         </UniformGrid>
-                        <UniformGrid Margin="0,8,0,0" Columns="2">
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="Frame start" />
-                                <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.FrameStart}" />
+                    </GroupBox>
+
+                    <GroupBox Grid.Row="1" Header="Validation" Margin="0,12,0,0">
+                        <DockPanel Margin="8">
+                            <Button DockPanel.Dock="Right" Width="120" VerticalAlignment="Center" Command="{Binding ValidateCommand}" Content="Validate" />
+                            <UniformGrid Columns="4">
+                                <StackPanel>
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.ErrorCount}" />
+                                    <TextBlock Text="Errors" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.WarningCount}" />
+                                    <TextBlock Text="Warnings" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.UnsupportedCount}" />
+                                    <TextBlock Text="Unsupported" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.InfoCount}" />
+                                    <TextBlock Text="Info" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </DockPanel>
+                    </GroupBox>
+
+                    <GroupBox Grid.Row="2" Header="Diagnostics" Margin="0,12,0,0">
+                        <DataGrid ItemsSource="{Binding DiagnosticsVm.Items}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  Margin="8"
+                                  HeadersVisibility="Column"
+                                  CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="110" />
+                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                                <DataGridTextColumn Header="Context" Binding="{Binding ContextName}" Width="160" />
+                                <DataGridTextColumn Header="Suggested Action" Binding="{Binding SuggestedAction}" Width="220" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+
+            <!-- 3. Output -->
+            <TabItem Header="Output">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="12" MaxWidth="620" HorizontalAlignment="Left">
+                        <GroupBox Header="Output Mode">
+                            <StackPanel Margin="8">
+                                <TextBlock Text="Mode" />
+                                <ComboBox Margin="0,4,0,8" ItemsSource="{Binding LaunchVm.RenderModeOptions}" SelectedItem="{Binding LaunchVm.SelectedRenderMode}" />
+                                <UniformGrid Columns="2">
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="Resolution X" />
+                                        <TextBox Margin="0,4,0,8" Text="{Binding LaunchVm.ResolutionX}" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Resolution Y" />
+                                        <TextBox Margin="0,4,0,8" Text="{Binding LaunchVm.ResolutionY}" />
+                                    </StackPanel>
+                                </UniformGrid>
+                                <UniformGrid Columns="2">
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="Frame start" />
+                                        <TextBox Margin="0,4,0,8" Text="{Binding LaunchVm.FrameStart}" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Frame end" />
+                                        <TextBox Margin="0,4,0,8" Text="{Binding LaunchVm.FrameEnd}" />
+                                    </StackPanel>
+                                </UniformGrid>
+                                <TextBlock Text="Samples" />
+                                <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.Samples}" />
+                                <TextBlock Margin="0,8,0,0" FontStyle="Italic" Foreground="#FF6B7280"
+                                           Text="Resolution / frames / samples are ignored for the Export .blend mode." />
                             </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="Frame end" />
-                                <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.FrameEnd}" />
+                        </GroupBox>
+
+                        <GroupBox Header="Export Scope" Margin="0,12,0,0">
+                            <StackPanel Margin="8">
+                                <CheckBox Content="Export selected only" IsChecked="{Binding OptionsVm.ExportSelectedOnly}" />
+                                <CheckBox Margin="0,4,0,0" Content="Include hidden objects" IsChecked="{Binding OptionsVm.IncludeHiddenObjects}" />
+                                <CheckBox Margin="0,4,0,0" Content="Include cameras" IsChecked="{Binding OptionsVm.IncludeCameras}" />
+                                <CheckBox Margin="0,4,0,0" Content="Include lights" IsChecked="{Binding OptionsVm.IncludeLights}" />
+                                <CheckBox Margin="0,4,0,0" Content="Include materials" IsChecked="{Binding OptionsVm.IncludeMaterials}" />
+                                <CheckBox Margin="0,4,0,0" Content="Include animations" IsChecked="{Binding OptionsVm.IncludeAnimations}" />
                             </StackPanel>
-                        </UniformGrid>
-                        <TextBlock Margin="0,8,0,0" Text="Samples" />
-                        <TextBox Margin="0,4,0,0" Text="{Binding LaunchVm.Samples}" />
-                    </StackPanel>
-                </GroupBox>
+                        </GroupBox>
 
-                <GroupBox Header="Export Scope" Margin="0,0,0,12">
-                    <StackPanel Margin="8">
-                        <CheckBox Content="Export selected only" IsChecked="{Binding OptionsVm.ExportSelectedOnly}" />
-                        <CheckBox Content="Include hidden objects" IsChecked="{Binding OptionsVm.IncludeHiddenObjects}" />
-                        <CheckBox Content="Include cameras" IsChecked="{Binding OptionsVm.IncludeCameras}" />
-                        <CheckBox Content="Include lights" IsChecked="{Binding OptionsVm.IncludeLights}" />
-                        <CheckBox Content="Include materials" IsChecked="{Binding OptionsVm.IncludeMaterials}" />
-                        <CheckBox Content="Include animations" IsChecked="{Binding OptionsVm.IncludeAnimations}" />
-                    </StackPanel>
-                </GroupBox>
-
-                <GroupBox Header="Output" Margin="0,0,0,12">
-                    <StackPanel Margin="8">
-                        <TextBlock Text="Output folder" />
-                        <TextBox Margin="0,4,0,8" Text="{Binding OptionsVm.OutputFolder}" />
-                        <CheckBox Content="Open folder after export" IsChecked="{Binding OptionsVm.OpenFolderAfterExport}" />
-                    </StackPanel>
-                </GroupBox>
-            </StackPanel>
-
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="140" />
-                </Grid.RowDefinitions>
-
-                <GroupBox Header="Validation Summary" Grid.Row="0" Margin="0,0,0,12">
-                    <UniformGrid Columns="4" Margin="8">
-                        <StackPanel>
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.ErrorCount}" />
-                            <TextBlock Text="Errors" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.WarningCount}" />
-                            <TextBlock Text="Warnings" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.UnsupportedCount}" />
-                            <TextBlock Text="Unsupported" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding DiagnosticsVm.InfoCount}" />
-                            <TextBlock Text="Info" />
-                        </StackPanel>
-                    </UniformGrid>
-                </GroupBox>
-
-                <GroupBox Header="Diagnostics" Grid.Row="1" Margin="0,0,0,12">
-                    <DataGrid ItemsSource="{Binding DiagnosticsVm.Items}"
-                              AutoGenerateColumns="False"
-                              IsReadOnly="True"
-                              Margin="8"
-                              HeadersVisibility="Column"
-                              CanUserAddRows="False">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="120" />
-                            <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
-                            <DataGridTextColumn Header="Context" Binding="{Binding ContextName}" Width="180" />
-                            <DataGridTextColumn Header="Suggested Action" Binding="{Binding SuggestedAction}" Width="260" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </GroupBox>
-
-                <GroupBox Header="Connected Render Status" Grid.Row="2">
-                    <Grid Margin="8">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <UniformGrid Columns="2">
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="{Binding LaunchVm.JobStatusText}" />
-                                <TextBlock Text="Job status" />
+                        <GroupBox Header="Local Output" Margin="0,12,0,0">
+                            <StackPanel Margin="8">
+                                <TextBlock Text="Output folder" />
+                                <TextBox Margin="0,4,0,8" Text="{Binding OptionsVm.OutputFolder}" />
+                                <CheckBox Content="Open folder after export" IsChecked="{Binding OptionsVm.OpenFolderAfterExport}" />
                             </StackPanel>
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="{Binding LaunchVm.JobProgressText}" />
-                                <TextBlock Text="Progress" />
-                            </StackPanel>
-                        </UniformGrid>
+                        </GroupBox>
 
-                        <StackPanel Grid.Row="1" Margin="0,8,0,8">
-                            <TextBlock Text="{Binding LaunchVm.JobId}" TextWrapping="Wrap" />
-                            <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.UploadedPackageBlobId}" TextWrapping="Wrap" />
-                            <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.UploadReceiptPath}" TextWrapping="Wrap" />
-                            <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.DownloadedResultPath}" TextWrapping="Wrap" />
-                        </StackPanel>
-
-                        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
-                            <Button Width="120" Margin="0,0,8,0" Command="{Binding PreflightCommand}" Content="Preflight" />
-                            <Button Width="140" Margin="0,0,8,0" Command="{Binding LaunchRenderCommand}" Content="Launch Render" />
-                            <Button Width="120" Margin="0,0,8,0" Command="{Binding RefreshJobCommand}" Content="Refresh Job" />
-                            <Button Width="130" Margin="0,0,8,0" Command="{Binding UploadPackageCommand}" Content="Upload Package" />
-                            <Button Width="140" Margin="0,0,8,0" Command="{Binding DownloadResultCommand}" Content="Download Result" />
-                            <Button Width="120" Margin="0,0,8,0" Command="{Binding OpenDownloadedResultCommand}" Content="Open Result" />
-                            <Button Width="160" Margin="0,0,8,0" Command="{Binding OpenDownloadedResultFolderCommand}" Content="Open Result Folder" />
-                            <Button Width="140" Margin="0,0,8,0" Command="{Binding OpenPrimaryArtifactCommand}" Content="Open Archive" />
-                            <Button Width="170" Command="{Binding OpenLaunchPackageFolderCommand}" Content="Open Package Folder" />
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Width="120" Margin="0,0,8,8" Command="{Binding ExportCommand}" Content="Export" />
+                            <Button Width="170" Margin="0,0,8,8" Command="{Binding ExportAndOpenFolderCommand}" Content="Export and Open Folder" />
+                            <Button Width="120" Margin="0,0,8,8" Command="{Binding PreflightCommand}" Content="Preflight" />
+                            <Button Width="140" Margin="0,0,8,8" Command="{Binding LaunchRenderCommand}" Content="Launch / Export" />
                         </WrapPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-                        <TextBox Grid.Row="3"
-                                 Text="{Binding DiagnosticsVm.LogText}"
+            <!-- 4. Job & Result -->
+            <TabItem Header="Job &amp; Result">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <UniformGrid Grid.Row="0" Columns="2">
+                        <StackPanel>
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding LaunchVm.JobStatusText}" />
+                            <TextBlock Text="Job status" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding LaunchVm.JobProgressText}" />
+                            <TextBlock Text="Progress" />
+                        </StackPanel>
+                    </UniformGrid>
+
+                    <StackPanel Grid.Row="1" Margin="0,8,0,8">
+                        <TextBlock Text="{Binding LaunchVm.JobId}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.UploadedPackageBlobId}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.UploadReceiptPath}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,4,0,0" Text="{Binding LaunchVm.DownloadedResultPath}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+                        <Button Width="120" Margin="0,0,8,8" Command="{Binding RefreshJobCommand}" Content="Refresh Job" />
+                        <Button Width="130" Margin="0,0,8,8" Command="{Binding UploadPackageCommand}" Content="Upload Package" />
+                        <Button Width="140" Margin="0,0,8,8" Command="{Binding DownloadResultCommand}" Content="Download Result" />
+                        <Button Width="120" Margin="0,0,8,8" Command="{Binding OpenDownloadedResultCommand}" Content="Open Result" />
+                        <Button Width="160" Margin="0,0,8,8" Command="{Binding OpenDownloadedResultFolderCommand}" Content="Open Result Folder" />
+                        <Button Width="140" Margin="0,0,8,8" Command="{Binding OpenPrimaryArtifactCommand}" Content="Open Archive" />
+                        <Button Width="170" Margin="0,0,8,8" Command="{Binding OpenLaunchPackageFolderCommand}" Content="Open Package Folder" />
+                    </WrapPanel>
+
+                    <GroupBox Grid.Row="3" Header="Log">
+                        <TextBox Text="{Binding DiagnosticsVm.LogText}"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
+                                 Margin="8"
                                  VerticalScrollBarVisibility="Auto" />
-                    </Grid>
-                </GroupBox>
-            </Grid>
-        </Grid>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
+        <!-- Footer -->
         <DockPanel Grid.Row="2">
             <TextBlock DockPanel.Dock="Left"
                        VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
                        Text="{Binding LastOutputPath}" />
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Width="120" Margin="0,0,8,0" Command="{Binding ValidateCommand}" Content="Validate" />
-                <Button Width="120" Margin="0,0,8,0" Command="{Binding ExportCommand}" Content="Export" />
-                <Button Width="170" Command="{Binding ExportAndOpenFolderCommand}" Content="Export and Open Folder" />
-            </StackPanel>
         </DockPanel>
     </Grid>
 </Window>
