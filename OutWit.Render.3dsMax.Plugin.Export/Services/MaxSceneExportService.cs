@@ -216,7 +216,16 @@ public sealed class MaxSceneExportService
             });
         }
 
-        if (summary.LightsCount == 0)
+        if (summary.UsesSyntheticDefaultLights)
+        {
+            diagnostics.Add(new MaxSceneDiagnosticItem
+            {
+                Severity = MaxSceneDiagnosticSeverity.Info,
+                Message = "Synthesized default three-point lighting because the 3ds Max scene had no explicit lights.",
+                SuggestedAction = "Add explicit render lights in 3ds Max for full control; the synthesized rig only prevents a black render."
+            });
+        }
+        else if (summary.LightsCount == 0)
         {
             diagnostics.Add(new MaxSceneDiagnosticItem
             {

@@ -52,7 +52,7 @@ internal static class MaxSceneDccSceneMapper
     {
         var exporterVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         var nonMeshTranslationScale = ResolveNonMeshTranslationScale(summary);
-        var sceneBounds = ResolveSceneBounds(summary);
+        var sceneBounds = MaxSceneBounds.Compute(summary);
         var lightPositionsById = ResolveLightPositions(summary, nonMeshTranslationScale);
 
         return new DccSceneData
@@ -281,56 +281,19 @@ internal static class MaxSceneDccSceneMapper
         return lightPositionsById;
     }
 
-    private static SceneBounds ResolveSceneBounds(MaxSceneSummaryData summary)
+    private static double ResolveLightCharacteristicDistance(MaxSceneLightSnapshotData light, IReadOnlyDictionary<string, DccVector3Data> lightPositionsById, MaxSceneBounds? sceneBounds)
     {
-        var meshesById = summary.Meshes.ToDictionary(me => me.Id, StringComparer.Ordinal);
-        var meshNodes = summary.Nodes
-            .Where(me => me.Kind == DccNodeKind.Mesh && !string.IsNullOrWhiteSpace(me.MeshId) && meshesById.ContainsKey(me.MeshId!))
-            .ToArray();
+        var centerX = sceneBounds?.CenterX ?? 0d;
+        var centerY = sceneBounds?.CenterY ?? 0d;
+        var centerZ = sceneBounds?.CenterZ ?? 0d;
 
-        if (meshNodes.Length == 0)
-            return new SceneBounds(new DccVector3Data(), 0d);
-
-        // Mesh nodes are emitted at their raw translation (the mapper forces their output scale
-        // to 1), so the scene centre is the centroid of those translations and the radius is the
-        // farthest mesh extent from it (node offset + the mesh's own local bounding radius).
-        var center = new DccVector3Data
-        {
-            X = meshNodes.Average(me => me.LocalTransform.Translation.X),
-            Y = meshNodes.Average(me => me.LocalTransform.Translation.Y),
-            Z = meshNodes.Average(me => me.LocalTransform.Translation.Z)
-        };
-
-        var radius = 0d;
-        foreach (var node in meshNodes)
-        {
-            var nodeOffset = Distance(node.LocalTransform.Translation.X, node.LocalTransform.Translation.Y, node.LocalTransform.Translation.Z, center);
-            var meshLocalRadius = ResolveMeshLocalRadius(meshesById[node.MeshId!]);
-            radius = Math.Max(radius, nodeOffset + meshLocalRadius);
-        }
-
-        return new SceneBounds(center, radius);
-    }
-
-    private static double ResolveMeshLocalRadius(MaxSceneMeshSnapshotData mesh)
-    {
-        var radius = 0d;
-
-        foreach (var position in mesh.Positions)
-            radius = Math.Max(radius, Math.Sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z));
-
-        return radius;
-    }
-
-    private static double ResolveLightCharacteristicDistance(MaxSceneLightSnapshotData light, IReadOnlyDictionary<string, DccVector3Data> lightPositionsById, SceneBounds sceneBounds)
-    {
         var distanceToSceneCenter = lightPositionsById.TryGetValue(light.Id, out var position)
-            ? Distance(position.X, position.Y, position.Z, sceneBounds.Center)
+            ? Distance(position.X, position.Y, position.Z, new DccVector3Data { X = centerX, Y = centerY, Z = centerZ })
             : 0d;
 
         // The light must at least cover the scene's own extent, so floor the distance by the
         // scene radius (handles lights placed inside or at the centre of the geometry).
-        var characteristicDistance = Math.Max(distanceToSceneCenter, sceneBounds.Radius);
+        var characteristicDistance = Math.Max(distanceToSceneCenter, sceneBounds?.Radius ?? 0d);
         return Math.Clamp(characteristicDistance, MIN_LIGHT_CHARACTERISTIC_DISTANCE, MAX_LIGHT_CHARACTERISTIC_DISTANCE);
     }
 
@@ -366,8 +329,6 @@ internal static class MaxSceneDccSceneMapper
         var dz = z - target.Z;
         return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
-
-    private readonly record struct SceneBounds(DccVector3Data Center, double Radius);
 
     private static double ResolveNodeScaleX(MaxSceneNodeSnapshotData node)
     {

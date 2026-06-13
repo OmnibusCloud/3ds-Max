@@ -1204,7 +1204,7 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void ValidateCurrentSceneAddsMissingExplicitLightsWarningTest()
+    public void ValidateCurrentSceneSynthesizesDefaultLightsWhenSceneHasNoneTest()
     {
         var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
         snapshot.Lights.Clear();
@@ -1220,6 +1220,36 @@ public sealed class MaxSceneExportServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(result.IsSuccess, Is.True);
+            Assert.That(result.Summary.UsesSyntheticDefaultLights, Is.True);
+            // Scene had no lights → a default rig is synthesized (not left black) and reported as Info.
+            Assert.That(result.Scene!.Lights, Has.Count.GreaterThanOrEqualTo(2));
+            Assert.That(result.Scene.Lights.All(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccLightKind.Point), Is.True);
+            // Distance-calibrated power: a native-scale scene must get hundreds of watts, not ~1.
+            Assert.That(result.Scene.Lights.Max(me => me.Intensity), Is.GreaterThan(50d));
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("Synthesized default", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
+    public void ValidateCurrentSceneWarnsWhenNoLightsAndNoGeometryToLightTest()
+    {
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Lights.Clear();
+        snapshot.LightNames.Clear();
+        snapshot.LightsCount = 0;
+        snapshot.Meshes.Clear();
+        snapshot.MeshesCount = 0;
+        snapshot.Nodes.RemoveAll(me => me.Kind != OutWit.Controller.Render.Dcc.Model.DccNodeKind.Camera);
+        snapshot.NodesCount = snapshot.Nodes.Count;
+
+        var service = MaxSceneExportTestData.CreateService(snapshot);
+
+        var result = service.ValidateCurrentScene();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.True);
+            Assert.That(result.Summary.UsesSyntheticDefaultLights, Is.False);
             Assert.That(result.Diagnostics.Any(me => me.Message.Contains("No explicit lights", StringComparison.OrdinalIgnoreCase)), Is.True);
         });
     }

@@ -75,6 +75,7 @@ public sealed class MaxSceneSummaryService
         };
 
         MaxSceneActiveViewportCameraSynthesizer.Apply(summary);
+        MaxSceneDefaultLightSynthesizer.Apply(summary);
         return summary;
     }
 

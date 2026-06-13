@@ -28,6 +28,8 @@ public sealed class MaxSceneSummaryData
 
     public bool UsesSyntheticViewportCamera { get; set; }
 
+    public bool UsesSyntheticDefaultLights { get; set; }
+
     public List<string> CameraNames { get; set; } = [];
 
     public List<string> LightNames { get; set; } = [];

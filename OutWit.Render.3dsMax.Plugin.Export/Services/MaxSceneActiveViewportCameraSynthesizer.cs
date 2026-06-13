@@ -82,7 +82,7 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
 
     private static MaxSceneTransformSnapshotData ResolveCameraTransform(MaxSceneSummaryData summary, double verticalFovDegrees)
     {
-        var bounds = ResolveSceneBounds(summary);
+        var bounds = MaxSceneBounds.Compute(summary);
 
         // No geometry to frame, or the viewport already looks at it: keep the viewport view
         // (respects the user's framing in the interactive plugin flow).
@@ -92,7 +92,7 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
         return BuildFramingTransform(bounds.Value, verticalFovDegrees);
     }
 
-    private static bool ViewportFramesGeometry(MaxSceneTransformSnapshotData transform, SceneBounds bounds)
+    private static bool ViewportFramesGeometry(MaxSceneTransformSnapshotData transform, MaxSceneBounds bounds)
     {
         var cameraPosition = (transform.Translation.X, transform.Translation.Y, transform.Translation.Z);
         var toCenter = (bounds.CenterX - cameraPosition.Item1, bounds.CenterY - cameraPosition.Item2, bounds.CenterZ - cameraPosition.Item3);
@@ -104,7 +104,7 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
         return MaxCameraMath.Dot(forward, MaxCameraMath.Normalize(toCenter)) >= MIN_FRAMING_DOT;
     }
 
-    private static MaxSceneTransformSnapshotData BuildFramingTransform(SceneBounds bounds, double verticalFovDegrees)
+    private static MaxSceneTransformSnapshotData BuildFramingTransform(MaxSceneBounds bounds, double verticalFovDegrees)
     {
         var radius = Math.Max(bounds.Radius, MIN_FRAMING_RADIUS);
         var halfFovRadians = verticalFovDegrees * Math.PI / 360d;
@@ -132,45 +132,6 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
         };
     }
 
-    private static SceneBounds? ResolveSceneBounds(MaxSceneSummaryData summary)
-    {
-        var meshesById = summary.Meshes.ToDictionary(me => me.Id, StringComparer.Ordinal);
-        var meshNodes = summary.Nodes
-            .Where(me => me.Kind == DccNodeKind.Mesh && !string.IsNullOrWhiteSpace(me.MeshId) && meshesById.ContainsKey(me.MeshId!))
-            .ToArray();
-
-        if (meshNodes.Length == 0)
-            return null;
-
-        // Framing is computed in summary (pre-mapper) space; the canonical fallback applies to
-        // native cm-scale scenes where the mapper leaves these translations unscaled.
-        var centerX = meshNodes.Average(me => me.LocalTransform.Translation.X);
-        var centerY = meshNodes.Average(me => me.LocalTransform.Translation.Y);
-        var centerZ = meshNodes.Average(me => me.LocalTransform.Translation.Z);
-
-        var radius = 0d;
-        foreach (var node in meshNodes)
-        {
-            var dx = node.LocalTransform.Translation.X - centerX;
-            var dy = node.LocalTransform.Translation.Y - centerY;
-            var dz = node.LocalTransform.Translation.Z - centerZ;
-            var nodeOffset = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-            radius = Math.Max(radius, nodeOffset + ResolveMeshLocalRadius(meshesById[node.MeshId!]));
-        }
-
-        return new SceneBounds(centerX, centerY, centerZ, radius);
-    }
-
-    private static double ResolveMeshLocalRadius(MaxSceneMeshSnapshotData mesh)
-    {
-        var radius = 0d;
-
-        foreach (var position in mesh.Positions)
-            radius = Math.Max(radius, Math.Sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z));
-
-        return radius;
-    }
-
     private static MaxSceneTransformSnapshotData CloneTransform(MaxSceneTransformSnapshotData transform)
     {
         return new MaxSceneTransformSnapshotData
@@ -196,12 +157,6 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
             }
         };
     }
-
-    #endregion
-
-    #region Models
-
-    private readonly record struct SceneBounds(double CenterX, double CenterY, double CenterZ, double Radius);
 
     #endregion
 }
