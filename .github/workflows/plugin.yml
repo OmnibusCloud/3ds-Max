@@ -1,0 +1,98 @@
+name: plugin
+
+# Builds the distributable 3ds Max ApplicationPlugins bundle (zip) and attaches it to a GitHub
+# Release. Triggered by a `plugin-v*` tag; can also be run manually (produces a 0.0.0-dev artifact
+# without a release).
+#
+# The build needs no 3ds Max install: Autodesk.Max.dll is vendored at
+# OutWit.Render.3dsMax.Plugin/Libs/ as a compile-time reference, so a clean windows-latest runner
+# builds the x64 / net10.0-windows plugin.
+#
+# SIGNING is optional and gated on a configured certificate (see Build-...Package.ps1 /
+# Invoke-OptionalSigning): set repo secrets WINDOWS_CERT_PFX_BASE64 (+ WINDOWS_CERT_PASSWORD) to
+# Authenticode-sign the bundled OutWit assemblies. Until then the bundle ships UNSIGNED with a
+# warning, so dev releases keep working. (Azure Trusted Signing is the alternative when a cert is
+# issued.)
+
+on:
+  push:
+    tags:
+      - 'plugin-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ($ref -like 'plugin-v*') { $version = $ref -replace '^plugin-v', '' } else { $version = '0.0.0-dev' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Package version: $version"
+
+      - name: Build plugin bundle
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: ./OutWit.Render.3dsMax.Plugin/Scripts/Build-OutWit.Render.3dsMax.Plugin.Package.ps1 -Configuration Release -Version "${{ steps.ver.outputs.version }}" -OutputDirectory dist
+
+      # Guards the bundle layout: PackageContents.xml at the package root and the plugin assembly in
+      # Contents/bin. Filename-only matching is separator-agnostic (Compress-Archive entry separators
+      # differ across PowerShell versions).
+      - name: Verify bundle layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP=$(ls dist/*.zip | head -1)
+          echo "Package: $ZIP"
+          unzip -l "$ZIP" | sed -n '1,20p'
+          NAMES=$(unzip -l "$ZIP" | awk '{print $4}' | tr '\\' '/')
+          echo "$NAMES" | grep -qx 'OutWit.Render.3dsMax.Plugin/PackageContents.xml' \
+            || { echo "::error::PackageContents.xml is not at the bundle root"; exit 1; }
+          echo "$NAMES" | grep -qx 'OutWit.Render.3dsMax.Plugin/Contents/bin/OutWit.Render.3dsMax.Plugin.dll' \
+            || { echo "::error::plugin assembly missing from Contents/bin"; exit 1; }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-win-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/plugin-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -type f -name '*.zip' -exec cp {} release/ \;
+          cd release
+          sha256sum *.zip > SHA256SUMS
+          echo "=== SHA256SUMS ==="; cat SHA256SUMS
+
+      - name: Attach plugin bundle to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
