@@ -85,6 +85,7 @@ internal static class MaxSceneDccSceneMapper
                 Samples = 64,
                 TargetEngine = RenderEngine.Cycles
             },
+            World = ResolveWorld(summary),
             Nodes =
             [
                 .. summary.Nodes.Select(me => new DccNodeData
@@ -120,6 +121,7 @@ internal static class MaxSceneDccSceneMapper
                     Positions = [.. me.Positions.Select(position => new DccVector3Data { X = position.X, Y = position.Y, Z = position.Z })],
                     Normals = [.. me.Normals.Select(normal => new DccVector3Data { X = normal.X, Y = normal.Y, Z = normal.Z })],
                     Uv0 = [.. me.Uv0.Select(uv => new DccVector2Data { X = uv.X, Y = uv.Y })],
+                    Uv1 = [.. me.Uv1.Select(uv => new DccVector2Data { X = uv.X, Y = uv.Y })],
                     TriangleIndices = [.. me.TriangleIndices],
                     MaterialIndices = [.. me.MaterialIndices]
                 })
@@ -133,7 +135,10 @@ internal static class MaxSceneDccSceneMapper
                     VerticalFovDegrees = me.VerticalFovDegrees,
                     NearClip = NormalizeCameraNearClip(me.NearClip, me.FarClip),
                     FarClip = NormalizeCameraFarClip(me.NearClip, me.FarClip),
-                    IsPerspective = me.IsPerspective
+                    IsPerspective = me.IsPerspective,
+                    EnableDepthOfField = me.EnableDepthOfField,
+                    FocusDistance = me.FocusDistance,
+                    FStop = me.FStop
                 })
             ],
             Lights =
@@ -149,7 +154,10 @@ internal static class MaxSceneDccSceneMapper
                         Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
                         Intensity = ResolveLightIntensity(me, characteristicDistance),
                         Range = ResolveLightRange(me, characteristicDistance),
-                        SpotAngleDegrees = me.SpotAngleDegrees
+                        SpotAngleDegrees = me.SpotAngleDegrees,
+                        CastShadows = me.CastShadows,
+                        AreaWidth = me.AreaWidth,
+                        AreaHeight = me.AreaHeight
                     };
                 })
             ],
@@ -239,6 +247,26 @@ internal static class MaxSceneDccSceneMapper
                 Y = isMesh ? 1d : transform.Scale.Y,
                 Z = isMesh ? 1d : transform.Scale.Z
             }
+        };
+    }
+
+    private static DccWorldData? ResolveWorld(MaxSceneSummaryData summary)
+    {
+        // A null environment colour (the default black Max background) maps to "no world" so default
+        // scenes render unchanged; a set background becomes the neutral world the generator emits.
+        if (summary.EnvironmentColor is null)
+            return null;
+
+        return new DccWorldData
+        {
+            BackgroundColor = new DccColorData
+            {
+                R = summary.EnvironmentColor.R,
+                G = summary.EnvironmentColor.G,
+                B = summary.EnvironmentColor.B,
+                A = summary.EnvironmentColor.A
+            },
+            Strength = 1d
         };
     }
 

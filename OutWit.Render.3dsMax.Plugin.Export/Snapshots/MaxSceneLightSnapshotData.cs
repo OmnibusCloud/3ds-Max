@@ -20,5 +20,11 @@ public sealed class MaxSceneLightSnapshotData
 
     public double SpotAngleDegrees { get; set; } = 45d;
 
+    public bool CastShadows { get; set; } = true;
+
+    public double AreaWidth { get; set; } = 1d;
+
+    public double AreaHeight { get; set; } = 1d;
+
     #endregion
 }

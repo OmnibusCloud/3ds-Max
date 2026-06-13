@@ -54,10 +54,39 @@ internal sealed class MaxSceneSnapshotCollector
     public void Collect(IINode rootNode)
     {
         CollectSceneContent(rootNode);
+        ReadEnvironment();
         m_summary.MaterialsCount = m_materials.Count;
         m_summary.TexturesCount = m_textures.Count;
         m_summary.MaterialNames = [.. m_materialNames];
         m_summary.TextureNames = [.. m_textureNames];
+    }
+
+    private void ReadEnvironment()
+    {
+        // 3ds Max scene environment/background colour. The default environment is black; treat a
+        // near-black background as "no world" (leave EnvironmentColor null) so default scenes keep
+        // the unchanged empty-world behaviour and only scenes with a set background carry a world.
+        try
+        {
+            var background = m_coreInterface.GetBackGround(m_coreInterface.Time, m_global.Interval.Create());
+            if (background is null)
+                return;
+
+            if (Math.Max(background.X, Math.Max(background.Y, background.Z)) < 0.004d)
+                return;
+
+            m_summary.EnvironmentColor = new MaxSceneColorSnapshotData
+            {
+                R = background.X,
+                G = background.Y,
+                B = background.Z,
+                A = 1d
+            };
+        }
+        catch
+        {
+            // Leave EnvironmentColor null on failure — the scene renders with the default world.
+        }
     }
 
     private void CollectSceneContent(IINode rootNode)
@@ -173,6 +202,11 @@ internal sealed class MaxSceneSnapshotCollector
         // hard edges (smoothing-group boundaries / unsmoothed faces) stay hard.
         mesh.BuildNormals();
 
+        // Map channel 1 is the primary UV (Uv0); channel 2 is the optional second UV set. Only
+        // populate Uv1 when the mesh actually carries channel 2, so meshes with a single UV set
+        // keep an empty Uv1 (the mapper then emits no second layer).
+        var hasSecondUv = MeshSupportsMapChannel(mesh, 2);
+
         for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
         {
             var face = mesh.GetFace(faceIndex);
@@ -186,6 +220,8 @@ internal sealed class MaxSceneSnapshotCollector
                 meshData.Positions.Add(new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z });
                 meshData.Normals.Add(new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z });
                 meshData.Uv0.Add(ExtractUv(mesh, faceIndex, vertexIndex));
+                if (hasSecondUv)
+                    meshData.Uv1.Add(ExtractUvFromChannel(mesh, 2, faceIndex, vertexIndex));
                 meshData.TriangleIndices.Add(meshData.TriangleIndices.Count);
             }
 
@@ -388,22 +424,88 @@ internal sealed class MaxSceneSnapshotCollector
 
     private MaxSceneCameraSnapshotData ExtractCamera(IINode node, ICameraObject cameraObject, string cameraId)
     {
-        return new MaxSceneCameraSnapshotData
+        var time = m_coreInterface.Time;
+        var snapshot = new MaxSceneCameraSnapshotData
         {
             Id = cameraId,
             Name = node.Name,
-            VerticalFovDegrees = RadiansToDegrees(cameraObject.GetFOV(m_coreInterface.Time)),
-            NearClip = ResolveCameraClipDistance(cameraObject, m_coreInterface.Time, 0, 0.1d),
-            FarClip = ResolveCameraClipDistance(cameraObject, m_coreInterface.Time, 1, 1000d),
+            VerticalFovDegrees = RadiansToDegrees(cameraObject.GetFOV(time)),
+            NearClip = ResolveCameraClipDistance(cameraObject, time, 0, 0.1d),
+            FarClip = ResolveCameraClipDistance(cameraObject, time, 1, 1000d),
             IsPerspective = !cameraObject.IsOrtho
         };
+
+        ReadCameraDepthOfField(cameraObject, time, snapshot);
+        return snapshot;
+    }
+
+    private void ReadCameraDepthOfField(ICameraObject cameraObject, int time, MaxSceneCameraSnapshotData snapshot)
+    {
+        // 3ds Max exposes DOF through the multi-pass camera effect. When it is enabled and the
+        // camera has a target distance, treat that as the focus distance; read the effect's f-stop
+        // from its parameter block if present, otherwise leave the default. Any read failure simply
+        // leaves DOF disabled rather than failing the export.
+        try
+        {
+            var enabled = cameraObject.GetMultiPassEffectEnabled(time, m_global.Interval.Create());
+            var focusDistance = cameraObject.GetTDist(time);
+            if (!enabled || focusDistance <= 0d)
+                return;
+
+            snapshot.EnableDepthOfField = true;
+            snapshot.FocusDistance = focusDistance;
+
+            var fStop = ReadCameraFStop(cameraObject, time);
+            if (fStop is > 0d)
+                snapshot.FStop = fStop.Value;
+        }
+        catch
+        {
+            // Leave DOF disabled on failure.
+        }
+    }
+
+    private static double? ReadCameraFStop(ICameraObject cameraObject, int time)
+    {
+        try
+        {
+            var effect = cameraObject.IMultiPassCameraEffect;
+            if (effect is null)
+                return null;
+
+            for (var blockIndex = 0; blockIndex < effect.NumParamBlocks; blockIndex++)
+            {
+                if (effect.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is not null && (name.Contains("fstop") || name.Contains("f_stop") || name.Contains("fnumber")))
+                    {
+                        var value = block.GetFloat(def.Id, time, 0);
+                        if (value > 0d)
+                            return value;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private MaxSceneLightSnapshotData ExtractLight(IINode node, ILightObject lightObject, string lightId)
     {
-        var color = lightObject.GetRGBColor(m_coreInterface.Time);
-        var hotspotDegrees = RadiansToDegrees(lightObject.GetHotspot(m_coreInterface.Time));
-        var kind = ResolveLightKind(node, lightObject, hotspotDegrees);
+        var time = m_coreInterface.Time;
+        var color = lightObject.GetRGBColor(time);
+        var hotspotDegrees = RadiansToDegrees(lightObject.GetHotspot(time));
+
+        var isArea = TryResolveAreaLight(lightObject, time, out var areaWidth, out var areaHeight);
+        var kind = isArea ? DccLightKind.Area : ResolveLightKind(node, lightObject, hotspotDegrees);
 
         return new MaxSceneLightSnapshotData
         {
@@ -411,10 +513,64 @@ internal sealed class MaxSceneSnapshotCollector
             Name = node.Name,
             Kind = kind,
             Color = new MaxSceneColorSnapshotData { R = color.X, G = color.Y, B = color.Z, A = 1d },
-            Intensity = lightObject.GetIntensity(m_coreInterface.Time),
-            Range = Math.Max(lightObject.GetTDist(m_coreInterface.Time), 0.01d),
-            SpotAngleDegrees = ResolveSpotAngleDegrees(kind, hotspotDegrees)
+            Intensity = lightObject.GetIntensity(time),
+            Range = Math.Max(lightObject.GetTDist(time), 0.01d),
+            SpotAngleDegrees = ResolveSpotAngleDegrees(kind, hotspotDegrees),
+            CastShadows = ReadCastShadows(lightObject),
+            AreaWidth = isArea ? areaWidth : 1d,
+            AreaHeight = isArea ? areaHeight : 1d
         };
+    }
+
+    private static bool TryResolveAreaLight(ILightObject lightObject, int time, out double width, out double height)
+    {
+        // Photometric lights (ILightscapeLight) carry an explicit area shape. A rectangle/area light
+        // has a real width and length; disc/sphere/cylinder lights expose a radius (mapped to a
+        // square area). Point/linear photometric lights have neither and fall through to the
+        // point/spot heuristic. Non-photometric lights are never area lights.
+        width = 1d;
+        height = 1d;
+
+        try
+        {
+            if (lightObject is not ILightscapeLight photometric)
+                return false;
+
+            var w = photometric.GetWidth(time);
+            var l = photometric.GetLength(time);
+            if (w > 0.001d && l > 0.001d)
+            {
+                width = w;
+                height = l;
+                return true;
+            }
+
+            var radius = photometric.GetRadius(time);
+            if (radius > 0.001d)
+            {
+                width = radius * 2d;
+                height = radius * 2d;
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ReadCastShadows(ILightObject lightObject)
+    {
+        try
+        {
+            return lightObject.Shadow != 0;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     private string? TryExtractMaterialBinding(IMtl? material)
@@ -722,6 +878,47 @@ internal sealed class MaxSceneSnapshotCollector
             var tvIndex = (int)mapFace.GetTVert(vertexIndex);
             var uv = mesh.GetTVert(tvIndex);
             return new MaxSceneVector2SnapshotData { X = uv.X, Y = uv.Y };
+        }
+        catch
+        {
+            return new MaxSceneVector2SnapshotData();
+        }
+    }
+
+    private static bool MeshSupportsMapChannel(IMesh mesh, int channel)
+    {
+        try
+        {
+            return mesh.MapSupport(channel);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Channel-agnostic UV read (used for map channel 2+). GetTVert is channel-1-specific, so for
+    // other channels we go through MapFaces(channel)/MapVerts(channel). The map-vert element type
+    // is not a typed interface in the managed SDK, so X/Y are read reflectively.
+    private MaxSceneVector2SnapshotData ExtractUvFromChannel(IMesh mesh, int channel, int faceIndex, int vertexIndex)
+    {
+        try
+        {
+            if (!mesh.MapSupport(channel))
+                return new MaxSceneVector2SnapshotData();
+
+            if (TryGetIndexedValue(mesh.MapFaces(channel), faceIndex) is not ITVFace mapFace)
+                return new MaxSceneVector2SnapshotData();
+
+            var tvIndex = (int)mapFace.GetTVert(vertexIndex);
+            var vert = TryGetIndexedValue(mesh.MapVerts(channel), tvIndex);
+            if (vert is null)
+                return new MaxSceneVector2SnapshotData();
+
+            var vertType = vert.GetType();
+            var x = Convert.ToDouble(vertType.GetProperty("X")?.GetValue(vert) ?? 0d);
+            var y = Convert.ToDouble(vertType.GetProperty("Y")?.GetValue(vert) ?? 0d);
+            return new MaxSceneVector2SnapshotData { X = x, Y = y };
         }
         catch
         {

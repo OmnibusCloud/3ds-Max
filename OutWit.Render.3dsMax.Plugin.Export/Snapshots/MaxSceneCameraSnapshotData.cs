@@ -16,5 +16,11 @@ public sealed class MaxSceneCameraSnapshotData
 
     public bool IsPerspective { get; set; } = true;
 
+    public bool EnableDepthOfField { get; set; }
+
+    public double FocusDistance { get; set; }
+
+    public double FStop { get; set; } = 2.8d;
+
     #endregion
 }

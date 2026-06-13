@@ -73,7 +73,8 @@ public sealed class MaxSceneSummaryService
             FrameEnd = frameEnd,
             FrameRate = frameRate,
             RenderWidth = renderWidth,
-            RenderHeight = renderHeight
+            RenderHeight = renderHeight,
+            EnvironmentColor = snapshot.EnvironmentColor
         };
 
         MaxSceneActiveViewportCameraSynthesizer.Apply(summary);

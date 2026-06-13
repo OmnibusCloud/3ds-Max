@@ -14,6 +14,8 @@ public sealed class MaxSceneMeshSnapshotData
 
     public List<MaxSceneVector2SnapshotData> Uv0 { get; set; } = [];
 
+    public List<MaxSceneVector2SnapshotData> Uv1 { get; set; } = [];
+
     public List<int> TriangleIndices { get; set; } = [];
 
     public List<int> MaterialIndices { get; set; } = [];

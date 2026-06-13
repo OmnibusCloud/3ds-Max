@@ -74,5 +74,9 @@ public sealed class MaxSceneSummaryData
 
     public int RenderHeight { get; set; } = 1080;
 
+    // Scene environment/background colour (3ds Max GetBackGround). Null when the scene uses the
+    // default black environment, so the neutral payload keeps an empty world (unchanged renders).
+    public MaxSceneColorSnapshotData? EnvironmentColor { get; set; }
+
     #endregion
 }
