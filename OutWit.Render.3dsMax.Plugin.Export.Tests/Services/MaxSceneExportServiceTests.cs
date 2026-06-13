@@ -1194,8 +1194,12 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.X, Is.EqualTo(4d).Within(1e-9));
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Y, Is.EqualTo(-6d).Within(1e-9));
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Z, Is.EqualTo(8d).Within(1e-9));
-            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(200000d).Within(1e-9));
-            Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(200d).Within(1e-9));
+            // Light at scaled position (4,-6,8); scene centre at the mesh node (1,2,3); the mesh's
+            // local bounding radius is 1, so the characteristic distance is the light-to-centre
+            // distance sqrt(98). Power = multiplier * 1200 * d^2 / 68.
+            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(2d * 1200d * 98d / 68d).Within(1e-6));
+            // The 20-unit cutoff comfortably clears the subject (sqrt(98) ~= 9.9), so it survives.
+            Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(20d).Within(1e-9));
         });
     }
 
@@ -1252,9 +1256,74 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Scene.Cameras.Single().NearClip, Is.EqualTo(0.1d));
             Assert.That(result.Scene.Cameras.Single().FarClip, Is.EqualTo(500d));
             Assert.That(result.Scene.Lights.Single().Kind, Is.EqualTo(OutWit.Controller.Render.Dcc.Model.DccLightKind.Point));
-            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(2d));
+            // Light at origin; scene centre at the mesh node (1,2,3) → characteristic distance
+            // sqrt(14). Power = multiplier * 1200 * d^2 / 68.
+            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(2d * 1200d * 14d / 68d).Within(1e-6));
             Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(20d));
         });
+    }
+
+    [Test]
+    public void ValidateCurrentSceneScalesPointLightPowerWithDistanceSquaredTest()
+    {
+        var nearSnapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        SetLightPosition(nearSnapshot, 10d, 0d, 0d);
+        nearSnapshot.Lights[0].Intensity = 1d;
+        nearSnapshot.Lights[0].Range = 0.01d;
+
+        var farSnapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        SetLightPosition(farSnapshot, 30d, 0d, 0d);
+        farSnapshot.Lights[0].Intensity = 1d;
+        farSnapshot.Lights[0].Range = 0.01d;
+
+        var nearResult = MaxSceneExportTestData.CreateService(nearSnapshot).ValidateCurrentScene();
+        var farResult = MaxSceneExportTestData.CreateService(farSnapshot).ValidateCurrentScene();
+
+        var nearIntensity = nearResult.Scene!.Lights.Single().Intensity;
+        var farIntensity = farResult.Scene!.Lights.Single().Intensity;
+
+        Assert.Multiple(() =>
+        {
+            // A native Max light multiplier of 1 must not render black: it scales to hundreds of watts.
+            Assert.That(nearIntensity, Is.GreaterThan(50d));
+            // Tripling the light distance must raise the power ~9x (inverse-square compensation).
+            Assert.That(farIntensity / nearIntensity, Is.EqualTo(9d).Within(0.5d));
+        });
+    }
+
+    [Test]
+    public void ValidateCurrentSceneMapsSunLightToDistanceIndependentIrradianceTest()
+    {
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Lights[0].Kind = OutWit.Controller.Render.Dcc.Model.DccLightKind.Sun;
+        snapshot.Lights[0].Intensity = 1d;
+        SetLightPosition(snapshot, 500d, 500d, 500d);
+
+        var result = MaxSceneExportTestData.CreateService(snapshot).ValidateCurrentScene();
+
+        // Sun strength is irradiance (W/m^2) and must not blow up with distance like point lights.
+        Assert.That(result.Scene!.Lights.Single().Intensity, Is.EqualTo(4d).Within(1e-9));
+    }
+
+    [Test]
+    public void ValidateCurrentSceneDropsLightCutoffThatWouldClipTheSubjectTest()
+    {
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        SetLightPosition(snapshot, 100d, 0d, 0d);
+        // A 5-unit cutoff on a light 100 units away would plunge the subject into darkness.
+        snapshot.Lights[0].Range = 5d;
+
+        var result = MaxSceneExportTestData.CreateService(snapshot).ValidateCurrentScene();
+
+        Assert.That(result.Scene!.Lights.Single().Range, Is.EqualTo(0.01d));
+    }
+
+    private static void SetLightPosition(MaxSceneSnapshotData snapshot, double x, double y, double z)
+    {
+        var lightNode = snapshot.Nodes.Single(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccNodeKind.Light);
+        lightNode.LocalTransform.Translation.X = x;
+        lightNode.LocalTransform.Translation.Y = y;
+        lightNode.LocalTransform.Translation.Z = z;
     }
 
     [Test]

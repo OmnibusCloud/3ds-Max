@@ -15,9 +15,34 @@ internal static class MaxSceneDccSceneMapper
 
     private const double DEFAULT_CAMERA_FAR_CLIP = 1000d;
 
-    private const double DEFAULT_IMPORTED_NON_SUN_LIGHT_INTENSITY_MULTIPLIER = 1000d;
+    // Photometric calibration for point/spot lights.
+    //
+    // The DCC -> Blender generator emits node coordinates verbatim and only sets
+    // scene.unit_settings.scale_length, which is a measurement/display setting and does NOT
+    // affect Cycles' inverse-square light falloff. So a light sits at its raw scene-unit
+    // distance from the subject, and its power must grow with the square of that distance to
+    // keep the irradiance at the subject constant regardless of the unit scale the scene was
+    // modelled in. (3ds Max's raw light "Multiplier" is ~1.0 and carries no distance meaning,
+    // so emitting it as raw Blender watts renders black on any scene modelled in centimetres.)
+    //
+    // Anchor: a point light of REFERENCE_LIGHT_POWER_WATTS watts at REFERENCE_LIGHT_DISTANCE
+    // scene units from the subject yields a well-lit image. Calibrated against the hand-authored
+    // verification scene (a 1200 W point light ~sqrt(68) units from the subject renders cleanly
+    // at 16 samples + denoise), giving a target irradiance of ~1.4 W/m^2.
+    private const double REFERENCE_LIGHT_POWER_WATTS = 1200d;
 
-    private const double DEFAULT_IMPORTED_POINT_OR_SPOT_RANGE = 25d;
+    private const double REFERENCE_LIGHT_DISTANCE_SQUARED = 68d;
+
+    // A point/spot light effectively sitting on the subject still has to light the scene; floor
+    // its characteristic distance so the power never collapses to zero.
+    private const double MIN_LIGHT_CHARACTERISTIC_DISTANCE = 1d;
+
+    // Guard against pathological coordinates producing an absurd (though finite) wattage.
+    private const double MAX_LIGHT_CHARACTERISTIC_DISTANCE = 100000d;
+
+    // Blender sun strength is an irradiance in W/m^2 and is distance-independent; map the raw
+    // Max multiplier to a daylight-key level.
+    private const double SUN_REFERENCE_IRRADIANCE = 4d;
 
     #endregion
 
@@ -27,7 +52,8 @@ internal static class MaxSceneDccSceneMapper
     {
         var exporterVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         var nonMeshTranslationScale = ResolveNonMeshTranslationScale(summary);
-        var importedScaleNormalizationFactor = ResolveImportedScaleNormalizationFactor(summary);
+        var sceneBounds = ResolveSceneBounds(summary);
+        var lightPositionsById = ResolveLightPositions(summary, nonMeshTranslationScale);
 
         return new DccSceneData
         {
@@ -124,15 +150,19 @@ internal static class MaxSceneDccSceneMapper
             ],
             Lights =
             [
-                .. summary.Lights.Select(me => new DccLightData
+                .. summary.Lights.Select(me =>
                 {
-                    Id = me.Id,
-                    Name = me.Name,
-                    Kind = me.Kind,
-                    Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
-                     Intensity = ResolveLightIntensity(me, importedScaleNormalizationFactor),
-                     Range = ResolveLightRange(me, importedScaleNormalizationFactor),
-                    SpotAngleDegrees = me.SpotAngleDegrees
+                    var characteristicDistance = ResolveLightCharacteristicDistance(me, lightPositionsById, sceneBounds);
+                    return new DccLightData
+                    {
+                        Id = me.Id,
+                        Name = me.Name,
+                        Kind = me.Kind,
+                        Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
+                        Intensity = ResolveLightIntensity(me, characteristicDistance),
+                        Range = ResolveLightRange(me, characteristicDistance),
+                        SpotAngleDegrees = me.SpotAngleDegrees
+                    };
                 })
             ],
             Materials =
@@ -232,30 +262,112 @@ internal static class MaxSceneDccSceneMapper
         return representativeScale is > 0d and < 0.5d ? representativeScale : 1d;
     }
 
-    private static double ResolveImportedScaleNormalizationFactor(MaxSceneSummaryData summary)
+    private static Dictionary<string, DccVector3Data> ResolveLightPositions(MaxSceneSummaryData summary, double nonMeshTranslationScale)
     {
-        var representativeScale = ResolveNonMeshTranslationScale(summary);
-        return representativeScale > 0d ? 1d / representativeScale : 1d;
+        var lightPositionsById = new Dictionary<string, DccVector3Data>(StringComparer.Ordinal);
+
+        foreach (var node in summary.Nodes.Where(me => me.Kind == DccNodeKind.Light && !string.IsNullOrWhiteSpace(me.LightId)))
+        {
+            // Lights are emitted at their scaled (output) translation, so calibrate against the
+            // same coordinate space the generator and the scene bounds live in.
+            lightPositionsById[node.LightId!] = new DccVector3Data
+            {
+                X = node.LocalTransform.Translation.X * nonMeshTranslationScale,
+                Y = node.LocalTransform.Translation.Y * nonMeshTranslationScale,
+                Z = node.LocalTransform.Translation.Z * nonMeshTranslationScale
+            };
+        }
+
+        return lightPositionsById;
     }
 
-    private static double ResolveLightIntensity(MaxSceneLightSnapshotData light, double importedScaleNormalizationFactor)
+    private static SceneBounds ResolveSceneBounds(MaxSceneSummaryData summary)
     {
-        if (light.Kind == DccLightKind.Sun || importedScaleNormalizationFactor <= 1d)
-            return light.Intensity;
+        var meshesById = summary.Meshes.ToDictionary(me => me.Id, StringComparer.Ordinal);
+        var meshNodes = summary.Nodes
+            .Where(me => me.Kind == DccNodeKind.Mesh && !string.IsNullOrWhiteSpace(me.MeshId) && meshesById.ContainsKey(me.MeshId!))
+            .ToArray();
 
-        return light.Intensity * DEFAULT_IMPORTED_NON_SUN_LIGHT_INTENSITY_MULTIPLIER * importedScaleNormalizationFactor * importedScaleNormalizationFactor;
+        if (meshNodes.Length == 0)
+            return new SceneBounds(new DccVector3Data(), 0d);
+
+        // Mesh nodes are emitted at their raw translation (the mapper forces their output scale
+        // to 1), so the scene centre is the centroid of those translations and the radius is the
+        // farthest mesh extent from it (node offset + the mesh's own local bounding radius).
+        var center = new DccVector3Data
+        {
+            X = meshNodes.Average(me => me.LocalTransform.Translation.X),
+            Y = meshNodes.Average(me => me.LocalTransform.Translation.Y),
+            Z = meshNodes.Average(me => me.LocalTransform.Translation.Z)
+        };
+
+        var radius = 0d;
+        foreach (var node in meshNodes)
+        {
+            var nodeOffset = Distance(node.LocalTransform.Translation.X, node.LocalTransform.Translation.Y, node.LocalTransform.Translation.Z, center);
+            var meshLocalRadius = ResolveMeshLocalRadius(meshesById[node.MeshId!]);
+            radius = Math.Max(radius, nodeOffset + meshLocalRadius);
+        }
+
+        return new SceneBounds(center, radius);
     }
 
-    private static double ResolveLightRange(MaxSceneLightSnapshotData light, double importedScaleNormalizationFactor)
+    private static double ResolveMeshLocalRadius(MaxSceneMeshSnapshotData mesh)
+    {
+        var radius = 0d;
+
+        foreach (var position in mesh.Positions)
+            radius = Math.Max(radius, Math.Sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z));
+
+        return radius;
+    }
+
+    private static double ResolveLightCharacteristicDistance(MaxSceneLightSnapshotData light, IReadOnlyDictionary<string, DccVector3Data> lightPositionsById, SceneBounds sceneBounds)
+    {
+        var distanceToSceneCenter = lightPositionsById.TryGetValue(light.Id, out var position)
+            ? Distance(position.X, position.Y, position.Z, sceneBounds.Center)
+            : 0d;
+
+        // The light must at least cover the scene's own extent, so floor the distance by the
+        // scene radius (handles lights placed inside or at the centre of the geometry).
+        var characteristicDistance = Math.Max(distanceToSceneCenter, sceneBounds.Radius);
+        return Math.Clamp(characteristicDistance, MIN_LIGHT_CHARACTERISTIC_DISTANCE, MAX_LIGHT_CHARACTERISTIC_DISTANCE);
+    }
+
+    private static double ResolveLightIntensity(MaxSceneLightSnapshotData light, double characteristicDistance)
+    {
+        // Sun light: irradiance in W/m^2, distance-independent.
+        if (light.Kind == DccLightKind.Sun)
+            return light.Intensity * SUN_REFERENCE_IRRADIANCE;
+
+        // Point/spot: scale the raw Max multiplier so irradiance at the subject matches the
+        // calibration anchor regardless of how far the light sits in scene units.
+        return light.Intensity * REFERENCE_LIGHT_POWER_WATTS * characteristicDistance * characteristicDistance / REFERENCE_LIGHT_DISTANCE_SQUARED;
+    }
+
+    private static double ResolveLightRange(MaxSceneLightSnapshotData light, double characteristicDistance)
     {
         if (light.Kind is not DccLightKind.Point and not DccLightKind.Spot)
             return light.Range;
 
-        if (importedScaleNormalizationFactor <= 1d)
-            return light.Range;
+        // A cutoff distance shorter than the light-to-subject distance would clip the subject
+        // into darkness. Keep a meaningful cutoff only when it comfortably clears the subject;
+        // otherwise drop below the generator's threshold so the light keeps an infinite range.
+        if (light.Range <= characteristicDistance)
+            return 0.01d;
 
-        return Math.Max(light.Range * importedScaleNormalizationFactor, DEFAULT_IMPORTED_POINT_OR_SPOT_RANGE);
+        return light.Range;
     }
+
+    private static double Distance(double x, double y, double z, DccVector3Data target)
+    {
+        var dx = x - target.X;
+        var dy = y - target.Y;
+        var dz = z - target.Z;
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private readonly record struct SceneBounds(DccVector3Data Center, double Radius);
 
     private static double ResolveNodeScaleX(MaxSceneNodeSnapshotData node)
     {
