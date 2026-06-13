@@ -165,6 +165,10 @@ internal sealed class MaxSceneSnapshotCollector
             Name = $"{node.Name}Mesh"
         };
 
+        // Compute the smoothing-group-aware vertex normals so curved surfaces export smooth and
+        // hard edges (smoothing-group boundaries / unsmoothed faces) stay hard.
+        mesh.BuildNormals();
+
         for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
         {
             var face = mesh.GetFace(faceIndex);
@@ -172,10 +176,11 @@ internal sealed class MaxSceneSnapshotCollector
 
             for (var vertexIndex = 0; vertexIndex < 3; vertexIndex++)
             {
-                var sourceVertexIndex = face.GetVert(vertexIndex);
-                var point = mesh.GetVert((int)sourceVertexIndex);
+                var sourceVertexIndex = (int)face.GetVert(vertexIndex);
+                var point = mesh.GetVert(sourceVertexIndex);
+                var normal = ResolveVertexNormal(mesh, face, sourceVertexIndex, faceNormal);
                 meshData.Positions.Add(new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z });
-                meshData.Normals.Add(new MaxSceneVector3SnapshotData { X = faceNormal.X, Y = faceNormal.Y, Z = faceNormal.Z });
+                meshData.Normals.Add(new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z });
                 meshData.Uv0.Add(ExtractUv(mesh, faceIndex, vertexIndex));
                 meshData.TriangleIndices.Add(meshData.TriangleIndices.Count);
             }
@@ -184,6 +189,35 @@ internal sealed class MaxSceneSnapshotCollector
         }
 
         return meshData;
+    }
+
+    private static IPoint3 ResolveVertexNormal(IMesh mesh, IFace face, int vertexIndex, IPoint3 faceNormal)
+    {
+        // 3ds Max stores per-vertex render normals split by smoothing group. A face with no
+        // smoothing group (0) is hard → keep the face normal. A vertex that resolves to a single
+        // render normal is fully smooth → use it. A vertex split across smoothing groups (a hard
+        // edge or group boundary) keeps the hard face normal — the managed RVertex API exposes
+        // only the primary split normal, so the face normal is the safe, predictable choice there.
+        try
+        {
+            var smoothingGroup = face.SmGroup;
+            if (smoothingGroup == 0)
+                return faceNormal;
+
+            var renderVertex = mesh.GetRVertPtr(vertexIndex);
+            if (renderVertex == null)
+                return faceNormal;
+
+            var normalCount = (int)(renderVertex.RFlags & 0xFFFF);
+            if (normalCount == 1)
+                return renderVertex.Rn.Normal;
+
+            return faceNormal;
+        }
+        catch
+        {
+            return faceNormal;
+        }
     }
 
     private MaxMaterialBindingMap GetMaterialBindingMap(IMtl? material)
