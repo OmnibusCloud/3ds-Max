@@ -5,10 +5,11 @@ name: plugin
 # without a release).
 #
 # The build needs no 3ds Max install, but it DOES need the Autodesk.Max managed SDK assembly, which
-# is proprietary and not committed to this public repo (.gitignore'd). Set the repo secret
-# MAX_SDK_DLL_URL to a private direct-download of Autodesk.Max.dll (e.g. a pre-signed Azure/S3 blob
-# URL or a private release asset); the workflow fetches it into Libs/ before building. The matching
-# .deps.json / .xml metadata are committed, so only the DLL is fetched.
+# is proprietary and not committed here (this repo is going open-source; the Autodesk EULA bars
+# public redistribution). It lives in the private companion repo OmnibusCloud/3ds-Max-SDK; the
+# workflow checks that out with a read-only token (repo secret SDK_REPO_TOKEN) and copies
+# 2027/Autodesk.Max.dll into Libs/ before building. The matching .deps.json / .xml metadata are
+# committed here, so only the DLL is fetched.
 #
 # SIGNING is optional and gated on a configured certificate (see Build-...Package.ps1 /
 # Invoke-OptionalSigning): set repo secrets WINDOWS_CERT_PFX_BASE64 (+ WINDOWS_CERT_PASSWORD) to
@@ -35,26 +36,38 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Autodesk.Max.dll is proprietary and not committed (public repo). Fetch it into Libs/ from a
-      # private URL the operator configures. The csproj references it via Exists(Libs/...), so the
-      # plugin project can only compile once it is present.
-      - name: Restore 3ds Max managed SDK
-        shell: pwsh
+      # Autodesk.Max.dll is proprietary and not committed (repo is going open-source). It lives in
+      # the private companion repo OmnibusCloud/3ds-Max-SDK; check it out with a read-only token and
+      # copy the DLL into Libs/. The csproj references it via Exists(Libs/...), so the plugin project
+      # can only compile once it is present.
+      - name: Check SDK access token
+        shell: bash
         env:
-          MAX_SDK_DLL_URL: ${{ secrets.MAX_SDK_DLL_URL }}
+          SDK_REPO_TOKEN: ${{ secrets.SDK_REPO_TOKEN }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:MAX_SDK_DLL_URL)) {
-            Write-Host "::error::MAX_SDK_DLL_URL secret is not set. The plugin build needs Autodesk.Max.dll (proprietary, not committed to this public repo). Host it privately (pre-signed Azure/S3 blob URL or a private release asset) and set the MAX_SDK_DLL_URL repository secret to a direct download of Autodesk.Max.dll."
+          if [ -z "${SDK_REPO_TOKEN:-}" ]; then
+            echo "::error::SDK_REPO_TOKEN secret is not set. Create a read-only token (contents:read on OmnibusCloud/3ds-Max-SDK) and add it as the SDK_REPO_TOKEN repository secret so CI can fetch Autodesk.Max.dll."
             exit 1
-          }
-          $dest = "OutWit.Render.3dsMax.Plugin/Libs/Autodesk.Max.dll"
-          Invoke-WebRequest -Uri $env:MAX_SDK_DLL_URL -OutFile $dest -MaximumRedirection 5
-          $size = (Get-Item $dest).Length
-          if ($size -lt 100000) {
-            Write-Host "::error::Downloaded Autodesk.Max.dll is only $size bytes - the URL did not return the DLL."
-            exit 1
-          }
-          Write-Host "Restored Autodesk.Max.dll ($size bytes)."
+          fi
+
+      - name: Checkout 3ds Max managed SDK (private companion repo)
+        uses: actions/checkout@v4
+        with:
+          repository: OmnibusCloud/3ds-Max-SDK
+          token: ${{ secrets.SDK_REPO_TOKEN }}
+          path: .sdk
+
+      - name: Stage Autodesk.Max.dll
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=.sdk/2027/Autodesk.Max.dll
+          DEST=OutWit.Render.3dsMax.Plugin/Libs/Autodesk.Max.dll
+          if [ ! -f "$SRC" ]; then echo "::error::$SRC not found in the SDK repo"; exit 1; fi
+          cp "$SRC" "$DEST"
+          SIZE=$(stat -c%s "$DEST")
+          if [ "$SIZE" -lt 100000 ]; then echo "::error::staged Autodesk.Max.dll is only $SIZE bytes"; exit 1; fi
+          echo "Staged Autodesk.Max.dll ($SIZE bytes)."
 
       - name: Resolve version
         id: ver
