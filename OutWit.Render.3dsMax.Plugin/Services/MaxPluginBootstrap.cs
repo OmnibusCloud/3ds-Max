@@ -14,6 +14,7 @@ public sealed class MaxPluginBootstrap
     private RenderDialog? m_renderDialog;
     private ExportDialog? m_exportDialog;
     private SettingsDialog? m_settingsDialog;
+    private SignInDialog? m_signInDialog;
 
     #endregion
 
@@ -148,6 +149,53 @@ public sealed class MaxPluginBootstrap
         (m_settingsDialog.DataContext as IDisposable)?.Dispose();
         m_settingsDialog = null;
     }
+
+    public void ShowSignIn()
+    {
+        if (m_signInDialog is null || !m_signInDialog.IsLoaded)
+        {
+            m_signInDialog = m_commandService.CreateSignInDialog(EnsureApplicationViewModel());
+
+            if (m_signInDialog.DataContext is SignInViewModel signInViewModel)
+                signInViewModel.DialogClosed += _ => m_signInDialog?.Close();
+
+            m_signInDialog.Closed += OnSignInDialogClosed;
+            m_signInDialog.Show();
+            return;
+        }
+
+        m_signInDialog.Activate();
+        m_signInDialog.Focus();
+    }
+
+    private void OnSignInDialogClosed(object? sender, EventArgs e)
+    {
+        if (m_signInDialog is null)
+            return;
+
+        m_signInDialog.Closed -= OnSignInDialogClosed;
+        (m_signInDialog.DataContext as IDisposable)?.Dispose();
+        m_signInDialog = null;
+    }
+
+    public void SignOut()
+    {
+        var applicationVm = EnsureApplicationViewModel();
+        if (applicationVm.CloudSessionVm.SignOutCommand.CanExecute(null))
+            applicationVm.CloudSessionVm.SignOutCommand.Execute(null);
+    }
+
+    public void OpenPortal()
+    {
+        var applicationVm = EnsureApplicationViewModel();
+        if (applicationVm.CloudSessionVm.OpenCloudCommand.CanExecute(null))
+            applicationVm.CloudSessionVm.OpenCloudCommand.Execute(null);
+    }
+
+    /// <summary>
+    /// Whether a cloud session is active — drives the menu gate (Render/Export require sign-in).
+    /// </summary>
+    public bool IsSignedIn => m_applicationVm?.CloudSessionVm.IsSignedIn ?? false;
 
     private ApplicationViewModel EnsureApplicationViewModel()
     {

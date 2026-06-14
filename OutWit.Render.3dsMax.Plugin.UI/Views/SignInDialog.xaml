@@ -1,0 +1,60 @@
+<Window x:Class="OutWit.Render.ThreeDsMax.Plugin.UI.Views.SignInDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
+        Title="OmnibusCloud — Sign in"
+        Width="404"
+        Height="244"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Max.Brush.Window}"
+        TextElement.Foreground="{DynamicResource Max.Brush.Text}"
+        FontSize="12">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <!-- Signing in -->
+        <StackPanel VerticalAlignment="Center" Visibility="{Binding IsSigningIn, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Signing in…" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
+                       Text="We opened your browser. Complete sign-in there and return here — this window closes automatically." />
+            <ProgressBar Margin="0,14,0,0" Height="4" IsIndeterminate="True" Foreground="{DynamicResource Max.Brush.Accent}" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+                <Button Content="Reopen browser" Padding="10,5" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}" />
+                <Button Content="Cancel" Padding="10,5" Command="{Binding CancelCommand}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Success -->
+        <StackPanel VerticalAlignment="Center" Visibility="{Binding IsSuccess, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Signed in" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource Max.Brush.SeverityOk}" />
+            <TextBlock Margin="0,8,0,0" HorizontalAlignment="Center" Text="{Binding UserDisplayName}" />
+            <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
+                       Text="Render and Export are now available." />
+            <Button Content="Done" Padding="14,5" HorizontalAlignment="Center" Margin="0,16,0,0" Command="{Binding DoneCommand}"
+                    Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}" FontWeight="SemiBold" />
+        </StackPanel>
+
+        <!-- Failed / timeout -->
+        <StackPanel VerticalAlignment="Center" Visibility="{Binding IsFailed, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Sign-in didn't complete" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource Max.Brush.SeverityWarning}" />
+            <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
+                       Text="{Binding StatusMessage}" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+                <Button Content="Try again" Padding="14,5" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}"
+                        Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}" FontWeight="SemiBold" />
+                <Button Content="Cancel" Padding="10,5" Command="{Binding CancelCommand}" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

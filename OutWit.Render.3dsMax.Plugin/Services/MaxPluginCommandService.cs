@@ -87,5 +87,14 @@ public sealed class MaxPluginCommandService
         return new SettingsDialog(viewModel);
     }
 
+    /// <summary>
+    /// Creates the Sign-in dialog over the shared application ViewModel (design 4.4).
+    /// </summary>
+    public SignInDialog CreateSignInDialog(ApplicationViewModel applicationVm)
+    {
+        var viewModel = new SignInViewModel(applicationVm);
+        return new SignInDialog(viewModel);
+    }
+
     #endregion
 }
