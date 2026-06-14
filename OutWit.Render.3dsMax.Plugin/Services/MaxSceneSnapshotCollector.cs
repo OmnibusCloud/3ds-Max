@@ -711,8 +711,20 @@ internal sealed class MaxSceneSnapshotCollector
 
     private static void NormalizeMaterialIndices(MaxSceneMeshSnapshotData meshSnapshot, MaxMaterialBindingMap materialBindingMap)
     {
-        if (materialBindingMap.MaterialIds.Count <= 0 || meshSnapshot.MaterialIndices.Count == 0)
+        if (meshSnapshot.MaterialIndices.Count == 0)
             return;
+
+        // With no resolvable material binding (e.g. the node has no material, or a Multi material whose
+        // sub-materials didn't resolve) the raw per-face indices are meaningless and could be anything
+        // 3ds Max left on the faces (sparse Multi/Sub-Object ids reach into the hundreds). The mesh then
+        // has no materials at all, so ANY per-face index is out of range for the generator — drop them
+        // entirely so the mesh renders with a single default material. When a binding exists,
+        // NormalizeMaterialIndex clamps each index into range below.
+        if (materialBindingMap.MaterialIds.Count == 0)
+        {
+            meshSnapshot.MaterialIndices.Clear();
+            return;
+        }
 
         for (var i = 0; i < meshSnapshot.MaterialIndices.Count; i++)
         {

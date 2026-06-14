@@ -43,6 +43,11 @@ public sealed class MaxConnectedRenderSceneAttachmentService
             .Select(me => me.ImageAssetId)
             .Where(me => !string.IsNullOrWhiteSpace(me))
             .ToHashSet(StringComparer.Ordinal);
+
+        // The world environment (HDRI) image is referenced by DccWorldData, not a material texture slot,
+        // so it must be uploaded too — otherwise the generator can't load 'textures/<env>.hdr'.
+        if (!string.IsNullOrWhiteSpace(scene.World?.EnvironmentImageId))
+            referencedImageAssetIds.Add(scene.World!.EnvironmentImageId);
         var uploadedBlobIdsBySourcePath = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var imageAsset in scene.ImageAssets.Where(me => referencedImageAssetIds.Contains(me.Id)))
