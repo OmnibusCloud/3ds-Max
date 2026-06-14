@@ -1,9 +1,12 @@
 using System.ComponentModel;
 using System.IO;
+using System.Windows.Input;
 using OutWit.Common.Aspects;
 using OutWit.Common.MVVM.Commands;
 using OutWit.Common.MVVM.ViewModels;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 
@@ -42,8 +45,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Status = MaxRenderStatus.Ready();
 
         // Seed the output axes from the persisted "last render mode" preference.
-        ApplyRenderModeToAxes(ApplicationVm.Settings.LastRenderMode);
-        SplitFrame = ApplicationVm.Settings.SplitFrame;
+        ApplyRenderModeToAxes(Settings.LastRenderMode);
+        SplitFrame = Settings.SplitFrame;
     }
 
     private void InitEvents()
@@ -55,8 +58,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void InitCommands()
     {
-        RenderCommand = new RelayCommand(_ => Render(), _ => CanRender);
-        CancelCommand = new RelayCommand(_ => Cancel(), _ => CanCancel);
+        RenderCommand = new RelayCommandAsync(RenderAsync);
+        CancelCommand = new RelayCommand(_ => Cancel());
         DetailsCommand = new RelayCommand(_ => ShowDetails());
         UpdateStatus();
     }
@@ -79,7 +82,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             IdentityUrl = CloudVm.IdentityUrl
         };
 
-        var result = await Task.Run(() => ApplicationVm.ConnectedExecutionScopeService.LoadAsync(request));
+        var result = await Task.Run(() => ExecutionScope.LoadAsync(request));
         CloudVm.ApplyExecutionScope(result);
         LaunchVm.ApplyExecutionScope(result);
         UpdateStatus();
@@ -87,14 +90,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void ValidateScene()
     {
-        var result = ApplicationVm.SceneExportService.ValidateCurrentScene();
+        var result = SceneExport.ValidateCurrentScene();
         SummaryVm.Apply(result.Summary);
         LaunchVm.ApplySceneDefaults(result.Summary);
         DiagnosticsVm.Apply(result.Diagnostics);
         UpdateStatus();
     }
 
-    private async void Render()
+    private async Task RenderAsync()
     {
         m_cancelRequested = false;
         PushAxesToRenderMode();
@@ -104,7 +107,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus();
 
         var request = BuildRequest();
-        var jobState = await Task.Run(() => ApplicationVm.ConnectedRenderService.LaunchRenderAsync(request));
+        var jobState = await Task.Run(() => ConnectedRender.LaunchRenderAsync(request));
 
         LaunchVm.ApplyJobState(jobState);
         DiagnosticsVm.Apply(jobState.Diagnostics);
@@ -121,7 +124,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task PollUntilTerminalAsync(MaxConnectedRenderJobState jobState)
     {
-        // Source of truth is the server job status (MX-13), polled until terminal. Close ≠ cancel
+        // Source of truth is the server job status (MX-13), polled until terminal. Close != cancel
         // (MX-5): if the dialog is closed the job keeps running; only Cancel stops the loop.
         while (!m_cancelRequested)
         {
@@ -146,7 +149,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             if (m_cancelRequested)
                 break;
 
-            jobState = await Task.Run(() => ApplicationVm.ConnectedRenderService.RefreshJobAsync(jobState));
+            jobState = await Task.Run(() => ConnectedRender.RefreshJobAsync(jobState));
             LaunchVm.ApplyJobState(jobState);
             DiagnosticsVm.Apply(jobState.Diagnostics);
         }
@@ -168,7 +171,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         // window is a follow-up; the data it shows is gathered here into DiagnosticsVm / SummaryVm.
         ValidateScene();
 
-        var preflight = ApplicationVm.ConnectedRenderPreflightService.Run(BuildRequest());
+        var preflight = Preflight.Run(BuildRequest());
         LaunchVm.ApplyPreflight(preflight);
         DiagnosticsVm.Apply(preflight.Diagnostics);
         UpdateStatus();
@@ -201,17 +204,13 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void UpdateStatus()
     {
-        var hasSession = CloudVm.IsSignedIn;
-        CanRender = hasSession && !Status.IsActiveJob;
+        CanRender = CloudVm.IsSignedIn && !Status.IsActiveJob;
         CanCancel = Status.IsActiveJob && !m_cancelRequested;
         IsImageOutput = OutputAxis == RenderOutputAxis.Image;
         IsAnimationOutput = OutputAxis == RenderOutputAxis.Animation;
         StatusLine = Status.StatusLine;
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
-
-        RenderCommand.RaiseCanExecuteChanged();
-        CancelCommand.RaiseCanExecuteChanged();
     }
 
     private void PushAxesToRenderMode()
@@ -252,14 +251,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void PersistRenderSettings()
     {
-        if (!ApplicationVm.Settings.RememberLastRenderSettings)
+        if (!Settings.RememberLastRenderSettings)
             return;
 
-        ApplicationVm.Settings.LastRenderMode = ResolveRenderMode();
-        ApplicationVm.Settings.SplitFrame = SplitFrame;
-        ApplicationVm.Settings.UseAllClients = LaunchVm.UseAllClients;
-        ApplicationVm.Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
-        ApplicationVm.Settings.SettingsManager.Save();
+        Settings.LastRenderMode = ResolveRenderMode();
+        Settings.SplitFrame = SplitFrame;
+        Settings.UseAllClients = LaunchVm.UseAllClients;
+        Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
+        Settings.SettingsManager.Save();
     }
 
     private static MaxRenderStatus MapJobToStatus(MaxConnectedRenderJobState jobState)
@@ -354,11 +353,25 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     #region Commands
 
-    public RelayCommand RenderCommand { get; private set; } = null!;
+    public ICommand RenderCommand { get; private set; } = null!;
 
-    public RelayCommand CancelCommand { get; private set; } = null!;
+    public ICommand CancelCommand { get; private set; } = null!;
 
-    public RelayCommand DetailsCommand { get; private set; } = null!;
+    public ICommand DetailsCommand { get; private set; } = null!;
+
+    #endregion
+
+    #region Services
+
+    private MaxSceneExportService SceneExport => ApplicationVm.SceneExportService;
+
+    private MaxConnectedRenderService ConnectedRender => ApplicationVm.ConnectedRenderService;
+
+    private MaxConnectedRenderPreflightService Preflight => ApplicationVm.ConnectedRenderPreflightService;
+
+    private MaxConnectedExecutionScopeService ExecutionScope => ApplicationVm.ConnectedExecutionScopeService;
+
+    private MaxPluginSettings Settings => ApplicationVm.Settings;
 
     #endregion
 }
