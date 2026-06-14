@@ -12,6 +12,7 @@ public sealed class MaxPluginBootstrap
     private ApplicationViewModel? m_applicationVm;
     private ExportWindow? m_exportWindow;
     private RenderDialog? m_renderDialog;
+    private ExportDialog? m_exportDialog;
 
     #endregion
 
@@ -82,6 +83,38 @@ public sealed class MaxPluginBootstrap
         m_renderDialog.Closed -= OnRenderDialogClosed;
         (m_renderDialog.DataContext as IDisposable)?.Dispose();
         m_renderDialog = null;
+    }
+
+    public void ShowExportDialog()
+    {
+        if (m_exportDialog is null || !m_exportDialog.IsLoaded)
+        {
+            m_exportDialog = m_commandService.CreateExportDialog(EnsureApplicationViewModel());
+
+            // Wire the VM's close signal to the window here (host-side) so the View stays code-behind-free.
+            if (m_exportDialog.DataContext is ExportDialogViewModel exportViewModel)
+                exportViewModel.DialogClosed += _ => m_exportDialog?.Close();
+
+            m_exportDialog.Closed += OnExportDialogClosed;
+            m_exportDialog.Show();
+            return;
+        }
+
+        if (m_exportDialog.WindowState == WindowState.Minimized)
+            m_exportDialog.WindowState = WindowState.Normal;
+
+        m_exportDialog.Activate();
+        m_exportDialog.Focus();
+    }
+
+    private void OnExportDialogClosed(object? sender, EventArgs e)
+    {
+        if (m_exportDialog is null)
+            return;
+
+        m_exportDialog.Closed -= OnExportDialogClosed;
+        (m_exportDialog.DataContext as IDisposable)?.Dispose();
+        m_exportDialog = null;
     }
 
     private ApplicationViewModel EnsureApplicationViewModel()

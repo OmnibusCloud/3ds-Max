@@ -1,0 +1,109 @@
+<Window x:Class="OutWit.Render.ThreeDsMax.Plugin.UI.Views.ExportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
+        Title="OmnibusCloud — Export"
+        Width="452"
+        Height="320"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Max.Brush.Window}"
+        TextElement.Foreground="{DynamicResource Max.Brush.Text}"
+        FontSize="12">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <conv:EnumToBooleanConverter x:Key="EnumToBool" />
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{DynamicResource Max.Brush.TitleBar}" Padding="14,10">
+            <StackPanel>
+                <TextBlock Text="Export scene" FontSize="14" FontWeight="SemiBold" />
+                <TextBlock Margin="0,2,0,0" Foreground="{DynamicResource Max.Brush.TextMuted}"
+                           Text="{Binding SummaryVm.SceneName}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Body -->
+        <Grid Grid.Row="1" Margin="14,12">
+
+            <!-- Ready -->
+            <StackPanel Visibility="{Binding IsReady, Converter={StaticResource BoolToVis}}">
+                <Border Background="{DynamicResource Max.Brush.Panel}" BorderBrush="{DynamicResource Max.Brush.GroupBorder}"
+                        BorderThickness="1" CornerRadius="4" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="Target" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <RadioButton GroupName="ExportTarget" Content="Blender scene (.blend) — built on the server"
+                                     IsChecked="{Binding Target, Converter={StaticResource EnumToBool}, ConverterParameter=Blend}" />
+                        <RadioButton GroupName="ExportTarget" Margin="0,4,0,0" Content="DCC JSON (.json) — local neutral export"
+                                     IsChecked="{Binding Target, Converter={StaticResource EnumToBool}, ConverterParameter=DccJson}" />
+                        <CheckBox Margin="0,8,0,0" Content="Pack textures &amp; assets"
+                                  Visibility="{Binding IsBlend, Converter={StaticResource BoolToVis}}"
+                                  IsChecked="{Binding PackAssets}" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Save to" FontWeight="SemiBold" Margin="0,12,0,4" />
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Browse…" Padding="10,4" Margin="8,0,0,0" Command="{Binding BrowseCommand}" />
+                    <TextBox Text="{Binding OutputFolder}" Background="{DynamicResource Max.Brush.Input}"
+                             Foreground="{DynamicResource Max.Brush.Text}" Padding="6,4" VerticalContentAlignment="Center" />
+                </DockPanel>
+            </StackPanel>
+
+            <!-- Exporting -->
+            <StackPanel VerticalAlignment="Center" Visibility="{Binding IsExporting, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding StatusLine}" HorizontalAlignment="Center" />
+                <ProgressBar Margin="0,10,0,0" Height="4" IsIndeterminate="True"
+                             Foreground="{DynamicResource Max.Brush.Accent}" />
+            </StackPanel>
+
+            <!-- Completed -->
+            <StackPanel VerticalAlignment="Center" Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Export complete" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           Foreground="{DynamicResource Max.Brush.SeverityOk}" />
+                <TextBlock Text="{Binding ResultFileName}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
+                    <Button Content="Open folder" Padding="10,4" Margin="0,0,8,0" Command="{Binding OpenFolderCommand}" />
+                    <Button Content="New export" Padding="10,4" Command="{Binding NewExportCommand}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Failed -->
+            <StackPanel VerticalAlignment="Center" Visibility="{Binding IsFailed, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Export failed" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           Foreground="{DynamicResource Max.Brush.SeverityError}" />
+                <TextBlock Text="{Binding ErrorMessage}" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,6,0,0" />
+                <Button Content="New export" Padding="10,4" HorizontalAlignment="Center" Margin="0,12,0,0" Command="{Binding NewExportCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="{DynamicResource Max.Brush.Footer}" Padding="14,10">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="11"
+                           Text="{Binding CloudVm.UserDisplayName}" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Padding="10,5" Margin="0,0,8,0" Command="{Binding CancelCommand}" />
+                    <Button Content="Export" Padding="14,5" Command="{Binding ExportCommand}" IsEnabled="{Binding CanExport}"
+                            Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}"
+                            FontWeight="SemiBold"
+                            Visibility="{Binding IsReady, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

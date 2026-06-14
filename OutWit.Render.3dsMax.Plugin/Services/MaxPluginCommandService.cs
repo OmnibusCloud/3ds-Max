@@ -69,5 +69,14 @@ public sealed class MaxPluginCommandService
         return new RenderDialog(viewModel);
     }
 
+    /// <summary>
+    /// Creates the Export dialog over the shared application ViewModel (design 4.2).
+    /// </summary>
+    public ExportDialog CreateExportDialog(ApplicationViewModel applicationVm)
+    {
+        var viewModel = new ExportDialogViewModel(applicationVm);
+        return new ExportDialog(viewModel);
+    }
+
     #endregion
 }
