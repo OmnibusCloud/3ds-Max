@@ -16,9 +16,20 @@ and `Assert.Ignore` cleanly when a scene is missing — so a checkout without
 │   ├── Characters/Complete/           # TarrasqueTextured.max
 │   ├── Mixamo/                        # house_dancing_413.max
 │   ├── ViewportRendering/             # robby_vs_fly.max
-│   └── Crowd/MotionClips/             # Eagles.max
+│   ├── Crowd/MotionClips/             # Eagles.max
+│   │   # --- Dcc 1.4 feature render smoke scenes (one per collector feature) ---
+│   ├── Flex/                          # Flex-TeaPotBounce.max               (deformation)
+│   ├── Displacement/                  # Displacement-MoonRock.max + MOON.JPG (displacement)
+│   ├── CameraEffects/                 # MotionBlur-DragonFlying_Scanline.max + dragon textures (motion blur)
+│   ├── Lighting/                      # Lighting-Vertex.max                 (vertex colours)
+│   └── Rendering/hardwood.mat.lab/    # hardwood_hdri_ART.max + kitchen.hdr (HDRI environment)
 └── Maps and Materials/                # shared sample maps tree (bitmap lookups)
 ```
+
+The feature scenes back `SmokeRenderDccSceneStillThrough3dsMaxBatchFeatureSceneTest` — each
+is a real Autodesk sample carrying one Dcc 1.4 field the collector now reads from Max, rendered
+through the real farm to prove the collector reads the real scene end-to-end. Copy them (with the
+neighbouring maps/HDRI) from `WitEngine/@Data/3ds_max/Scenes/...`.
 
 ## Where to get the content
 

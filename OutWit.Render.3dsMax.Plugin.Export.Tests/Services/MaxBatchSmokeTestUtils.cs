@@ -24,6 +24,20 @@ internal static class MaxBatchSmokeTestUtils
         @"Scenes\Mixamo\house_dancing_413.max"
     ];
 
+    // Autodesk sample-library scenes (under @Data\3ds_max), each chosen to exercise a specific Dcc 1.4
+    // field the collector now reads from Max. Rendered as a still through the real farm — this proves
+    // the collector reads each real feature scene end-to-end without falling over. A per-frame visual
+    // diff for deformation/animation is covered by the synthetic SDK live tests
+    // (RenderDccSceneFeaturesLiveDistributedIntegrationTests).
+    private static readonly IReadOnlyList<(string Feature, string ScenePath)> FEATURE_RENDER_SMOKE_SCENES =
+    [
+        ("Deformation", @"Scenes\Flex\Flex-TeaPotBounce.max"),
+        ("Displacement", @"Scenes\Displacement\Displacement-MoonRock.max"),
+        ("MotionBlur", @"Scenes\CameraEffects\MotionBlur-DragonFlying_Scanline.max"),
+        ("VertexColours", @"Scenes\Lighting\Lighting-Vertex.max"),
+        ("HdriEnvironment", @"Scenes\Rendering\hardwood.mat.lab\hardwood_hdri_ART.max")
+    ];
+
     private const string BATCH_EXECUTABLE_PATH_ENVIRONMENT_VARIABLE_NAME = "OUTWIT_3DSMAX_BATCH_PATH";
 
     private const string PLUGIN_ASSEMBLY_PATH_ENVIRONMENT_VARIABLE_NAME = "OUTWIT_3DSMAX_PLUGIN_ASSEMBLY_PATH";
@@ -133,6 +147,15 @@ internal static class MaxBatchSmokeTestUtils
         {
             yield return new TestCaseData(scenePath)
                 .SetName($"{{m}}_{Path.GetFileNameWithoutExtension(scenePath)}");
+        }
+    }
+
+    public static IEnumerable<TestCaseData> GetFeatureRenderSmokeSceneCases()
+    {
+        foreach (var (feature, scenePath) in FEATURE_RENDER_SMOKE_SCENES)
+        {
+            yield return new TestCaseData(feature, scenePath)
+                .SetName($"{{m}}_{feature}");
         }
     }
 
