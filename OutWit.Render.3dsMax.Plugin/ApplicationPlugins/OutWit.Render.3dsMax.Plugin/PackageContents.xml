@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage SchemaVersion="1.0"
                     AutodeskProduct="3ds Max"
-                    Name="OutWit Export"
-                    Description="OutWit exporter integration for 3ds Max."
+                    Name="OmnibusCloud"
+                    Description="OmnibusCloud render and scene-export integration for 3ds Max."
                     AppVersion="1.0.0"
                     FriendlyVersion="1.0.0"
                     ProductType="Application"
@@ -18,6 +18,11 @@
   </Components>
   <Components Description="macroscripts parts">
     <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Render.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_ExportScene.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Settings.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignInOut.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Portal.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Export.mcr" />
   </Components>
 </ApplicationPackage>

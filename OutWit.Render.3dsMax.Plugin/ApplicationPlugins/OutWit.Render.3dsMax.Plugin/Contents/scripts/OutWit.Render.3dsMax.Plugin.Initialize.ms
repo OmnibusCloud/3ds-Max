@@ -1,7 +1,18 @@
+global OutWit_3dsMax_Bootstrap
 global OutWit_3dsMax_ResolvePackageRoot
 global OutWit_3dsMax_ResolveAssemblyPath
 global OutWit_3dsMax_EnsurePluginLoaded
+global OutWit_3dsMax_EnsureBootstrap
+global OutWit_3dsMax_ReportFailure
 global OutWit_3dsMax_ShowExportWindow
+global OutWit_3dsMax_ShowRenderDialog
+global OutWit_3dsMax_ShowExportDialog
+global OutWit_3dsMax_ShowSettings
+global OutWit_3dsMax_ShowSignIn
+global OutWit_3dsMax_SignOut
+global OutWit_3dsMax_OpenPortal
+global OutWit_3dsMax_ToggleSignInOut
+global OutWit_3dsMax_IsSignedIn
 global OutWit_3dsMax_RegisterMenu
 
 dotNet.loadAssembly "System"
@@ -25,28 +36,85 @@ fn OutWit_3dsMax_EnsurePluginLoaded =
     local assemblyPath = OutWit_3dsMax_ResolveAssemblyPath()
 
     if doesFileExist assemblyPath == false do
-        throw ("OutWit Export assembly was not found: " + assemblyPath)
+        throw ("OmnibusCloud assembly was not found: " + assemblyPath)
 
     dotNet.loadAssembly assemblyPath
     assemblyPath
 )
 
-fn OutWit_3dsMax_ShowExportWindow =
+-- One shared bootstrap (hence one ApplicationViewModel / cloud session) across every dialog.
+fn OutWit_3dsMax_EnsureBootstrap =
 (
-    try
+    if OutWit_3dsMax_Bootstrap == undefined do
     (
         OutWit_3dsMax_EnsurePluginLoaded()
-        local bootstrap = dotNetObject "OutWit.Render.ThreeDsMax.Plugin.Services.MaxPluginBootstrap"
-        bootstrap.ShowExportWindow()
-        true
+        OutWit_3dsMax_Bootstrap = dotNetObject "OutWit.Render.ThreeDsMax.Plugin.Services.MaxPluginBootstrap"
     )
-    catch
-    (
-        local message = getCurrentException() as string
-        format "OutWit Export failed: %\n" message
-        messageBox ("OutWit Export failed:\n" + message) title:"OutWit Export"
-        false
-    )
+    OutWit_3dsMax_Bootstrap
+)
+
+fn OutWit_3dsMax_ReportFailure title =
+(
+    local message = getCurrentException() as string
+    format "% failed: %\n" title message
+    messageBox (title + " failed:\n" + message) title:title
+    false
+)
+
+fn OutWit_3dsMax_ShowExportWindow =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowExportWindow(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Export" )
+)
+
+fn OutWit_3dsMax_ShowRenderDialog =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowRenderDialog(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Render" )
+)
+
+fn OutWit_3dsMax_ShowExportDialog =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowExportDialog(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Export" )
+)
+
+fn OutWit_3dsMax_ShowSettings =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowSettings(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Settings" )
+)
+
+fn OutWit_3dsMax_ShowSignIn =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowSignIn(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Sign in" )
+)
+
+fn OutWit_3dsMax_SignOut =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).SignOut(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Sign out" )
+)
+
+fn OutWit_3dsMax_OpenPortal =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).OpenPortal(); true )
+    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Portal" )
+)
+
+-- Gate query for the Render/Export menu items. Must NOT create the bootstrap, so hovering the menu has
+-- no side effects: no bootstrap yet means no session, hence not signed in.
+fn OutWit_3dsMax_IsSignedIn =
+(
+    try ( if OutWit_3dsMax_Bootstrap == undefined then false else OutWit_3dsMax_Bootstrap.IsSignedIn )
+    catch false
+)
+
+-- Single "Sign in / out" item: sign out when a session is active, otherwise open the sign-in dialog.
+fn OutWit_3dsMax_ToggleSignInOut =
+(
+    if OutWit_3dsMax_IsSignedIn() then OutWit_3dsMax_SignOut() else OutWit_3dsMax_ShowSignIn()
 )
 
 fn OutWit_3dsMax_RegisterMenu =
@@ -58,20 +126,25 @@ fn OutWit_3dsMax_RegisterMenu =
 
     local mainMenuBar = menuMgr.mainMenuBar
     local helpId = "cee8f758-2199-411b-81e7-d3ff4a80d143"
-    local outWitMenuId = "A1A0A6B8-AC2E-4D23-BD95-FD0FEAEE9D9A"
-    local outWitActionId = "9DB6D1E7-13BF-4C11-8EC7-9866C3BD4B5A"
+    local menuId = "B5F1E2C0-1A4D-4E2B-9C3A-7D6E5F4A3B21"
 
-    if (menuMgr.GetMenuItemById outWitMenuId) != undefined do
+    if (menuMgr.GetMenuItemById menuId) != undefined do
         return true
 
-    local newSubMenu
+    local sub
     if (menuMgr.GetMenuItemById helpId) == undefined then
-        newSubMenu = mainMenuBar.CreateSubMenu outWitMenuId "OutWit"
+        sub = mainMenuBar.CreateSubMenu menuId "OmnibusCloud"
     else
-        newSubMenu = mainMenuBar.CreateSubMenu outWitMenuId "OutWit" beforeId:helpId
+        sub = mainMenuBar.CreateSubMenu menuId "OmnibusCloud" beforeId:helpId
 
-    local actionMenu = newSubMenu.CreateAction outWitActionId 647394 "OutWitExport`OutWit"
-    actionMenu.isFlat = true
+    -- macroScript actions live in the "Macros" action table (647394); the "Name`category" string
+    -- selects the macro. Render/Export grey out until signed in via each macro's own isEnabled handler.
+    sub.CreateAction "B5F1E2C0-0001-4E2B-9C3A-000000000001" 647394 "OutWitRender`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0002-4E2B-9C3A-000000000002" 647394 "OutWitExportScene`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0003-4E2B-9C3A-000000000003" 647394 "OutWitSignInOut`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0004-4E2B-9C3A-000000000004" 647394 "OutWitSettings`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0005-4E2B-9C3A-000000000005" 647394 "OutWitPortal`OmnibusCloud"
+
     true
 )
 
