@@ -1,0 +1,36 @@
+{
+  "General": [
+    { "key": "ThemeMode", "value": "FollowMax", "valueKind": "String" }
+  ],
+  "Output": [
+    { "key": "ExportTarget", "value": "Blend", "valueKind": "String" },
+    { "key": "OutputFolder", "value": "", "valueKind": "String" },
+    { "key": "OpenFolderAfterExport", "value": "True", "valueKind": "Boolean" }
+  ],
+  "Render": [
+    { "key": "RememberLastRenderSettings", "value": "True", "valueKind": "Boolean" },
+    { "key": "LastRenderMode", "value": "RenderStill", "valueKind": "String" },
+    { "key": "SplitFrame", "value": "False", "valueKind": "Boolean" },
+    { "key": "TilesX", "value": "2", "valueKind": "Integer" },
+    { "key": "TilesY", "value": "2", "valueKind": "Integer" },
+    { "key": "TileOverlap", "value": "8", "valueKind": "Integer" },
+    { "key": "VideoContainer", "value": "mp4", "valueKind": "String" },
+    { "key": "VideoCodec", "value": "h264", "valueKind": "String" },
+    { "key": "VideoCrf", "value": "18", "valueKind": "Integer" }
+  ],
+  "Target": [
+    { "key": "UseAllClients", "value": "False", "valueKind": "Boolean" },
+    { "key": "LastGroupId", "value": "", "valueKind": "String" },
+    { "key": "LastGroupName", "value": "", "valueKind": "String" }
+  ],
+  "Diagnostics": [
+    { "key": "LogLevel", "value": "Information", "valueKind": "String" }
+  ],
+  "__groups__": {
+    "General": { "displayName": "General", "priority": 0 },
+    "Output": { "displayName": "Output", "priority": 1 },
+    "Render": { "displayName": "Render", "priority": 2 },
+    "Target": { "displayName": "Target", "priority": 3 },
+    "Diagnostics": { "displayName": "Diagnostics", "priority": 4 }
+  }
+}
