@@ -1,0 +1,33 @@
+<!--
+  OmnibusCloud 3ds Max plugin palette — LIGHT variant (design section 5, "Светлая · OmnibusCloud").
+  Same brush keys as MaxPalette.xaml (dark) so the theme service can append this over the default and
+  win via DynamicResource. White window on light surfaces, dark text; one brand accent (muted lime +
+  navy on-accent) shared with dark; severity colours are orthogonal and kept identical across themes.
+  Provisional hexes derived from the design swatches — final tuning happens when validated in Max light
+  mode (light is opt-in via the host color manager; dark stays the default).
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Light · OmnibusCloud · surfaces -->
+    <SolidColorBrush x:Key="Max.Brush.TitleBar" Color="#ECEEF1" />
+    <SolidColorBrush x:Key="Max.Brush.Window" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.Panel" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="Max.Brush.Footer" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="Max.Brush.Input" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.Border" Color="#E4E5E8" />
+    <SolidColorBrush x:Key="Max.Brush.GroupBorder" Color="#E4E5E8" />
+    <SolidColorBrush x:Key="Max.Brush.ButtonEdge" Color="#C9CCD2" />
+
+    <!-- Light · text + severity (severity identical to dark — orthogonal to the brand) -->
+    <SolidColorBrush x:Key="Max.Brush.Text" Color="#2C2C2A" />
+    <SolidColorBrush x:Key="Max.Brush.TextMuted" Color="#6B6E76" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityOk" Color="#8FD47F" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityWarning" Color="#E0A53E" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityError" Color="#E08A86" />
+
+    <!-- Brand accent · one for everything, shared with dark (muted lime fill + navy on-accent) -->
+    <SolidColorBrush x:Key="Max.Brush.Accent" Color="#5BBF4A" />
+    <SolidColorBrush x:Key="Max.Brush.OnAccent" Color="#1A2B4C" />
+
+</ResourceDictionary>

@@ -1,5 +1,7 @@
+using Autodesk.Max;
 using OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Views;
+using OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Services;
@@ -50,8 +52,38 @@ public sealed class MaxPluginCommandService
     public ApplicationViewModel CreateApplicationViewModel()
     {
         var exportService = CreateExportService();
-        var services = new MaxPluginServices(exportService);
+        var services = new MaxPluginServices(exportService, CreateStatusBarService());
         return new ApplicationViewModel(services);
+    }
+
+    /// <summary>
+    /// Creates the host status-bar reporter, or a no-op when no Max host is available (e.g. tests).
+    /// </summary>
+    private static IMaxStatusBarService CreateStatusBarService()
+    {
+        try
+        {
+            return new MaxStatusBarService(GlobalInterface.Instance.COREInterface);
+        }
+        catch
+        {
+            return MaxStatusBarServiceNull.Instance;
+        }
+    }
+
+    /// <summary>
+    /// Creates the follow-Max theme service (MX-14), or the dark default when no Max host is available.
+    /// </summary>
+    public IMaxThemeService CreateThemeService()
+    {
+        try
+        {
+            return new MaxThemeService(GlobalInterface.Instance);
+        }
+        catch
+        {
+            return MaxThemeServiceNull.Instance;
+        }
     }
 
     public ExportWindow CreateExportWindow()

@@ -211,6 +211,12 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         StatusLine = Status.StatusLine;
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
+
+        // Mirror active/terminal render status to the host prompt line (MX-5/6) so progress stays
+        // visible while the dialog is minimized. Idle (Ready) states are not pushed, to avoid noise;
+        // a terminal message persists in the prompt (the status bar service is shared/long-lived).
+        if (Status.IsActiveJob || Status.IsTerminal)
+            StatusBar.Report(Status);
     }
 
     private void PushAxesToRenderMode()
@@ -372,6 +378,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     private MaxConnectedExecutionScopeService ExecutionScope => ApplicationVm.ConnectedExecutionScopeService;
 
     private MaxPluginSettings Settings => ApplicationVm.Settings;
+
+    private IMaxStatusBarService StatusBar => ApplicationVm.StatusBar;
 
     #endregion
 }

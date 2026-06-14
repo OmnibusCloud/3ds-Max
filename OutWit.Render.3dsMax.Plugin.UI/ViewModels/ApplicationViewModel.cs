@@ -47,6 +47,8 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     public MaxSceneExportService SceneExportService => Services.SceneExportService;
 
+    public IMaxStatusBarService StatusBar => Services.StatusBar;
+
     public IMaxSystemBrowserLauncher BrowserLauncher => Services.BrowserLauncher;
 
     public IMaxCloudSessionService CloudSessionService => Services.CloudSessionService;

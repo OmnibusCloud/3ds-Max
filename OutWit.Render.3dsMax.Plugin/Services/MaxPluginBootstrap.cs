@@ -1,5 +1,6 @@
 using OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Views;
+using OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
 using System.Windows;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Services;
@@ -9,6 +10,7 @@ public sealed class MaxPluginBootstrap
     #region Fields
 
     private readonly MaxPluginCommandService m_commandService;
+    private readonly IMaxThemeService m_themeService;
     private ApplicationViewModel? m_applicationVm;
     private ExportWindow? m_exportWindow;
     private RenderDialog? m_renderDialog;
@@ -23,6 +25,7 @@ public sealed class MaxPluginBootstrap
     public MaxPluginBootstrap()
     {
         m_commandService = new MaxPluginCommandService();
+        m_themeService = m_commandService.CreateThemeService();
     }
 
     #endregion
@@ -65,6 +68,7 @@ public sealed class MaxPluginBootstrap
         if (m_renderDialog is null || !m_renderDialog.IsLoaded)
         {
             m_renderDialog = m_commandService.CreateRenderDialog(EnsureApplicationViewModel());
+            MaxThemeResources.Apply(m_renderDialog, m_themeService.CurrentTheme);
             m_renderDialog.Closed += OnRenderDialogClosed;
             m_renderDialog.Show();
             return;
@@ -92,6 +96,7 @@ public sealed class MaxPluginBootstrap
         if (m_exportDialog is null || !m_exportDialog.IsLoaded)
         {
             m_exportDialog = m_commandService.CreateExportDialog(EnsureApplicationViewModel());
+            MaxThemeResources.Apply(m_exportDialog, m_themeService.CurrentTheme);
 
             // Wire the VM's close signal to the window here (host-side) so the View stays code-behind-free.
             if (m_exportDialog.DataContext is ExportDialogViewModel exportViewModel)
@@ -124,6 +129,7 @@ public sealed class MaxPluginBootstrap
         if (m_settingsDialog is null || !m_settingsDialog.IsLoaded)
         {
             m_settingsDialog = m_commandService.CreateSettingsDialog(EnsureApplicationViewModel());
+            MaxThemeResources.Apply(m_settingsDialog, m_themeService.CurrentTheme);
 
             if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
                 settingsViewModel.DialogClosed += _ => m_settingsDialog?.Close();
@@ -155,6 +161,7 @@ public sealed class MaxPluginBootstrap
         if (m_signInDialog is null || !m_signInDialog.IsLoaded)
         {
             m_signInDialog = m_commandService.CreateSignInDialog(EnsureApplicationViewModel());
+            MaxThemeResources.Apply(m_signInDialog, m_themeService.CurrentTheme);
 
             if (m_signInDialog.DataContext is SignInViewModel signInViewModel)
                 signInViewModel.DialogClosed += _ => m_signInDialog?.Close();

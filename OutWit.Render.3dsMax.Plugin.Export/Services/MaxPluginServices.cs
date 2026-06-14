@@ -15,9 +15,10 @@ public sealed class MaxPluginServices
 {
     #region Constructors
 
-    public MaxPluginServices(MaxSceneExportService sceneExportService)
+    public MaxPluginServices(MaxSceneExportService sceneExportService, IMaxStatusBarService? statusBar = null)
     {
         SceneExportService = sceneExportService;
+        StatusBar = statusBar ?? MaxStatusBarServiceNull.Instance;
         Logger = MaxPluginLogging.Logger;
         Settings = MaxPluginSettingsFactory.Create();
 
@@ -43,6 +44,9 @@ public sealed class MaxPluginServices
 
     /// <summary>Scene export/validation (wraps the host-only scene snapshot provider).</summary>
     public MaxSceneExportService SceneExportService { get; }
+
+    /// <summary>Host prompt-line status reporting (no-op when there is no Max host).</summary>
+    public IMaxStatusBarService StatusBar { get; }
 
     /// <summary>Shared Serilog logger writing to the per-user logs directory.</summary>
     public ILogger Logger { get; }
