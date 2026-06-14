@@ -255,14 +255,37 @@ public sealed class RenderDccSceneFeaturesLiveDistributedIntegrationTests : Live
 
     private static async Task<Guid[]> GetFrameBlobIdsAsync(WitJobHandle handle, Guid?[]? waitResult, CancellationToken cancellationToken)
     {
+        // RenderDccSceneFrames returns the per-frame blob ids, but the result binds to different shapes
+        // depending on the path (Guid?[] from WaitAsync, Guid[] / List<Guid?> from GetResult). Try each,
+        // mirroring the proven RenderDccScene frames live test.
         if (waitResult is { Length: > 0 })
             return waitResult.Where(me => me.HasValue).Select(me => me!.Value).ToArray();
 
         try
         {
-            var result = await handle.GetResultAsync<Guid?[]>(ct: cancellationToken);
+            var result = await handle.GetResultAsync<Guid[]>(ct: cancellationToken);
             if (result is { Length: > 0 })
-                return result.Where(me => me.HasValue).Select(me => me!.Value).ToArray();
+                return result.Where(me => me != Guid.Empty).ToArray();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var nullableResult = await handle.GetResultAsync<Guid?[]>(ct: cancellationToken);
+            if (nullableResult is { Length: > 0 })
+                return nullableResult.Where(me => me.HasValue).Select(me => me!.Value).ToArray();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var listResult = await handle.GetResultAsync<List<Guid?>>(ct: cancellationToken);
+            if (listResult is { Count: > 0 })
+                return listResult.Where(me => me.HasValue).Select(me => me!.Value).ToArray();
         }
         catch
         {
