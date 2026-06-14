@@ -1,0 +1,117 @@
+<Window x:Class="OutWit.Render.ThreeDsMax.Plugin.UI.Views.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
+        Title="OmnibusCloud — Settings"
+        Width="432"
+        Height="408"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Max.Brush.Window}"
+        TextElement.Foreground="{DynamicResource Max.Brush.Text}"
+        FontSize="12">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <conv:EnumToBooleanConverter x:Key="EnumToBool" />
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="130" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar -->
+        <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource Max.Brush.Footer}" Padding="6,10">
+            <StackPanel>
+                <RadioButton GroupName="Section" Content="General" Padding="8,6"
+                             IsChecked="{Binding Section, Converter={StaticResource EnumToBool}, ConverterParameter=General}" />
+                <RadioButton GroupName="Section" Content="Connection" Padding="8,6"
+                             IsChecked="{Binding Section, Converter={StaticResource EnumToBool}, ConverterParameter=Connection}" />
+                <RadioButton GroupName="Section" Content="Output" Padding="8,6"
+                             IsChecked="{Binding Section, Converter={StaticResource EnumToBool}, ConverterParameter=Output}" />
+                <RadioButton GroupName="Section" Content="Diagnostics" Padding="8,6"
+                             IsChecked="{Binding Section, Converter={StaticResource EnumToBool}, ConverterParameter=Diagnostics}" />
+                <RadioButton GroupName="Section" Content="About" Padding="8,6"
+                             IsChecked="{Binding Section, Converter={StaticResource EnumToBool}, ConverterParameter=About}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="0" Grid.Column="1" Margin="14,12" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <!-- General -->
+                <StackPanel Visibility="{Binding IsGeneral, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Account" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding CloudVm.UserDisplayName}" Foreground="{DynamicResource Max.Brush.TextMuted}" Margin="0,2,0,10" />
+                    <CheckBox Content="Remember last render settings" IsChecked="{Binding RememberLastRenderSettings}" />
+                    <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableThemes}" SelectedItem="{Binding SelectedTheme}" HorizontalAlignment="Left" Width="160" />
+                </StackPanel>
+
+                <!-- Connection -->
+                <StackPanel Visibility="{Binding IsConnection, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Cloud URL" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding CloudUrl}" Background="{DynamicResource Max.Brush.Input}" Foreground="{DynamicResource Max.Brush.Text}" Padding="6,4" Margin="0,2,0,8" />
+                    <TextBlock Text="Identity URL" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding IdentityUrl}" Background="{DynamicResource Max.Brush.Input}" Foreground="{DynamicResource Max.Brush.Text}" Padding="6,4" Margin="0,2,0,8" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Test connection" Padding="10,4" Command="{Binding TestConnectionCommand}" />
+                        <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                   Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Output -->
+                <StackPanel Visibility="{Binding IsOutput, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Export target" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding AvailableExportTargets}" SelectedItem="{Binding SelectedExportTarget}" HorizontalAlignment="Left" Width="160" Margin="0,2,0,8" />
+                    <TextBlock Text="Video container" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding AvailableVideoContainers}" SelectedItem="{Binding SelectedVideoContainer}" HorizontalAlignment="Left" Width="160" Margin="0,2,0,8" />
+                    <TextBlock Text="Default output folder" FontWeight="SemiBold" />
+                    <DockPanel Margin="0,2,0,0">
+                        <Button DockPanel.Dock="Right" Content="Browse…" Padding="10,4" Margin="8,0,0,0" Command="{Binding BrowseOutputFolderCommand}" />
+                        <TextBox Text="{Binding OutputFolder}" Background="{DynamicResource Max.Brush.Input}" Foreground="{DynamicResource Max.Brush.Text}" Padding="6,4" VerticalContentAlignment="Center" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- Diagnostics -->
+                <StackPanel Visibility="{Binding IsDiagnostics, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Log level" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding AvailableLogLevels}" SelectedItem="{Binding SelectedLogLevel}" HorizontalAlignment="Left" Width="160" Margin="0,2,0,10" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Open logs folder" Padding="10,4" Margin="0,0,8,0" Command="{Binding OpenLogsFolderCommand}" />
+                        <Button Content="Open last log" Padding="10,4" Command="{Binding OpenLastLogCommand}" />
+                    </StackPanel>
+                    <TextBlock Text="%APPDATA%\OmnibusCloud\Logs" Foreground="{DynamicResource Max.Brush.TextMuted}" Margin="0,8,0,0" FontSize="11" />
+                </StackPanel>
+
+                <!-- About -->
+                <StackPanel Visibility="{Binding IsAbout, Converter={StaticResource BoolToVis}}">
+                    <TextBlock><Run Text="Plugin version: " FontWeight="SemiBold" /><Run Text="{Binding PluginVersion}" /></TextBlock>
+                    <TextBlock Margin="0,4,0,0"><Run Text="Host: " FontWeight="SemiBold" /><Run Text="{Binding HostVersion}" /></TextBlock>
+                    <Button Content="Open OmnibusCloud portal" Padding="10,4" HorizontalAlignment="Left" Margin="0,12,0,0" Command="{Binding OpenPortalCommand}" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Background="{DynamicResource Max.Brush.Footer}" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" Padding="10,5" Margin="0,0,8,0" Command="{Binding CancelCommand}" />
+                <Button Content="Save" Padding="14,5" Command="{Binding SaveCommand}"
+                        Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}" FontWeight="SemiBold" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

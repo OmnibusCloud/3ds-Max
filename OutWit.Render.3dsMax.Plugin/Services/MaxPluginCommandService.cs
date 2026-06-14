@@ -78,5 +78,14 @@ public sealed class MaxPluginCommandService
         return new ExportDialog(viewModel);
     }
 
+    /// <summary>
+    /// Creates the Settings dialog over the shared application ViewModel (design 4.3).
+    /// </summary>
+    public SettingsDialog CreateSettingsDialog(ApplicationViewModel applicationVm)
+    {
+        var viewModel = new SettingsViewModel(applicationVm);
+        return new SettingsDialog(viewModel);
+    }
+
     #endregion
 }

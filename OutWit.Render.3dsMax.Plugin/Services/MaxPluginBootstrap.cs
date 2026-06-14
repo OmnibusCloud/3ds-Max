@@ -13,6 +13,7 @@ public sealed class MaxPluginBootstrap
     private ExportWindow? m_exportWindow;
     private RenderDialog? m_renderDialog;
     private ExportDialog? m_exportDialog;
+    private SettingsDialog? m_settingsDialog;
 
     #endregion
 
@@ -115,6 +116,37 @@ public sealed class MaxPluginBootstrap
         m_exportDialog.Closed -= OnExportDialogClosed;
         (m_exportDialog.DataContext as IDisposable)?.Dispose();
         m_exportDialog = null;
+    }
+
+    public void ShowSettings()
+    {
+        if (m_settingsDialog is null || !m_settingsDialog.IsLoaded)
+        {
+            m_settingsDialog = m_commandService.CreateSettingsDialog(EnsureApplicationViewModel());
+
+            if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
+                settingsViewModel.DialogClosed += _ => m_settingsDialog?.Close();
+
+            m_settingsDialog.Closed += OnSettingsDialogClosed;
+            m_settingsDialog.Show();
+            return;
+        }
+
+        if (m_settingsDialog.WindowState == WindowState.Minimized)
+            m_settingsDialog.WindowState = WindowState.Normal;
+
+        m_settingsDialog.Activate();
+        m_settingsDialog.Focus();
+    }
+
+    private void OnSettingsDialogClosed(object? sender, EventArgs e)
+    {
+        if (m_settingsDialog is null)
+            return;
+
+        m_settingsDialog.Closed -= OnSettingsDialogClosed;
+        (m_settingsDialog.DataContext as IDisposable)?.Dispose();
+        m_settingsDialog = null;
     }
 
     private ApplicationViewModel EnsureApplicationViewModel()
