@@ -101,6 +101,23 @@ public abstract class LiveDistributedIntegrationTestBase
             $"Execution scope diagnostics: CanRunOnAllClients={scopeOptions.CanRunOnAllClients}; Groups={groups}; Projects={projects}");
     }
 
+    /// <summary>
+    /// Resolves the real client group to render on: an explicit <c>OMNIBUSCLOUD_GROUP_ID</c> if set,
+    /// otherwise the first group in the API-key user's execution scope. Null means no named group was
+    /// found — the caller decides whether to fall back to all-clients or skip. Mirrors the production
+    /// submission transport and the Blender distribution tests.
+    /// </summary>
+    protected static async Task<Guid?> ResolveLiveGroupIdAsync(WitCloudClient client, CancellationToken cancellationToken)
+    {
+        var raw = Environment.GetEnvironmentVariable("OMNIBUSCLOUD_GROUP_ID");
+        if (!string.IsNullOrWhiteSpace(raw) && Guid.TryParse(raw, out var fromEnv))
+            return fromEnv;
+
+        var scope = await client.GetExecutionScopeOptionsAsync(cancellationToken);
+        var group = scope.Groups.FirstOrDefault();
+        return group?.GroupId;
+    }
+
     protected static string? FindSolutionRoot()
     {
         var directory = TestContext.CurrentContext.TestDirectory;
