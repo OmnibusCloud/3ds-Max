@@ -53,7 +53,7 @@ internal sealed class MaxSceneSnapshotCollector
 
     public void Collect(IINode rootNode)
     {
-        CollectSceneContent(rootNode);
+        CollectSceneContent(rootNode, rootNode, null);
         ReadEnvironment();
         ReadEnvironmentMap();
         m_summary.MaterialsCount = m_materials.Count;
@@ -121,23 +121,31 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private void CollectSceneContent(IINode rootNode)
+    // Walks the node hierarchy. Only mesh/camera/light nodes are emitted; non-geometry parents
+    // (dummies, groups, bones, point helpers) are skipped. To avoid emitting a node whose ParentId
+    // points at a skipped helper (the generator rejects a dangling parent reference), children of a
+    // skipped node "re-parent" onto the nearest INCLUDED ancestor — tracked by effectiveParentNode /
+    // effectiveParentId — and their local transform is computed relative to that ancestor (or world
+    // when there is none).
+    private void CollectSceneContent(IINode parentNode, IINode effectiveParentNode, string? effectiveParentId)
     {
-        for (var i = 0; i < rootNode.NumberOfChildren; i++)
+        for (var i = 0; i < parentNode.NumberOfChildren; i++)
         {
-            var childNode = rootNode.GetChildNode(i);
+            var childNode = parentNode.GetChildNode(i);
             m_summary.NodesCount++;
             DetectMotionBlur(childNode);
 
             var objectState = childNode.ObjectRef.Eval(m_coreInterface.Time);
             var sceneObject = objectState.Obj;
             var nodeId = $"node:{childNode.Handle}";
-            var parentId = rootNode.IsRootNode ? null : $"node:{rootNode.Handle}";
-            var localTransform = ExtractLocalTransform(childNode, rootNode);
-            var transformKeyframes = SampleTransformKeyframes(childNode, rootNode);
+            var parentId = effectiveParentId;
+            var localTransform = ExtractLocalTransform(childNode, effectiveParentNode);
+            var transformKeyframes = SampleTransformKeyframes(childNode, effectiveParentNode);
+            var added = false;
 
             if (sceneObject is ICameraObject cameraObject)
             {
+                added = true;
                 m_summary.CamerasCount++;
                 AddName(m_summary.CameraNames, childNode.Name);
                 var cameraId = $"camera:{childNode.Handle}";
@@ -158,6 +166,7 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (sceneObject is ILightObject lightObject)
             {
+                added = true;
                 m_summary.LightsCount++;
                 AddName(m_summary.LightNames, childNode.Name);
                 var lightId = $"light:{childNode.Handle}";
@@ -178,6 +187,7 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1)
             {
+                added = true;
                 m_summary.MeshesCount++;
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
@@ -205,7 +215,11 @@ internal sealed class MaxSceneSnapshotCollector
                 m_summary.Meshes.Add(meshSnapshot);
             }
 
-            CollectSceneContent(childNode);
+            // Children re-parent onto this node only if it was emitted; otherwise they keep the
+            // current effective ancestor so a skipped helper never becomes a dangling ParentId.
+            var childEffectiveParentNode = added ? childNode : effectiveParentNode;
+            var childEffectiveParentId = added ? nodeId : effectiveParentId;
+            CollectSceneContent(childNode, childEffectiveParentNode, childEffectiveParentId);
         }
     }
 
