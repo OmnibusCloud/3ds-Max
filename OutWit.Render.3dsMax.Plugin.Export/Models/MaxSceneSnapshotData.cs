@@ -74,5 +74,18 @@ public sealed class MaxSceneSnapshotData
     // default black environment, so the neutral payload keeps an empty world (unchanged renders).
     public MaxSceneColorSnapshotData? EnvironmentColor { get; set; }
 
+    // Id of the environment HDRI image asset (added to ImageAssets) when the scene environment map is
+    // a bitmap. Null/empty when there is no environment image (the constant colour world is used).
+    public string? EnvironmentImageId { get; set; }
+
+    // Z-axis rotation (degrees) for the environment image. Ignored when EnvironmentImageId is unset.
+    public double EnvironmentRotationDegrees { get; set; }
+
+    // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
+    public bool MotionBlur { get; set; }
+
+    // Motion-blur shutter (fraction of a frame). Only applied when MotionBlur is true.
+    public double MotionBlurShutter { get; set; } = 0.5d;
+
     #endregion
 }

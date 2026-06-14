@@ -10,9 +10,15 @@ public sealed class MaxSceneCameraSnapshotData
 
     public double VerticalFovDegrees { get; set; } = 45d;
 
+    public List<MaxSceneScalarKeyframeSnapshotData> VerticalFovKeyframes { get; set; } = [];
+
     public double NearClip { get; set; } = 0.1d;
 
+    public List<MaxSceneScalarKeyframeSnapshotData> NearClipKeyframes { get; set; } = [];
+
     public double FarClip { get; set; } = 1000d;
+
+    public List<MaxSceneScalarKeyframeSnapshotData> FarClipKeyframes { get; set; } = [];
 
     public bool IsPerspective { get; set; } = true;
 

@@ -14,11 +14,19 @@ public sealed class MaxSceneLightSnapshotData
 
     public MaxSceneColorSnapshotData Color { get; set; } = new();
 
+    public List<MaxSceneColorKeyframeSnapshotData> ColorKeyframes { get; set; } = [];
+
     public double Intensity { get; set; } = 1d;
+
+    public List<MaxSceneScalarKeyframeSnapshotData> IntensityKeyframes { get; set; } = [];
 
     public double Range { get; set; } = 10d;
 
+    public List<MaxSceneScalarKeyframeSnapshotData> RangeKeyframes { get; set; } = [];
+
     public double SpotAngleDegrees { get; set; } = 45d;
+
+    public List<MaxSceneScalarKeyframeSnapshotData> SpotAngleKeyframes { get; set; } = [];
 
     public bool CastShadows { get; set; } = true;
 

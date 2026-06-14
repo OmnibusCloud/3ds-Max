@@ -22,6 +22,10 @@ public sealed class MaxSceneMaterialSnapshotData
 
     public double Ior { get; set; } = 1.45d;
 
+    // Displacement height scale for the Displacement texture slot. Defaults to the contract default
+    // (1.0); the collector overrides it from the material's displacement amount when present.
+    public double DisplacementScale { get; set; } = 1d;
+
     public List<MaxSceneTextureSlotSnapshotData> TextureSlots { get; set; } = [];
 
     #endregion

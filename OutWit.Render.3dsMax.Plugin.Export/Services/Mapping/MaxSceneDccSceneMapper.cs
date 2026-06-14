@@ -83,7 +83,9 @@ internal static class MaxSceneDccSceneMapper
                 FrameEnd = summary.FrameEnd,
                 Fps = summary.FrameRate > 0 ? summary.FrameRate : 30,
                 Samples = 64,
-                TargetEngine = RenderEngine.Cycles
+                TargetEngine = RenderEngine.Cycles,
+                MotionBlur = summary.MotionBlur,
+                MotionBlurShutter = summary.MotionBlurShutter > 0d ? summary.MotionBlurShutter : 0.5d
             },
             World = ResolveWorld(summary),
             Nodes =
@@ -123,7 +125,16 @@ internal static class MaxSceneDccSceneMapper
                     Uv0 = [.. me.Uv0.Select(uv => new DccVector2Data { X = uv.X, Y = uv.Y })],
                     Uv1 = [.. me.Uv1.Select(uv => new DccVector2Data { X = uv.X, Y = uv.Y })],
                     TriangleIndices = [.. me.TriangleIndices],
-                    MaterialIndices = [.. me.MaterialIndices]
+                    MaterialIndices = [.. me.MaterialIndices],
+                    Colors = [.. me.Colors.Select(color => new DccColorData { R = color.R, G = color.G, B = color.B, A = color.A })],
+                    DeformationFrames =
+                    [
+                        .. me.DeformationFrames.Select(frame => new DccMeshDeformationFrameData
+                        {
+                            Frame = frame.Frame,
+                            Positions = [.. frame.Positions.Select(position => new DccVector3Data { X = position.X, Y = position.Y, Z = position.Z })]
+                        })
+                    ]
                 })
             ],
             Cameras =
@@ -133,8 +144,11 @@ internal static class MaxSceneDccSceneMapper
                     Id = me.Id,
                     Name = me.Name,
                     VerticalFovDegrees = me.VerticalFovDegrees,
+                    VerticalFovKeyframes = MapScalarKeyframes(me.VerticalFovKeyframes, value => value),
                     NearClip = NormalizeCameraNearClip(me.NearClip, me.FarClip),
+                    NearClipKeyframes = MapScalarKeyframes(me.NearClipKeyframes, value => value),
                     FarClip = NormalizeCameraFarClip(me.NearClip, me.FarClip),
+                    FarClipKeyframes = MapScalarKeyframes(me.FarClipKeyframes, value => value),
                     IsPerspective = me.IsPerspective,
                     EnableDepthOfField = me.EnableDepthOfField,
                     FocusDistance = me.FocusDistance,
@@ -146,15 +160,20 @@ internal static class MaxSceneDccSceneMapper
                 .. summary.Lights.Select(me =>
                 {
                     var characteristicDistance = ResolveLightCharacteristicDistance(me, lightPositionsById, sceneBounds);
+                    var intensityFactor = ResolveLightIntensityFactor(me.Kind, characteristicDistance);
                     return new DccLightData
                     {
                         Id = me.Id,
                         Name = me.Name,
                         Kind = me.Kind,
                         Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
-                        Intensity = ResolveLightIntensity(me, characteristicDistance),
-                        Range = ResolveLightRange(me, characteristicDistance),
+                        ColorKeyframes = MapColorKeyframes(me.ColorKeyframes),
+                        Intensity = me.Intensity * intensityFactor,
+                        IntensityKeyframes = MapScalarKeyframes(me.IntensityKeyframes, value => value * intensityFactor),
+                        Range = ResolveLightRangeValue(me.Kind, me.Range, characteristicDistance),
+                        RangeKeyframes = MapScalarKeyframes(me.RangeKeyframes, value => ResolveLightRangeValue(me.Kind, value, characteristicDistance)),
                         SpotAngleDegrees = me.SpotAngleDegrees,
+                        SpotAngleKeyframes = MapScalarKeyframes(me.SpotAngleKeyframes, value => value),
                         CastShadows = me.CastShadows,
                         AreaWidth = me.AreaWidth,
                         AreaHeight = me.AreaHeight
@@ -175,6 +194,7 @@ internal static class MaxSceneDccSceneMapper
                     NormalStrength = me.NormalStrength,
                     Transmission = me.Transmission,
                     Ior = me.Ior,
+                    DisplacementScale = me.DisplacementScale,
                     TextureSlots =
                     [
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData
@@ -252,6 +272,25 @@ internal static class MaxSceneDccSceneMapper
 
     private static DccWorldData? ResolveWorld(MaxSceneSummaryData summary)
     {
+        // An environment HDRI image takes priority: the generator builds an equirectangular world from
+        // it and ignores the constant colour. The id must resolve to an ImageAsset the generator can
+        // load (a 1.4.0 contract guard), so only honour it when the asset is actually present.
+        var hasEnvironmentImage = !string.IsNullOrWhiteSpace(summary.EnvironmentImageId)
+                                  && summary.ImageAssets.Any(me => me.Id == summary.EnvironmentImageId);
+
+        if (hasEnvironmentImage)
+        {
+            return new DccWorldData
+            {
+                BackgroundColor = summary.EnvironmentColor is null
+                    ? new DccColorData { R = 0d, G = 0d, B = 0d, A = 1d }
+                    : new DccColorData { R = summary.EnvironmentColor.R, G = summary.EnvironmentColor.G, B = summary.EnvironmentColor.B, A = summary.EnvironmentColor.A },
+                Strength = 1d,
+                EnvironmentImageId = summary.EnvironmentImageId,
+                EnvironmentRotationDegrees = summary.EnvironmentRotationDegrees
+            };
+        }
+
         // A null environment colour (the default black Max background) maps to "no world" so default
         // scenes render unchanged; a set background becomes the neutral world the generator emits.
         if (summary.EnvironmentColor is null)
@@ -325,29 +364,53 @@ internal static class MaxSceneDccSceneMapper
         return Math.Clamp(characteristicDistance, MIN_LIGHT_CHARACTERISTIC_DISTANCE, MAX_LIGHT_CHARACTERISTIC_DISTANCE);
     }
 
-    private static double ResolveLightIntensity(MaxSceneLightSnapshotData light, double characteristicDistance)
+    private static double ResolveLightIntensityFactor(DccLightKind kind, double characteristicDistance)
     {
         // Sun light: irradiance in W/m^2, distance-independent.
-        if (light.Kind == DccLightKind.Sun)
-            return light.Intensity * SUN_REFERENCE_IRRADIANCE;
+        if (kind == DccLightKind.Sun)
+            return SUN_REFERENCE_IRRADIANCE;
 
         // Point/spot: scale the raw Max multiplier so irradiance at the subject matches the
-        // calibration anchor regardless of how far the light sits in scene units.
-        return light.Intensity * REFERENCE_LIGHT_POWER_WATTS * characteristicDistance * characteristicDistance / REFERENCE_LIGHT_DISTANCE_SQUARED;
+        // calibration anchor regardless of how far the light sits in scene units. The factor is
+        // linear in the raw multiplier, so it applies identically to the static value and every
+        // intensity keyframe.
+        return REFERENCE_LIGHT_POWER_WATTS * characteristicDistance * characteristicDistance / REFERENCE_LIGHT_DISTANCE_SQUARED;
     }
 
-    private static double ResolveLightRange(MaxSceneLightSnapshotData light, double characteristicDistance)
+    private static double ResolveLightRangeValue(DccLightKind kind, double range, double characteristicDistance)
     {
-        if (light.Kind is not DccLightKind.Point and not DccLightKind.Spot)
-            return light.Range;
+        if (kind is not DccLightKind.Point and not DccLightKind.Spot)
+            return range;
 
         // A cutoff distance shorter than the light-to-subject distance would clip the subject
         // into darkness. Keep a meaningful cutoff only when it comfortably clears the subject;
         // otherwise drop below the generator's threshold so the light keeps an infinite range.
-        if (light.Range <= characteristicDistance)
+        if (range <= characteristicDistance)
             return 0.01d;
 
-        return light.Range;
+        return range;
+    }
+
+    private static List<DccScalarKeyframeData> MapScalarKeyframes(IReadOnlyList<MaxSceneScalarKeyframeSnapshotData> keyframes, Func<double, double> valueSelector)
+    {
+        // Per-frame samples are dense (the collector samples every integer frame), so linear
+        // interpolation between them is exact and avoids spurious Bezier overshoot.
+        return [.. keyframes.Select(kf => new DccScalarKeyframeData
+        {
+            Frame = kf.Frame,
+            Value = valueSelector(kf.Value),
+            InterpolationMode = DccKeyframeInterpolationMode.Linear
+        })];
+    }
+
+    private static List<DccColorKeyframeData> MapColorKeyframes(IReadOnlyList<MaxSceneColorKeyframeSnapshotData> keyframes)
+    {
+        return [.. keyframes.Select(kf => new DccColorKeyframeData
+        {
+            Frame = kf.Frame,
+            Color = new DccColorData { R = kf.Color.R, G = kf.Color.G, B = kf.Color.B, A = kf.Color.A },
+            InterpolationMode = DccKeyframeInterpolationMode.Linear
+        })];
     }
 
     private static double Distance(double x, double y, double z, DccVector3Data target)

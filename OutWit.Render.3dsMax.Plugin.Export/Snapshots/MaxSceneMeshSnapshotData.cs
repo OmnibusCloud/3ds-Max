@@ -20,5 +20,13 @@ public sealed class MaxSceneMeshSnapshotData
 
     public List<int> MaterialIndices { get; set; } = [];
 
+    // Optional per-corner vertex colours, aligned 1:1 with Positions. Empty when the mesh has no
+    // colour layer (the mapper then emits no colour attribute).
+    public List<MaxSceneColorSnapshotData> Colors { get; set; } = [];
+
+    // Optional baked per-frame deformation (skin/morph/cloth/sim). Empty for static meshes; each
+    // frame's Positions count matches the base Positions count.
+    public List<MaxSceneMeshDeformationFrameSnapshotData> DeformationFrames { get; set; } = [];
+
     #endregion
 }

@@ -55,6 +55,7 @@ internal sealed class MaxSceneSnapshotCollector
     {
         CollectSceneContent(rootNode);
         ReadEnvironment();
+        ReadEnvironmentMap();
         m_summary.MaterialsCount = m_materials.Count;
         m_summary.TexturesCount = m_textures.Count;
         m_summary.MaterialNames = [.. m_materialNames];
@@ -89,12 +90,44 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
+    private void ReadEnvironmentMap()
+    {
+        // 3ds Max scene environment map (Rendering > Environment). When a bitmap is assigned and
+        // enabled, treat it as the equirectangular HDRI the generator builds the world from; the
+        // image asset is registered so the neutral payload carries it. Any failure simply leaves the
+        // environment image unset, so the scene falls back to the background colour / empty world.
+        try
+        {
+            if (!m_coreInterface.UseEnvironmentMap)
+                return;
+
+            var environmentMap = m_coreInterface.EnvironmentMap;
+            if (environmentMap is null)
+                return;
+
+            var bitmap = environmentMap as IBitmapTex
+                         ?? (environmentMap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
+
+            if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
+                return;
+
+            var imageAssetId = GetOrCreateImageAsset(bitmap);
+            if (!string.IsNullOrWhiteSpace(imageAssetId))
+                m_summary.EnvironmentImageId = imageAssetId;
+        }
+        catch
+        {
+            // Leave EnvironmentImageId null on failure — the scene renders with the colour world.
+        }
+    }
+
     private void CollectSceneContent(IINode rootNode)
     {
         for (var i = 0; i < rootNode.NumberOfChildren; i++)
         {
             var childNode = rootNode.GetChildNode(i);
             m_summary.NodesCount++;
+            DetectMotionBlur(childNode);
 
             var objectState = childNode.ObjectRef.Eval(m_coreInterface.Time);
             var sceneObject = objectState.Obj;
@@ -148,6 +181,7 @@ internal sealed class MaxSceneSnapshotCollector
                 m_summary.MeshesCount++;
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
+                SampleDeformationFrames(childNode, meshSnapshot);
                 var materialBindingMap = GetMaterialBindingMap(childNode.Mtl);
                 NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
                 var materialBindingId = ResolveMaterialBindingId(meshSnapshot, materialBindingMap.MaterialIds);
@@ -207,6 +241,11 @@ internal sealed class MaxSceneSnapshotCollector
         // keep an empty Uv1 (the mapper then emits no second layer).
         var hasSecondUv = MeshSupportsMapChannel(mesh, 2);
 
+        // Map channel 0 is the vertex-colour channel (a colour stored per map-vert as RGB). The flag
+        // gates every corner uniformly so Colors stays aligned 1:1 with Positions (a 1.4.0 contract
+        // guard) — either every corner gets a colour or none do.
+        var hasVertexColors = MeshSupportsMapChannel(mesh, 0);
+
         for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
         {
             var face = mesh.GetFace(faceIndex);
@@ -222,6 +261,8 @@ internal sealed class MaxSceneSnapshotCollector
                 meshData.Uv0.Add(ExtractUv(mesh, faceIndex, vertexIndex));
                 if (hasSecondUv)
                     meshData.Uv1.Add(ExtractUvFromChannel(mesh, 2, faceIndex, vertexIndex));
+                if (hasVertexColors)
+                    meshData.Colors.Add(ExtractVertexColor(mesh, faceIndex, vertexIndex));
                 meshData.TriangleIndices.Add(meshData.TriangleIndices.Count);
             }
 
@@ -291,6 +332,9 @@ internal sealed class MaxSceneSnapshotCollector
                 ImageAssetId = imageAssetId
             });
             assignedSlots.Add(slotKind.Value);
+
+            if (slotKind.Value == DccTextureSlotKind.Displacement)
+                materialSnapshot.DisplacementScale = ReadDisplacementScale(material, m_coreInterface.Time);
         }
 
         // Fallback: a material with a bitmap but no recognised slot name still gets its base colour.
@@ -333,6 +377,11 @@ internal sealed class MaxSceneSnapshotCollector
 
         if (name.Contains("opacity") || name.Contains("transparency") || name.Contains("cutout"))
             return DccTextureSlotKind.Opacity;
+
+        // Checked after "bump" so a plain bump map still routes to the normal slot; only a slot named
+        // explicitly for displacement drives real geometry displacement.
+        if (name.Contains("displacement") || name.Contains("displace"))
+            return DccTextureSlotKind.Displacement;
 
         return null;
     }
@@ -436,6 +485,7 @@ internal sealed class MaxSceneSnapshotCollector
         };
 
         ReadCameraDepthOfField(cameraObject, time, snapshot);
+        SampleCameraPropertyKeyframes(cameraObject, snapshot);
         return snapshot;
     }
 
@@ -507,7 +557,7 @@ internal sealed class MaxSceneSnapshotCollector
         var isArea = TryResolveAreaLight(lightObject, time, out var areaWidth, out var areaHeight);
         var kind = isArea ? DccLightKind.Area : ResolveLightKind(node, lightObject, hotspotDegrees);
 
-        return new MaxSceneLightSnapshotData
+        var snapshot = new MaxSceneLightSnapshotData
         {
             Id = lightId,
             Name = node.Name,
@@ -520,6 +570,9 @@ internal sealed class MaxSceneSnapshotCollector
             AreaWidth = isArea ? areaWidth : 1d,
             AreaHeight = isArea ? areaHeight : 1d
         };
+
+        SampleLightPropertyKeyframes(lightObject, snapshot);
+        return snapshot;
     }
 
     private static bool TryResolveAreaLight(ILightObject lightObject, int time, out double width, out double height)
@@ -1033,12 +1086,36 @@ internal sealed class MaxSceneSnapshotCollector
 
     private DccLightKind ResolveLightKind(IINode node, ILightObject lightObject, double hotspotDegrees)
     {
-        if (node.Name.Contains("sun", StringComparison.OrdinalIgnoreCase))
+        if (IsSunLike(node, lightObject))
             return DccLightKind.Sun;
 
         return hotspotDegrees > 0.1d || lightObject.GetFallsize(0) > 0.1d
             ? DccLightKind.Spot
             : DccLightKind.Point;
+    }
+
+    private static bool IsSunLike(IINode node, ILightObject lightObject)
+    {
+        // A real Daylight/Sunlight system (IES Sun, MR/Physical Sun, Sun Positioner) exposes its
+        // directional nature through the light object's class name. Match that first, then keep the
+        // node-name heuristic as a fallback for lights a user has simply named "Sun".
+        try
+        {
+            var className = lightObject.ClassName(false);
+            if (!string.IsNullOrEmpty(className)
+                && (className.Contains("sun", StringComparison.OrdinalIgnoreCase)
+                    || className.Contains("daylight", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall through to the node-name heuristic when the class name is unavailable.
+        }
+
+        return node.Name.Contains("sun", StringComparison.OrdinalIgnoreCase)
+               || node.Name.Contains("daylight", StringComparison.OrdinalIgnoreCase);
     }
 
     private static double ResolveCameraClipDistance(ICameraObject cameraObject, int time, int which, double fallback)
@@ -1098,6 +1175,268 @@ internal sealed class MaxSceneSnapshotCollector
             if (usedIds.Add(candidateId))
                 return candidateId;
         }
+    }
+
+    private void DetectMotionBlur(IINode node)
+    {
+        // Any renderable node with 3ds Max object/image motion blur enabled flips the scene-level
+        // motion-blur flag; Blender's render-side motion blur is a single switch, so one enabled node
+        // is enough. The shutter stays at the neutral default (0.5).
+        if (m_summary.MotionBlur)
+            return;
+
+        try
+        {
+            if (node.GetMotBlurOnOff(m_coreInterface.Time))
+                m_summary.MotionBlur = true;
+        }
+        catch
+        {
+            // Leave motion blur unset on failure — the render runs without motion blur.
+        }
+    }
+
+    private MaxSceneColorSnapshotData ExtractVertexColor(IMesh mesh, int faceIndex, int vertexIndex)
+    {
+        // Vertex colours live in map channel 0; each map-vert is a Point3 whose X/Y/Z carry R/G/B. The
+        // map-vert element is not a typed interface in the managed SDK, so the components are read
+        // reflectively — the same approach ExtractUvFromChannel uses for non-primary UV channels.
+        try
+        {
+            if (!mesh.MapSupport(0))
+                return new MaxSceneColorSnapshotData();
+
+            if (TryGetIndexedValue(mesh.MapFaces(0), faceIndex) is not ITVFace mapFace)
+                return new MaxSceneColorSnapshotData();
+
+            var colorVertIndex = (int)mapFace.GetTVert(vertexIndex);
+            var vert = TryGetIndexedValue(mesh.MapVerts(0), colorVertIndex);
+            if (vert is null)
+                return new MaxSceneColorSnapshotData();
+
+            var vertType = vert.GetType();
+            var r = Convert.ToDouble(vertType.GetProperty("X")?.GetValue(vert) ?? 1d);
+            var g = Convert.ToDouble(vertType.GetProperty("Y")?.GetValue(vert) ?? 1d);
+            var b = Convert.ToDouble(vertType.GetProperty("Z")?.GetValue(vert) ?? 1d);
+            return new MaxSceneColorSnapshotData { R = r, G = g, B = b, A = 1d };
+        }
+        catch
+        {
+            return new MaxSceneColorSnapshotData();
+        }
+    }
+
+    private static double ReadDisplacementScale(IMtl material, int time)
+    {
+        // The displacement amount is renderer-specific (Standard/Physical/third-party each name it
+        // differently) with no typed managed getter, so look it up by parameter internal name in the
+        // material's parameter blocks. Default to the contract default (1.0) when not found.
+        try
+        {
+            for (var blockIndex = 0; blockIndex < material.NumParamBlocks; blockIndex++)
+            {
+                if (material.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || !name.Contains("displac"))
+                        continue;
+
+                    if (name.Contains("amount") || name.Contains("amt") || name.Contains("scale")
+                        || name.Contains("strength") || name.Contains("height") || name.Contains("depth"))
+                    {
+                        var value = block.GetFloat(def.Id, time, 0);
+                        if (value > 0d)
+                            return value;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return 1d;
+    }
+
+    private void SampleDeformationFrames(IINode node, MaxSceneMeshSnapshotData meshSnapshot)
+    {
+        // Bake per-frame object-space vertex positions (approach A). Re-evaluating the node's object at
+        // each frame captures the result of any deformation (skin/morph/cloth/sim) as geometry. Object
+        // space keeps deformation separate from the node's rigid transform (sampled as transform
+        // keyframes). Only emitted when the mesh actually deforms and its topology stays constant over
+        // the range — otherwise it cannot be represented as Blender shape keys.
+        var frameStart = m_summary.FrameStart;
+        var frameEnd = m_summary.FrameEnd;
+        if (frameEnd <= frameStart || meshSnapshot.Positions.Count == 0)
+            return;
+
+        var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
+        var baseCornerCount = meshSnapshot.Positions.Count;
+        var frames = new List<MaxSceneMeshDeformationFrameSnapshotData>();
+        var anyDeformation = false;
+
+        for (var frame = frameStart; frame <= frameEnd; frame++)
+        {
+            var positions = SampleMeshCornerPositionsAtTime(node, frame * ticksPerFrame, baseCornerCount);
+            if (positions is null)
+                return; // topology changed or read failed → skip deformation entirely
+
+            frames.Add(new MaxSceneMeshDeformationFrameSnapshotData { Frame = frame, Positions = positions });
+
+            if (!anyDeformation && CornersDiffer(positions, meshSnapshot.Positions))
+                anyDeformation = true;
+        }
+
+        if (anyDeformation)
+            meshSnapshot.DeformationFrames = frames;
+    }
+
+    private List<MaxSceneVector3SnapshotData>? SampleMeshCornerPositionsAtTime(IINode node, int time, int expectedCornerCount)
+    {
+        try
+        {
+            var sceneObject = node.ObjectRef.Eval(time).Obj;
+            if (sceneObject is null || sceneObject.CanConvertToType(m_global.TriObjectClassID) != 1)
+                return null;
+
+            if (sceneObject.ConvertToType(time, m_global.TriObjectClassID) is not ITriObject triObject)
+                return null;
+
+            var mesh = triObject.Mesh;
+            var positions = new List<MaxSceneVector3SnapshotData>(expectedCornerCount);
+
+            for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
+            {
+                var face = mesh.GetFace(faceIndex);
+                for (var vertexIndex = 0; vertexIndex < 3; vertexIndex++)
+                {
+                    var point = mesh.GetVert((int)face.GetVert(vertexIndex));
+                    positions.Add(new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z });
+                }
+            }
+
+            return positions.Count == expectedCornerCount ? positions : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool CornersDiffer(List<MaxSceneVector3SnapshotData> candidate, List<MaxSceneVector3SnapshotData> baseline)
+    {
+        const double epsilon = 1e-4;
+        if (candidate.Count != baseline.Count)
+            return true;
+
+        for (var i = 0; i < candidate.Count; i++)
+        {
+            if (Math.Abs(candidate[i].X - baseline[i].X) > epsilon
+                || Math.Abs(candidate[i].Y - baseline[i].Y) > epsilon
+                || Math.Abs(candidate[i].Z - baseline[i].Z) > epsilon)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void SampleLightPropertyKeyframes(ILightObject lightObject, MaxSceneLightSnapshotData snapshot)
+    {
+        var frameStart = m_summary.FrameStart;
+        var frameEnd = m_summary.FrameEnd;
+        if (frameEnd <= frameStart)
+            return;
+
+        var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
+
+        snapshot.IntensityKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => lightObject.GetIntensity(time));
+        snapshot.RangeKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => Math.Max(lightObject.GetTDist(time), 0.01d));
+        snapshot.ColorKeyframes = SampleColorChannel(frameStart, frameEnd, ticksPerFrame, time =>
+        {
+            var color = lightObject.GetRGBColor(time);
+            return new MaxSceneColorSnapshotData { R = color.X, G = color.Y, B = color.Z, A = 1d };
+        });
+
+        if (snapshot.Kind == DccLightKind.Spot)
+        {
+            snapshot.SpotAngleKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame,
+                time => ResolveSpotAngleDegrees(DccLightKind.Spot, RadiansToDegrees(lightObject.GetHotspot(time))));
+        }
+    }
+
+    private void SampleCameraPropertyKeyframes(ICameraObject cameraObject, MaxSceneCameraSnapshotData snapshot)
+    {
+        var frameStart = m_summary.FrameStart;
+        var frameEnd = m_summary.FrameEnd;
+        if (frameEnd <= frameStart)
+            return;
+
+        var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
+
+        snapshot.VerticalFovKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => RadiansToDegrees(cameraObject.GetFOV(time)));
+        snapshot.NearClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 0, 0.1d));
+        snapshot.FarClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 1, 1000d));
+    }
+
+    private static List<MaxSceneScalarKeyframeSnapshotData> SampleScalarChannel(int frameStart, int frameEnd, int ticksPerFrame, Func<int, double> sampler)
+    {
+        // Sample the channel at every integer frame; emit keyframes only when the value actually varies
+        // so static channels add nothing. A read failure on any frame drops the whole channel (no
+        // partial/misaligned keyframes) and the static value is used instead.
+        try
+        {
+            var samples = new List<MaxSceneScalarKeyframeSnapshotData>(frameEnd - frameStart + 1);
+            for (var frame = frameStart; frame <= frameEnd; frame++)
+                samples.Add(new MaxSceneScalarKeyframeSnapshotData { Frame = frame, Value = sampler(frame * ticksPerFrame) });
+
+            return ScalarChannelVaries(samples) ? samples : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static List<MaxSceneColorKeyframeSnapshotData> SampleColorChannel(int frameStart, int frameEnd, int ticksPerFrame, Func<int, MaxSceneColorSnapshotData> sampler)
+    {
+        try
+        {
+            var samples = new List<MaxSceneColorKeyframeSnapshotData>(frameEnd - frameStart + 1);
+            for (var frame = frameStart; frame <= frameEnd; frame++)
+                samples.Add(new MaxSceneColorKeyframeSnapshotData { Frame = frame, Color = sampler(frame * ticksPerFrame) });
+
+            return ColorChannelVaries(samples) ? samples : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static bool ScalarChannelVaries(List<MaxSceneScalarKeyframeSnapshotData> samples)
+    {
+        if (samples.Count < 2)
+            return false;
+
+        var first = samples[0].Value;
+        return samples.Skip(1).Any(me => Math.Abs(me.Value - first) > 1e-4);
+    }
+
+    private static bool ColorChannelVaries(List<MaxSceneColorKeyframeSnapshotData> samples)
+    {
+        if (samples.Count < 2)
+            return false;
+
+        var first = samples[0].Color;
+        return samples.Skip(1).Any(me => Math.Abs(me.Color.R - first.R) > 1e-4
+                                         || Math.Abs(me.Color.G - first.G) > 1e-4
+                                         || Math.Abs(me.Color.B - first.B) > 1e-4);
     }
 
     #endregion
