@@ -12,6 +12,9 @@
 *.nupkg
 *.snupkg
 
+# Live/batch test render outputs (generated per run — never commit)
+@Publish/LiveTestOutputs/
+
 # Local secrets (test API keys, .env) — never commit
 .env
 *.env
