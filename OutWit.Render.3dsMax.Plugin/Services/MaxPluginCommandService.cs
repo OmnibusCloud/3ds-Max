@@ -43,12 +43,30 @@ public sealed class MaxPluginCommandService
     /// <summary>
     /// Creates the interactive exporter window.
     /// </summary>
-    public ExportWindow CreateExportWindow()
+    /// <summary>
+    /// Builds the root composition ViewModel (one per plugin UI session) over a fresh service graph.
+    /// Shared across the Render / Export / Settings dialogs so session, settings and services are one.
+    /// </summary>
+    public ApplicationViewModel CreateApplicationViewModel()
     {
         var exportService = CreateExportService();
         var services = new MaxPluginServices(exportService);
-        var applicationVm = new ApplicationViewModel(services);
+        return new ApplicationViewModel(services);
+    }
+
+    public ExportWindow CreateExportWindow()
+    {
+        var applicationVm = CreateApplicationViewModel();
         return new ExportWindow(applicationVm.MainVm);
+    }
+
+    /// <summary>
+    /// Creates the Render dialog over the shared application ViewModel (design 4.1).
+    /// </summary>
+    public RenderDialog CreateRenderDialog(ApplicationViewModel applicationVm)
+    {
+        var viewModel = new RenderDialogViewModel(applicationVm);
+        return new RenderDialog(viewModel);
     }
 
     #endregion

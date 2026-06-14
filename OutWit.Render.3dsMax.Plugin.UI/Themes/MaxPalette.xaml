@@ -1,0 +1,31 @@
+<!--
+  OmnibusCloud 3ds Max plugin palette (design section 5). Default = dark Max-native neutral grey so
+  the plugin sits inside the host; one brand accent (muted lime + navy on-accent), severity colours
+  are orthogonal to the brand. A light (OmnibusCloud) variant + follow-Max-theme switching come with
+  the theme service later; for now this is the single shared dictionary the dialogs merge in.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Dark · Max-native · surfaces -->
+    <SolidColorBrush x:Key="Max.Brush.TitleBar" Color="#2D2D2D" />
+    <SolidColorBrush x:Key="Max.Brush.Window" Color="#383838" />
+    <SolidColorBrush x:Key="Max.Brush.Panel" Color="#414141" />
+    <SolidColorBrush x:Key="Max.Brush.Footer" Color="#323232" />
+    <SolidColorBrush x:Key="Max.Brush.Input" Color="#2A2A2A" />
+    <SolidColorBrush x:Key="Max.Brush.Border" Color="#202020" />
+    <SolidColorBrush x:Key="Max.Brush.GroupBorder" Color="#4D4D4D" />
+    <SolidColorBrush x:Key="Max.Brush.ButtonEdge" Color="#525252" />
+
+    <!-- Dark · text + severity -->
+    <SolidColorBrush x:Key="Max.Brush.Text" Color="#CFCFCF" />
+    <SolidColorBrush x:Key="Max.Brush.TextMuted" Color="#969696" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityOk" Color="#8FD47F" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityWarning" Color="#E0A53E" />
+    <SolidColorBrush x:Key="Max.Brush.SeverityError" Color="#E08A86" />
+
+    <!-- Brand accent · one for everything (muted lime fill + navy on-accent). Raw #50FE30 is never a fill. -->
+    <SolidColorBrush x:Key="Max.Brush.Accent" Color="#5BBF4A" />
+    <SolidColorBrush x:Key="Max.Brush.OnAccent" Color="#1A2B4C" />
+
+</ResourceDictionary>
