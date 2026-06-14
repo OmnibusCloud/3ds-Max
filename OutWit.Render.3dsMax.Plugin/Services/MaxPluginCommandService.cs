@@ -46,7 +46,8 @@ public sealed class MaxPluginCommandService
     public ExportWindow CreateExportWindow()
     {
         var exportService = CreateExportService();
-        var applicationVm = new ApplicationViewModel(exportService);
+        var services = new MaxPluginServices(exportService);
+        var applicationVm = new ApplicationViewModel(services);
         return new ExportWindow(applicationVm.MainVm);
     }
 

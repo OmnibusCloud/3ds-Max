@@ -1,30 +1,24 @@
 using OutWit.Common.MVVM.ViewModels;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
+using Serilog;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 
+/// <summary>
+/// Root composition ViewModel: a pure container of child ViewModels over the plugin's service graph
+/// (<see cref="MaxPluginServices"/>). No service construction or business logic lives here — the
+/// service properties simply delegate to the composition root so existing child ViewModels keep
+/// reaching them through <c>ApplicationVm</c>.
+/// </summary>
 public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 {
     #region Constructors
 
-    public ApplicationViewModel(MaxSceneExportService sceneExportService) : base(null!)
+    public ApplicationViewModel(MaxPluginServices services) : base(null!)
     {
-        SceneExportService = sceneExportService;
-        BrowserLauncher = new MaxSystemBrowserLauncherShell();
-        CloudSessionService = new MaxCloudSessionService(
-            new MaxSessionStoreDpapi(),
-            BrowserLauncher,
-            () => new MaxAuthorizationCallbackListenerLoopback());
-        CloudConnectionService = new MaxCloudConnectionService(CloudSessionService);
-        LaunchPreparationService = new MaxSceneLaunchPreparationService(sceneExportService);
-        ConnectedRenderPreflightService = new MaxConnectedRenderPreflightService(sceneExportService);
-        ConnectedExecutionScopeService = new MaxConnectedExecutionScopeService(CloudSessionService, CloudConnectionService);
-        ConnectedRenderSubmissionService = new MaxConnectedRenderSubmissionService(
-            new MaxConnectedRenderSubmissionTransportOmnibusCloudSession(CloudConnectionService, new MaxConnectedRenderSceneAttachmentService()));
-        ConnectedRenderService = new MaxConnectedRenderService(LaunchPreparationService, ConnectedRenderPreflightService, ConnectedRenderSubmissionService);
-        ConnectedRenderPackageUploadService = new MaxConnectedRenderPackageUploadService(new MaxConnectedRenderArchiveUploaderOmnibusCloudApiKey());
-        ConnectedRenderDownloadService = new MaxConnectedRenderDownloadService();
+        Services = services;
         CloudSessionVm = new CloudSessionViewModel(this);
         RenderLaunchVm = new RenderLaunchViewModel(this);
         MainVm = new ExportMainViewModel(this);
@@ -32,7 +26,7 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     #endregion
 
-    #region Properties
+    #region ViewModels
 
     public ExportMainViewModel MainVm { get; }
 
@@ -40,27 +34,38 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     public RenderLaunchViewModel RenderLaunchVm { get; }
 
-    public MaxSceneExportService SceneExportService { get; }
+    #endregion
 
-    public IMaxSystemBrowserLauncher BrowserLauncher { get; }
+    #region Services
 
-    public IMaxCloudSessionService CloudSessionService { get; }
+    /// <summary>The service composition root. Construction lives there, not in this container.</summary>
+    public MaxPluginServices Services { get; }
 
-    public IMaxCloudConnectionService CloudConnectionService { get; }
+    public MaxPluginSettings Settings => Services.Settings;
 
-    public MaxSceneLaunchPreparationService LaunchPreparationService { get; }
+    public ILogger Logger => Services.Logger;
 
-    public MaxConnectedRenderPreflightService ConnectedRenderPreflightService { get; }
+    public MaxSceneExportService SceneExportService => Services.SceneExportService;
 
-    public MaxConnectedExecutionScopeService ConnectedExecutionScopeService { get; }
+    public IMaxSystemBrowserLauncher BrowserLauncher => Services.BrowserLauncher;
 
-    public MaxConnectedRenderSubmissionService ConnectedRenderSubmissionService { get; }
+    public IMaxCloudSessionService CloudSessionService => Services.CloudSessionService;
 
-    public MaxConnectedRenderService ConnectedRenderService { get; }
+    public IMaxCloudConnectionService CloudConnectionService => Services.CloudConnectionService;
 
-    public MaxConnectedRenderPackageUploadService ConnectedRenderPackageUploadService { get; }
+    public MaxSceneLaunchPreparationService LaunchPreparationService => Services.LaunchPreparationService;
 
-    public MaxConnectedRenderDownloadService ConnectedRenderDownloadService { get; }
+    public MaxConnectedRenderPreflightService ConnectedRenderPreflightService => Services.ConnectedRenderPreflightService;
+
+    public MaxConnectedExecutionScopeService ConnectedExecutionScopeService => Services.ConnectedExecutionScopeService;
+
+    public MaxConnectedRenderSubmissionService ConnectedRenderSubmissionService => Services.ConnectedRenderSubmissionService;
+
+    public MaxConnectedRenderService ConnectedRenderService => Services.ConnectedRenderService;
+
+    public MaxConnectedRenderPackageUploadService ConnectedRenderPackageUploadService => Services.ConnectedRenderPackageUploadService;
+
+    public MaxConnectedRenderDownloadService ConnectedRenderDownloadService => Services.ConnectedRenderDownloadService;
 
     #endregion
 }
