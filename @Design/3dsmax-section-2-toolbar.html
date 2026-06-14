@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3ds Max плагин — Раздел 2: Тулбар</title>
+<style>
+:root{
+  --font:"Segoe UI","Helvetica Neue",system-ui,Arial,sans-serif;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace;
+  --page:#0f1118; --board:#171a24; --board-bd:#242a38;
+  --ink:#e9ecf2; --ink2:#aab2c2; --ink3:#727c90; --doclime:#9be04a;
+  --acc:#5BBF4A;
+}
+*{box-sizing:border-box;}
+body{margin:0; background:var(--page); color:var(--ink2); font-family:var(--font); line-height:1.5; -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.025) 1px,transparent 0); background-size:24px 24px;}
+.wrap{max-width:1000px; margin:0 auto; padding:54px 28px 80px;}
+.kick{font-family:var(--mono); font-size:11.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--doclime); margin:0 0 11px;}
+h1{font-size:30px; font-weight:700; color:var(--ink); margin:0 0 9px; letter-spacing:-.02em;}
+h1 .thin{font-weight:300; color:var(--ink2);}
+.lede{font-size:15px; color:var(--ink2); max-width:78ch; margin:0;}
+.lede code,.note code,.s-desc code{font-family:var(--mono); font-size:.87em; color:var(--doclime); background:rgba(155,224,74,.08); padding:1px 5px; border-radius:4px;}
+
+.sub{margin:40px 0 0;}
+.sub-h{display:flex; align-items:baseline; gap:12px; margin-bottom:6px;}
+.sub-idx{font-family:var(--mono); font-size:12.5px; color:var(--doclime);}
+h2{font-size:18px; color:var(--ink); margin:0; font-weight:600;}
+.s-desc{font-size:14px; color:var(--ink2); max-width:80ch; margin:0 0 18px 34px;}
+.board{background:var(--board); border:1px solid var(--board-bd); border-radius:14px; padding:24px 22px; box-shadow:0 14px 40px rgba(0,0,0,.34);}
+.note{font-size:13px; color:var(--ink3); margin:16px 0 0 2px; line-height:1.6;} .note b{color:var(--ink2); font-weight:500;}
+
+.mgrid{display:flex; flex-wrap:wrap; gap:40px; align-items:flex-start;}
+.case{display:flex; flex-direction:column; gap:12px;}
+.cap{font-size:12.5px; font-weight:500; color:var(--ink);} .cap small{display:block; font-weight:400; color:var(--ink3); margin-top:3px; font-size:11.5px;}
+
+/* 3ds max toolbar */
+.tbf{display:inline-block; background:#3d3d3d; border:1px solid #1f1f1f; border-radius:5px; box-shadow:0 16px 36px rgba(0,0,0,.5); overflow:hidden;}
+.tbt{display:flex; align-items:center; height:19px; background:#2d2d2d; border-bottom:1px solid #1f1f1f; padding:0 6px 0 8px;}
+.tbt .nm{font-size:10.5px; color:#bcbcbc; font-weight:500; letter-spacing:.02em;}
+.tbt .cx{margin-left:auto; width:16px; height:16px; display:flex; align-items:center; justify-content:center; color:#9a9a9a;}
+.tbt .cx svg{width:9px; height:9px; stroke:currentColor; stroke-width:1.3; fill:none;}
+.tbr{display:flex; align-items:center; gap:4px; padding:6px;}
+.tbtn{width:34px; height:34px; border-radius:4px; background:#4a4a4a; border:1px solid #2c2c2c; display:flex; align-items:center; justify-content:center; color:#dcdcdc; position:relative;}
+.tbtn svg{width:17px; height:17px; stroke:currentColor; stroke-width:1.8; fill:none;}
+.tbtn.acc svg{stroke:var(--acc);}
+.tbsep{width:1px; height:24px; background:#2a2a2a; margin:0 3px;}
+
+/* tooltip */
+.tip{position:absolute; top:42px; left:50%; transform:translateX(-50%); background:#1d1d1d; border:1px solid #000; border-radius:4px; padding:4px 9px; font-size:11px; color:#e6e6e6; white-space:nowrap; box-shadow:0 6px 16px rgba(0,0,0,.5);}
+.tip::before{content:""; position:absolute; top:-5px; left:50%; transform:translateX(-50%); border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:5px solid #1d1d1d;}
+
+/* docked context */
+.dock{display:flex; align-items:center; background:#3a3a3a; border:1px solid #1f1f1f; border-radius:4px; padding:5px 6px; gap:4px;}
+.grip{display:flex; flex-direction:column; gap:2px; padding:0 5px 0 2px;}
+.grip span{width:2px; height:2px; border-radius:50%; background:#6a6a6a;}
+.gripwrap{display:flex; gap:2px;}
+.dbtn{width:28px; height:28px; border-radius:3px; background:#454545; border:1px solid #2c2c2c; display:flex; align-items:center; justify-content:center; color:#cfcfcf;}
+.dbtn svg{width:15px; height:15px; stroke:currentColor; stroke-width:1.8; fill:none;} .dbtn.acc svg{stroke:var(--acc);}
+.ghost{opacity:.4;}
+
+/* spec table */
+.spec{width:100%; border-collapse:collapse; font-size:13px; margin-top:4px;}
+.spec th{text-align:left; font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ink3); font-weight:500; padding:0 14px 10px; border-bottom:1px solid var(--board-bd);}
+.spec td{padding:11px 14px; border-bottom:1px solid rgba(255,255,255,.05); color:var(--ink2); vertical-align:top;}
+.spec td:first-child{color:var(--ink); font-weight:500; white-space:nowrap;}
+.spec td code{font-family:var(--mono); font-size:.85em; color:#cfe3b0;}
+.ib{display:inline-flex; width:24px; height:24px; border-radius:4px; background:#4a4a4a; border:1px solid #2c2c2c; align-items:center; justify-content:center; vertical-align:middle;}
+.ib svg{width:14px; height:14px; stroke:#dcdcdc; stroke-width:1.8; fill:none;} .ib.acc svg{stroke:var(--acc);}
+
+.choice{display:flex; gap:11px; align-items:flex-start; background:#1b202c; border:1px solid #2a3043; border-radius:10px; padding:14px 16px; margin-top:14px;}
+.choice .q{flex:none; font-family:var(--mono); font-size:11px; color:var(--doclime); padding-top:1px;}
+.choice p{margin:0; font-size:13px; color:var(--ink2); line-height:1.55;} .choice b{color:var(--ink);}
+
+.foot{margin-top:46px; padding-top:22px; border-top:1px solid var(--board-bd); font-family:var(--mono); font-size:12.5px; color:var(--ink3); line-height:1.7;} .foot b{color:var(--ink2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="bolt" viewBox="0 0 24 24"><path d="M13 3L5 13h5l-1 8 8-11h-5z"/></symbol>
+  <symbol id="export" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 14v5h14v-5"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</svg>
+
+<p class="kick">OmnibusCloud · 3ds Max · Раздел 2 / N</p>
+<h1>Тулбар OmnibusCloud <span class="thin">— быстрый доступ</span></h1>
+<p class="lede">Dockable тулбар из тех же макроскриптов, что и меню (Раздел 1). Несёт частые действия как иконки-кнопки. Поскольку команды — макроскрипты, они доступны в Customize UI на любом тулбаре, в quad-меню и на горячих клавишах — даже если этот тулбар скрыт.</p>
+
+<!-- 2.1 -->
+<section class="sub">
+  <div class="sub-h"><span class="sub-idx">2.1</span><h2>Состав · плавающий и закреплённый</h2></div>
+  <p class="s-desc">Три кнопки: <b style="color:var(--ink)">Render</b> (primary, иконка в акценте), Export, Settings — отделены от Render тонким сепаратором. Иконки и тултипы совпадают с пунктами меню. Render отдельно подсвечен акцентом <code>#5BBF4A</code>; Export и Settings нейтральные.</p>
+  <div class="board"><div class="mgrid">
+
+    <div class="case">
+      <div class="cap">Плавающий<small>заголовок «OmnibusCloud» + close · перетаскивается</small></div>
+      <div class="tbf">
+        <div class="tbt"><span class="nm">OmnibusCloud</span><span class="cx"><svg viewBox="0 0 24 24"><use href="#x"/></svg></span></div>
+        <div class="tbr">
+          <span class="tbtn acc"><svg viewBox="0 0 24 24"><use href="#bolt"/></svg><span class="tip">Render on OmnibusCloud</span></span>
+          <span class="tbsep"></span>
+          <span class="tbtn"><svg viewBox="0 0 24 24"><use href="#export"/></svg></span>
+          <span class="tbtn"><svg viewBox="0 0 24 24"><use href="#gear"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="cap">Закреплённый<small>в основном тулбаре Max, без заголовка</small></div>
+      <div style="display:flex; align-items:center; gap:6px">
+        <span class="ghost gripwrap" style="display:flex; gap:4px">
+          <span class="dbtn"></span><span class="dbtn"></span><span class="dbtn"></span>
+        </span>
+        <span class="dbtn ghost" style="width:1px; background:#2a2a2a; border:none; height:24px"></span>
+        <div class="dock">
+          <span class="grip"><span></span><span></span><span></span><span></span></span>
+          <span class="dbtn acc"><svg viewBox="0 0 24 24"><use href="#bolt"/></svg></span>
+          <span class="dbtn"><svg viewBox="0 0 24 24"><use href="#export"/></svg></span>
+          <span class="dbtn"><svg viewBox="0 0 24 24"><use href="#gear"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="note"><b>Тултипы</b> совпадают с пунктами меню: «Render on OmnibusCloud», «Export scene file…», «Settings…». <b>Состояние сессии:</b> показан залогиненный вид. <b>Render и Export — disabled (серые), пока нет сессии</b> (плагин — только для залогиненного); Settings активна всегда. Вход — из меню (Sign in). Синхронно с меню (Раздел 1).</p>
+  </div>
+</section>
+
+<!-- 2.2 -->
+<section class="sub">
+  <div class="sub-h"><span class="sub-idx">2.2</span><h2>Спецификация и поведение</h2></div>
+  <div class="board" style="padding:20px 18px">
+    <table class="spec">
+      <thead><tr><th>Кнопка</th><th>Иконка</th><th>Действие</th><th>Тултип</th></tr></thead>
+      <tbody>
+        <tr><td>Render</td><td><span class="ib acc"><svg viewBox="0 0 24 24"><use href="#bolt"/></svg></span></td><td>Открывает Render-диалог</td><td>Render on OmnibusCloud</td></tr>
+        <tr><td>Export</td><td><span class="ib"><svg viewBox="0 0 24 24"><use href="#export"/></svg></span></td><td>Открывает экспорт сцены в DCC-файл</td><td>Export scene file…</td></tr>
+        <tr><td>Settings</td><td><span class="ib"><svg viewBox="0 0 24 24"><use href="#gear"/></svg></span></td><td>Открывает Settings-диалог</td><td>Settings…</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:18px"><b>Поведение:</b> стандартный тулбар Max — плавающий или закреплённый, перетаскивается, закрывается. Кнопки = макроскрипты, поэтому всегда доступны в Customize UI (любой тулбар / quad / шорткат), даже если тулбар скрыт. <b>Важно:</b> тулбары в Max — legacy-система кастомизации (не upgrade-safe, в отличие от меню 2025+); дефолтная раскладка — это convenience поверх макроскриптов, а не основной механизм.</p>
+  </div>
+
+  <div class="choice"><span class="q">?1</span><p><b>Состав кнопок.</b> Заложил Render · Export · Settings. Минимально хватило бы одного <b>Render</b> (Export/Settings всё равно в меню + CUI). Оставляем три или режем до Render (+опц. Settings)?</p></div>
+  <div class="choice"><span class="q">?2</span><p><b>Видимость по умолчанию.</b> Показывать тулбар плавающим при первом запуске (видно сразу, но навязчиво) или скрыт по умолчанию, а пользователь включает через Customize UI? Меню при этом — основной путь обнаружения.</p></div>
+</section>
+
+<div class="foot">
+  <b>Раздел 2 — Тулбар · v1</b><br>
+  3 кнопки (Render acc · Export · Settings) · плавающий + закреплённый · из макроскриптов → доступны в Customize UI · тултипы = пункты меню<br>
+  Дальше: <b>Раздел 3 — Статус-бар</b> (прогресс джоба при закрытом окне), затем UI по пунктам меню
+</div>
+
+</div>
+</body>
+</html>

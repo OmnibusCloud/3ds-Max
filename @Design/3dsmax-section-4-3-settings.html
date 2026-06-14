@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3ds Max плагин — 4.3 Settings</title>
+<style>
+:root{
+  --font:"Segoe UI","Helvetica Neue",system-ui,Arial,sans-serif;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace;
+  --page:#0f1118; --board:#171a24; --board-bd:#242a38;
+  --ink:#e9ecf2; --ink2:#aab2c2; --ink3:#727c90; --doclime:#9be04a;
+  --acc:#5BBF4A; --acc-ink:#1A2B4C;
+  --d-bar:#2d2d2d; --d-win:#383838; --d-side:#323232; --d-foot:#323232; --d-sunk:#2a2a2a; --d-bd:#202020; --d-panel:#414141; --d-edge:#525252;
+  --d-ink:#cfcfcf; --d-mut:#969696;
+}
+*{box-sizing:border-box;}
+body{margin:0; background:var(--page); color:var(--ink2); font-family:var(--font); line-height:1.5; -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.025) 1px,transparent 0); background-size:24px 24px;}
+.wrap{max-width:1020px; margin:0 auto; padding:54px 28px 80px;}
+.kick{font-family:var(--mono); font-size:11.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--doclime); margin:0 0 11px;}
+h1{font-size:30px; font-weight:700; color:var(--ink); margin:0 0 9px; letter-spacing:-.02em;}
+h1 .thin{font-weight:300; color:var(--ink2);}
+.lede{font-size:15px; color:var(--ink2); max-width:82ch; margin:0;}
+.lede code,.note code,.s-desc code{font-family:var(--mono); font-size:.87em; color:var(--doclime); background:rgba(155,224,74,.08); padding:1px 5px; border-radius:4px;}
+.sub{margin:42px 0 0;}
+.sub-h{display:flex; align-items:baseline; gap:12px; margin-bottom:6px;}
+.sub-idx{font-family:var(--mono); font-size:12.5px; color:var(--doclime);}
+h2{font-size:18px; color:var(--ink); margin:0; font-weight:600;}
+.s-desc{font-size:14px; color:var(--ink2); max-width:82ch; margin:0 0 18px 34px;}
+.board{background:var(--board); border:1px solid var(--board-bd); border-radius:14px; padding:24px 22px; box-shadow:0 14px 40px rgba(0,0,0,.34);}
+.note{font-size:13px; color:var(--ink3); margin:16px 0 0 2px; line-height:1.6;} .note b{color:var(--ink2); font-weight:500;}
+.mgrid{display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start;}
+.case{display:flex; flex-direction:column; gap:11px;}
+.cap{font-size:12.5px; font-weight:500; color:var(--ink);} .cap small{display:block; font-weight:400; color:var(--ink3); margin-top:3px; font-size:11.5px;}
+svg.i{stroke:currentColor; fill:none; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8;}
+.s14{width:14px;height:14px;}
+
+/* settings dialog */
+.dlg{width:432px; height:408px; background:var(--d-win); border:1px solid #1c1c1c; border-radius:7px; overflow:hidden; box-shadow:0 24px 56px rgba(0,0,0,.55); display:flex; flex-direction:column;}
+.dtbar{flex:none; height:36px; display:flex; align-items:center; gap:9px; padding-left:12px; background:var(--d-bar); color:#d2d2d2; border-bottom:1px solid #1c1c1c;}
+.dtbar .ico{width:16px;height:16px;border-radius:3px;background:linear-gradient(135deg,#34a9cf,#2f8fb3);color:#fff;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
+.dtbar .tt{font-size:12px;font-weight:500;} .dtbar .x{margin-left:auto;width:46px;height:36px;display:flex;align-items:center;justify-content:center;color:#b8b8b8;}
+.dtbar .x svg{width:11px;height:11px;stroke:currentColor;stroke-width:1.1;fill:none;}
+.sbody{flex:1; min-height:0; display:grid; grid-template-columns:130px 1fr;}
+.side{background:var(--d-side); border-right:1px solid var(--d-bd); padding:11px 8px; display:flex; flex-direction:column;}
+.side .sh{font-family:var(--mono); font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--d-mut); padding:3px 8px 8px;}
+.snav{display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:5px; font-size:12px; color:var(--d-mut); margin-bottom:1px;}
+.snav svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.7;fill:none;flex:none;}
+.snav.on{background:#454545; color:#eaffe3; font-weight:500;} .snav.on svg{stroke:var(--acc);}
+.side .ver{margin-top:auto; padding:8px; font-size:9.5px; color:var(--d-mut); border-top:1px solid var(--d-bd); font-family:var(--mono);}
+.cont{padding:15px 16px; overflow-y:auto; min-height:0;}
+.cont h3{margin:0 0 2px; font-size:15px; font-weight:600; color:var(--d-ink);}
+.cont .desc{margin:0 0 13px; font-size:11px; color:var(--d-mut);}
+.ml{font-family:var(--mono); font-size:9px; letter-spacing:.05em; text-transform:uppercase; color:var(--d-mut); margin:13px 0 8px;}
+.ml:first-of-type{margin-top:0;}
+.sfoot{flex:none; height:52px; display:flex; align-items:center; justify-content:flex-end; gap:8px; padding:0 16px; background:var(--d-foot); border-top:1px solid #1f1f1f;}
+.fbtn{height:31px; padding:0 16px; border-radius:5px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px;}
+.fbtn.cancel{background:var(--d-panel); border:1px solid var(--d-edge); color:var(--d-ink);}
+.fbtn.save{background:var(--acc); border:none; color:var(--acc-ink); font-weight:600;}
+
+/* field bits */
+.acard{background:var(--d-panel); border:1px solid var(--d-bd); border-radius:6px; padding:10px 11px; display:flex; align-items:center; gap:10px;}
+.acard .av{width:28px;height:28px;border-radius:50%;background:#2c4a26;color:#9bd98a;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:11px;flex:none;}
+.acard .nm{font-size:12px;font-weight:600;color:var(--d-ink);} .acard .subx{font-size:10.5px;color:var(--d-mut);}
+.minib{margin-left:auto; font-size:11px; padding:5px 11px; border-radius:5px; background:#3a3a3a; border:1px solid var(--d-edge); color:var(--d-ink); flex:none;}
+.frow{display:flex; align-items:center; gap:10px; margin-top:10px;} .frow:first-child{margin-top:0;}
+.frow .k{font-size:11px; color:var(--d-mut); width:78px; flex:none;}
+.sel{flex:1; display:flex; align-items:center; justify-content:space-between; height:31px; padding:0 11px; border-radius:5px; background:var(--d-sunk); border:1px solid var(--d-bd); color:var(--d-ink);}
+.sel .v{font-size:11.5px;} .sel .vpath{font-family:var(--mono); font-size:10.5px;} .sel svg{color:var(--d-mut);width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.inp{flex:1; height:31px; padding:0 11px; border-radius:5px; background:var(--d-sunk); border:1px solid var(--d-bd); color:var(--d-ink); font-family:var(--mono); font-size:10.5px; display:flex; align-items:center;}
+.tgl{display:flex; align-items:center; gap:9px; font-size:12px; color:var(--d-ink); margin-top:11px;}
+.sw{width:32px;height:18px;border-radius:999px;position:relative;flex:none;background:#4a4a4a;border:1px solid #2c2c2c;}
+.sw.on{background:var(--acc);border-color:var(--acc);} .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#cfcfcf;} .sw.on::after{left:16px;background:#fff;}
+.tgl .r{margin-left:auto; font-size:10px; color:var(--d-mut); font-family:var(--mono);}
+.hint{font-size:10.5px; color:var(--d-mut); margin:7px 0 0; line-height:1.5;}
+.dkv{display:grid; grid-template-columns:auto 1fr; gap:7px 14px; font-size:11.5px;} .dkv .k{color:var(--d-mut);} .dkv .v{color:var(--d-ink);}
+.linkrow{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+.lbtn{font-size:11px; padding:6px 11px; border-radius:5px; background:#3a3a3a; border:1px solid var(--d-edge); color:var(--d-ink); display:inline-flex; align-items:center; gap:6px;}
+.lbtn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.statusok{display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:#8fd47f; margin-left:auto;} .statusok .dt{width:6px;height:6px;border-radius:50%;background:#8fd47f;}
+
+/* legend */
+.legend{display:flex; flex-direction:column; max-width:300px; padding-top:4px;}
+.lrow{display:flex; gap:11px; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.05);} .lrow:last-child{border-bottom:none;}
+.lic{flex:none; width:24px; height:24px; border-radius:6px; background:#1f2430; display:flex; align-items:center; justify-content:center; color:var(--acc);} .lic svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.lt2{font-size:12.5px; color:var(--ink);} .lt2 b{color:#fff; font-weight:600;} .lt2 small{display:block; color:var(--ink3); font-size:11px; margin-top:2px; line-height:1.45;}
+
+.foot-doc{margin-top:46px; padding-top:22px; border-top:1px solid var(--board-bd); font-family:var(--mono); font-size:12.5px; color:var(--ink3); line-height:1.7;} .foot-doc b{color:var(--ink2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
+  <symbol id="world" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></symbol>
+  <symbol id="photo" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="M5 17l5-4 4 3 3-2 3 3"/></symbol>
+  <symbol id="sliders" viewBox="0 0 24 24"><path d="M4 6h12M4 12h7M4 18h10"/><circle cx="19" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9H3z"/></symbol>
+  <symbol id="cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1 3.5 3.5 0 0 1-.5 7z"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 0-2 2z"/><path d="M5 4v16"/></symbol>
+  <symbol id="filetext" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 16h6"/></symbol>
+  <symbol id="paste" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</svg>
+
+<p class="kick">OmnibusCloud · 3ds Max · Раздел 4.3 / N</p>
+<h1>Settings <span class="thin">— модальный диалог, sidebar</span></h1>
+<p class="lede">Всё, что настраивается один раз, вынесено из потока запуска в модальный Settings с боковой навигацией (паттерн десктоп-клиента). Пять разделов: General · Connection · Output · Diagnostics · About. Нижний бар — Cancel / Save. Фикс. размер; меняется только правая область. Пункт меню «About OmnibusCloud 3ds Max» открывает этот же диалог сразу на табе About.</p>
+
+<!-- 4.3.1 -->
+<section class="sub">
+  <div class="sub-h"><span class="sub-idx">4.3.1</span><h2>Оболочка · General</h2></div>
+  <p class="s-desc">Слева — навигация по разделам, справа — контент активного, снизу — Cancel / Save. Размер фиксирован; смена раздела меняет только правую панель.</p>
+  <div class="board"><div class="mgrid">
+
+    <div class="case"><div class="cap">Settings · General</div>
+      <div class="dlg">
+        <div class="dtbar"><span class="ico">3<small style="font-size:6px">DS</small></span><span class="tt">OmnibusCloud — Settings</span><span class="x"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></span></div>
+        <div class="sbody">
+          <div class="side">
+            <div class="sh">Settings</div>
+            <div class="snav on"><svg viewBox="0 0 24 24"><use href="#user"/></svg>General</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#world"/></svg>Connection</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#photo"/></svg>Output</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg>Diagnostics</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#info"/></svg>About</div>
+            <div class="ver">v1.0.0</div>
+          </div>
+          <div class="cont">
+            <h3>General</h3>
+            <p class="desc">Аккаунт и поведение по умолчанию.</p>
+            <p class="ml">Account</p>
+            <div class="acard"><span class="av">D</span><div><div class="nm">dmitry@studio.com</div><div class="subx">Signed in · OIDC</div></div><span class="minib">Sign out</span></div>
+            <p class="ml">Defaults</p>
+            <div class="tgl"><span class="sw on"></span>Remember last render settings</div>
+            <div class="tgl"><span class="sw"></span>Theme follows 3ds Max<span class="r">read-only</span></div>
+          </div>
+        </div>
+        <div class="sfoot"><span class="fbtn cancel">Cancel</span><span class="fbtn save">Save</span></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="lrow"><span class="lic"><svg viewBox="0 0 24 24"><use href="#user"/></svg></span><div class="lt2"><b>General</b><small>аккаунт (Sign out), «Remember last render settings», тема (follows Max)</small></div></div>
+      <div class="lrow"><span class="lic"><svg viewBox="0 0 24 24"><use href="#world"/></svg></span><div class="lt2"><b>Connection</b><small>Cloud URL, Identity URL, Test connection</small></div></div>
+      <div class="lrow"><span class="lic"><svg viewBox="0 0 24 24"><use href="#photo"/></svg></span><div class="lt2"><b>Output</b><small>дефолты Render/Export: target, форматы, папка</small></div></div>
+      <div class="lrow"><span class="lic"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg></span><div class="lt2"><b>Diagnostics</b><small>свои логи: Open logs folder / Open last log, уровень логирования</small></div></div>
+      <div class="lrow"><span class="lic"><svg viewBox="0 0 24 24"><use href="#info"/></svg></span><div class="lt2"><b>About</b><small>версии, ссылки — сюда ведёт пункт меню «About OmnibusCloud 3ds Max»</small></div></div>
+    </div>
+
+  </div>
+  <p class="note"><b>Persistence:</b> per-OS-user через <code>OutWit.Common.Settings</code>, не синкается. Мастер-тоггл «Remember last render settings» выключает запоминание прошлых настроек запуска.</p>
+  </div>
+</section>
+
+<!-- 4.3.2 -->
+<section class="sub">
+  <div class="sub-h"><span class="sub-idx">4.3.2</span><h2>Разделы · Connection · Output · Diagnostics · About</h2></div>
+  <p class="s-desc">Та же оболочка, другая правая панель. Show as full dialogs.</p>
+  <div class="board"><div class="mgrid">
+
+    <div class="case"><div class="cap">Connection<small>эндпоинты сервера</small></div>
+      <div class="dlg">
+        <div class="dtbar"><span class="ico">3<small style="font-size:6px">DS</small></span><span class="tt">OmnibusCloud — Settings</span><span class="x"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></span></div>
+        <div class="sbody">
+          <div class="side">
+            <div class="sh">Settings</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#user"/></svg>General</div>
+            <div class="snav on"><svg viewBox="0 0 24 24"><use href="#world"/></svg>Connection</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#photo"/></svg>Output</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg>Diagnostics</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#info"/></svg>About</div>
+            <div class="ver">v1.0.0</div>
+          </div>
+          <div class="cont">
+            <h3>Connection</h3>
+            <p class="desc">Эндпоинты OmnibusCloud.</p>
+            <div class="frow"><span class="k">Cloud URL</span><div class="inp">engine.omnibuscloud.com</div></div>
+            <div class="frow"><span class="k">Identity URL</span><div class="inp">auth.omnibuscloud.com</div></div>
+            <div class="frow" style="margin-top:14px"><span class="minib" style="margin-left:0">Test connection</span><span class="statusok"><span class="dt"></span>Connected</span></div>
+          </div>
+        </div>
+        <div class="sfoot"><span class="fbtn cancel">Cancel</span><span class="fbtn save">Save</span></div>
+      </div>
+    </div>
+
+    <div class="case"><div class="cap">Output<small>дефолты Render / Export</small></div>
+      <div class="dlg">
+        <div class="dtbar"><span class="ico">3<small style="font-size:6px">DS</small></span><span class="tt">OmnibusCloud — Settings</span><span class="x"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></span></div>
+        <div class="sbody">
+          <div class="side">
+            <div class="sh">Settings</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#user"/></svg>General</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#world"/></svg>Connection</div>
+            <div class="snav on"><svg viewBox="0 0 24 24"><use href="#photo"/></svg>Output</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg>Diagnostics</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#info"/></svg>About</div>
+            <div class="ver">v1.0.0</div>
+          </div>
+          <div class="cont">
+            <h3>Output</h3>
+            <p class="desc">Значения по умолчанию для Render и Export.</p>
+            <div class="frow"><span class="k">Export target</span><div class="sel"><span class="v">Blender scene (.blend)</span><svg viewBox="0 0 24 24"><use href="#chev"/></svg></div></div>
+            <div class="frow"><span class="k">Image format</span><div class="sel"><span class="v">PNG</span><svg viewBox="0 0 24 24"><use href="#chev"/></svg></div></div>
+            <div class="frow"><span class="k">Video preset</span><div class="sel"><span class="v">MP4 · H.264</span><svg viewBox="0 0 24 24"><use href="#chev"/></svg></div></div>
+            <div class="frow"><span class="k">Save to</span><div class="sel"><span class="vpath">…\Desktop\renders</span><svg viewBox="0 0 24 24"><use href="#folder"/></svg></div></div>
+          </div>
+        </div>
+        <div class="sfoot"><span class="fbtn cancel">Cancel</span><span class="fbtn save">Save</span></div>
+      </div>
+    </div>
+
+    <div class="case"><div class="cap">Diagnostics<small>логи + диагностика</small></div>
+      <div class="dlg">
+        <div class="dtbar"><span class="ico">3<small style="font-size:6px">DS</small></span><span class="tt">OmnibusCloud — Settings</span><span class="x"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></span></div>
+        <div class="sbody">
+          <div class="side">
+            <div class="sh">Settings</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#user"/></svg>General</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#world"/></svg>Connection</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#photo"/></svg>Output</div>
+            <div class="snav on"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg>Diagnostics</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#info"/></svg>About</div>
+            <div class="ver">v1.0.0</div>
+          </div>
+          <div class="cont">
+            <h3>Diagnostics</h3>
+            <p class="desc">Логи и диагностика.</p>
+            <p class="ml">Logs</p>
+            <div class="frow"><span class="k">Level</span><div class="sel" style="flex:0 0 130px"><span class="v">Info</span><svg viewBox="0 0 24 24"><use href="#chev"/></svg></div></div>
+            <div class="linkrow"><span class="lbtn"><svg viewBox="0 0 24 24"><use href="#folder"/></svg>Open logs folder</span><span class="lbtn"><svg viewBox="0 0 24 24"><use href="#filetext"/></svg>Open last log</span></div>
+            <p class="hint">Свои rolling-логи (*.log) в %APPDATA%\OmnibusCloud\Logs — как у клиента; открытие через OS shell, кросс-платформенно.</p>
+          </div>
+        </div>
+        <div class="sfoot"><span class="fbtn cancel">Cancel</span><span class="fbtn save">Save</span></div>
+      </div>
+    </div>
+
+    <div class="case"><div class="cap">About<small>сюда ведёт пункт меню «About»</small></div>
+      <div class="dlg">
+        <div class="dtbar"><span class="ico">3<small style="font-size:6px">DS</small></span><span class="tt">OmnibusCloud — Settings</span><span class="x"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></span></div>
+        <div class="sbody">
+          <div class="side">
+            <div class="sh">Settings</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#user"/></svg>General</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#world"/></svg>Connection</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#photo"/></svg>Output</div>
+            <div class="snav"><svg viewBox="0 0 24 24"><use href="#sliders"/></svg>Diagnostics</div>
+            <div class="snav on"><svg viewBox="0 0 24 24"><use href="#info"/></svg>About</div>
+            <div class="ver">v1.0.0</div>
+          </div>
+          <div class="cont">
+            <h3>About OmnibusCloud 3ds Max</h3>
+            <p class="desc">Версии и ссылки.</p>
+            <div class="dkv">
+              <span class="k">Plugin</span><span class="v">OmnibusCloud 3ds Max v1.0.0</span>
+              <span class="k">3ds Max</span><span class="v">2027 · SDK 2027</span>
+            </div>
+            <div class="linkrow">
+              <span class="lbtn"><svg viewBox="0 0 24 24"><use href="#cloud"/></svg>OmnibusCloud portal</span>
+              <span class="lbtn"><svg viewBox="0 0 24 24"><use href="#book"/></svg>Documentation</span>
+            </div>
+            <div class="linkrow"><span class="lbtn"><svg viewBox="0 0 24 24"><use href="#info"/></svg>Check for updates</span></div>
+          </div>
+        </div>
+        <div class="sfoot"><span class="fbtn cancel">Cancel</span><span class="fbtn save">Save</span></div>
+      </div>
+    </div>
+
+  </div>
+  <p class="note"><b>About-таб</b> — конечная точка пункта меню «About OmnibusCloud 3ds Max» (Раздел 1): не отдельный диалог, а этот же Settings, открытый сразу на About. <b>Логи</b> — собственные rolling-файлы в <code>%APPDATA%\OmnibusCloud\Logs</code>, как у клиента (<code>DiagnosticsLauncher</code>): кнопки <b>Open logs folder</b> и <b>Open last log</b> через OS shell. Авторизация — только OIDC; API key в UI не выносим.</p>
+  </div>
+</section>
+
+<div class="foot-doc">
+  <b>Раздел 4.3 — Settings · v1</b><br>
+  Модальный диалог 432×408 · sidebar: General / Connection / Output / Diagnostics / About · Cancel / Save · фикс. размер, свап правой панели<br>
+  About-таб = цель пункта меню «About» · persistence per-OS-user (OutWit.Common.Settings) · Дальше: <b>4.4 Sign in</b> (OIDC-флоу) и Open portal
+</div>
+
+</div>
+</body>
+</html>
