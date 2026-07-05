@@ -18,6 +18,10 @@ public sealed class MaxSceneLightSnapshotData
 
     public double Intensity { get; set; } = 1d;
 
+    // True for photometric (ILightscapeLight) lights, whose Intensity is a physical value (candela/lux)
+    // that the mapper normalizes before power calibration so it does not overexpose the render.
+    public bool IsPhotometric { get; set; }
+
     public List<MaxSceneScalarKeyframeSnapshotData> IntensityKeyframes { get; set; } = [];
 
     public double Range { get; set; } = 10d;

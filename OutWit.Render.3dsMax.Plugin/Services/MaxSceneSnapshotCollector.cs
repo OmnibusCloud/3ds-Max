@@ -612,6 +612,10 @@ internal sealed class MaxSceneSnapshotCollector
             Kind = kind,
             Color = new MaxSceneColorSnapshotData { R = color.X, G = color.Y, B = color.Z, A = 1d },
             Intensity = lightObject.GetIntensity(time),
+            // Photometric (ILightscapeLight) lights report intensity in physical units (candela/lux),
+            // orders of magnitude above a standard light's ~1 multiplier. The mapper normalizes these
+            // so the power calibration (which assumes a ~1 multiplier) does not blow out the render.
+            IsPhotometric = lightObject is ILightscapeLight,
             Range = Math.Max(lightObject.GetTDist(time), 0.01d),
             SpotAngleDegrees = ResolveSpotAngleDegrees(kind, hotspotDegrees),
             CastShadows = ReadCastShadows(lightObject),

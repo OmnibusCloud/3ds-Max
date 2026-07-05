@@ -44,6 +44,23 @@ internal static class MaxSceneDccSceneMapper
     // Max multiplier to a daylight-key level.
     private const double SUN_REFERENCE_IRRADIANCE = 4d;
 
+    // Photometric intensity normalized (divided by the scene median) is clamped to this multiplier
+    // range so a single outlier photometric light cannot dominate or vanish.
+    private const double NORMALIZED_MIN_MULTIPLIER = 0.15d;
+
+    private const double NORMALIZED_MAX_MULTIPLIER = 4d;
+
+    // Hard backstops on emitted power so no calibration edge case blows the render to white. The
+    // point-light cap sits well above a legitimately calibrated large-scene wattage (~a few million)
+    // but far below the pathological billions seen before normalization.
+    private const double MAX_POINT_LIGHT_WATTS = 40_000_000d;
+
+    private const double MAX_SUN_IRRADIANCE = 12d;
+
+    // Default Blender view transform: AgX tone-maps a wide dynamic range so bright scenes roll off to
+    // white instead of clipping hard. Applied when the scene carries no explicit view transform.
+    private const string DEFAULT_VIEW_TRANSFORM = "AgX";
+
     #endregion
 
     #region Functions
@@ -54,6 +71,7 @@ internal static class MaxSceneDccSceneMapper
         var nonMeshTranslationScale = ResolveNonMeshTranslationScale(summary);
         var sceneBounds = MaxSceneBounds.Compute(summary);
         var lightPositionsById = ResolveLightPositions(summary, nonMeshTranslationScale);
+        var intensityReference = ResolveIntensityReference(summary);
 
         var scene = new DccSceneData
         {
@@ -84,6 +102,7 @@ internal static class MaxSceneDccSceneMapper
                 Fps = summary.FrameRate > 0 ? summary.FrameRate : 30,
                 Samples = 64,
                 TargetEngine = RenderEngine.Cycles,
+                ViewTransform = DEFAULT_VIEW_TRANSFORM,
                 MotionBlur = summary.MotionBlur,
                 MotionBlurShutter = summary.MotionBlurShutter > 0d ? summary.MotionBlurShutter : 0.5d
             },
@@ -161,6 +180,11 @@ internal static class MaxSceneDccSceneMapper
                 {
                     var characteristicDistance = ResolveLightCharacteristicDistance(me, lightPositionsById, sceneBounds);
                     var intensityFactor = ResolveLightIntensityFactor(me.Kind, characteristicDistance);
+                    // Normalize a photometric light's physical intensity to a ~1 multiplier scale (the
+                    // calibration assumes ~1) so it no longer blows the render; standard lights keep
+                    // their multiplier. Then cap the final wattage as a hard backstop against any
+                    // remaining extreme.
+                    var normalizedIntensity = NormalizeLightIntensity(me, intensityReference);
                     return new DccLightData
                     {
                         Id = me.Id,
@@ -168,8 +192,8 @@ internal static class MaxSceneDccSceneMapper
                         Kind = me.Kind,
                         Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
                         ColorKeyframes = MapColorKeyframes(me.ColorKeyframes),
-                        Intensity = me.Intensity * intensityFactor,
-                        IntensityKeyframes = MapScalarKeyframes(me.IntensityKeyframes, value => value * intensityFactor),
+                        Intensity = ClampLightPower(me.Kind, normalizedIntensity * intensityFactor),
+                        IntensityKeyframes = MapScalarKeyframes(me.IntensityKeyframes, value => ClampLightPower(me.Kind, NormalizeRawIntensity(me, value, intensityReference) * intensityFactor)),
                         Range = ResolveLightRangeValue(me.Kind, me.Range, characteristicDistance),
                         RangeKeyframes = MapScalarKeyframes(me.RangeKeyframes, value => ResolveLightRangeValue(me.Kind, value, characteristicDistance)),
                         SpotAngleDegrees = me.SpotAngleDegrees,
@@ -369,6 +393,53 @@ internal static class MaxSceneDccSceneMapper
         // scene radius (handles lights placed inside or at the centre of the geometry).
         var characteristicDistance = Math.Max(distanceToSceneCenter, sceneBounds?.Radius ?? 0d);
         return Math.Clamp(characteristicDistance, MIN_LIGHT_CHARACTERISTIC_DISTANCE, MAX_LIGHT_CHARACTERISTIC_DISTANCE);
+    }
+
+    // Auto-exposure reference: the median raw intensity across the scene's lights, floored at 1. The
+    // power calibration assumes a ~1 multiplier, but Max lights arrive on wildly different scales —
+    // photometric candela (hundreds-thousands), physical-sky/Arnold values (thousands+), or a plain
+    // multiplier (~1). Dividing every light by this reference centres the typical light on the
+    // calibrated exposure (relative brightness between lights preserved) so no scene blows out. The
+    // floor at 1 means a genuinely dim scene (median < 1) is left alone rather than brightened.
+    private static double ResolveIntensityReference(MaxSceneSummaryData summary)
+    {
+        var intensities = summary.Lights
+            .Where(me => me.Intensity > 0d)
+            .Select(me => me.Intensity)
+            .OrderBy(me => me)
+            .ToArray();
+
+        if (intensities.Length == 0)
+            return 1d;
+
+        var mid = intensities.Length / 2;
+        var median = intensities.Length % 2 == 1 ? intensities[mid] : (intensities[mid - 1] + intensities[mid]) / 2d;
+        return Math.Max(median, 1d);
+    }
+
+    private static double NormalizeLightIntensity(MaxSceneLightSnapshotData light, double intensityReference)
+    {
+        return NormalizeRawIntensity(light, light.Intensity, intensityReference);
+    }
+
+    // Normalize a light's raw intensity against the scene reference and clamp so a single outlier
+    // light cannot dominate the frame or vanish.
+    private static double NormalizeRawIntensity(MaxSceneLightSnapshotData light, double rawValue, double intensityReference)
+    {
+        var normalized = rawValue / intensityReference;
+        return Math.Clamp(normalized, NORMALIZED_MIN_MULTIPLIER, NORMALIZED_MAX_MULTIPLIER);
+    }
+
+    // Hard backstop on emitted light power so no calibration edge case can blow the render to white.
+    // Sun is an irradiance (W/m^2); point/spot are watts.
+    private static double ClampLightPower(DccLightKind kind, double power)
+    {
+        if (!double.IsFinite(power) || power < 0d)
+            return 0d;
+
+        return kind == DccLightKind.Sun
+            ? Math.Min(power, MAX_SUN_IRRADIANCE)
+            : Math.Min(power, MAX_POINT_LIGHT_WATTS);
     }
 
     private static double ResolveLightIntensityFactor(DccLightKind kind, double characteristicDistance)
