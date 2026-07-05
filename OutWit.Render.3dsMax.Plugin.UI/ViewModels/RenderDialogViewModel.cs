@@ -63,6 +63,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         RenderCommand = new RelayCommandAsync(RenderAsync);
         CancelCommand = new RelayCommandAsync(CancelAsync);
         DetailsCommand = new RelayCommand(_ => ShowDetails());
+        OpenResultCommand = new RelayCommand(_ => OpenResult(), _ => File.Exists(ResultPath));
+        OpenFolderCommand = new RelayCommand(_ => OpenResultFolder(), _ => !string.IsNullOrWhiteSpace(ResultPath));
+        NewRenderCommand = new RelayCommand(_ => NewRender());
         UpdateStatus();
     }
 
@@ -107,6 +110,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     private async Task RenderAsync()
     {
         m_cancelRequested = false;
+        ResultPath = string.Empty;
         PushAxesToRenderMode();
         PersistRenderSettings();
 
@@ -155,6 +159,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
                 if (jobState.IsCompleted)
                 {
+                    ResultPath = jobState.PrimaryArtifactPath;
                     Status = MaxRenderStatus.Completed();
                     UpdateStatus();
                     return;
@@ -200,6 +205,38 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             jobState = await ConnectedRender.CancelJobAsync(jobState);
             DiagnosticsVm.Apply(jobState.Diagnostics);
         }
+    }
+
+    private void OpenResult()
+    {
+        if (!File.Exists(ResultPath))
+            return;
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ResultPath) { UseShellExecute = true });
+    }
+
+    private void OpenResultFolder()
+    {
+        if (string.IsNullOrWhiteSpace(ResultPath))
+            return;
+
+        // Select the result file in Explorer when it exists; otherwise just open its folder.
+        if (File.Exists(ResultPath))
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{ResultPath}\"") { UseShellExecute = true });
+            return;
+        }
+
+        var folder = Path.GetDirectoryName(ResultPath);
+        if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+    }
+
+    private void NewRender()
+    {
+        ResultPath = string.Empty;
+        Status = MaxRenderStatus.Ready();
+        UpdateStatus();
     }
 
     private void ShowDetails()
@@ -248,6 +285,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         StatusLine = Status.StatusLine;
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
+        ShowResultActions = Status.Phase == MaxRenderPhase.Completed && !string.IsNullOrWhiteSpace(ResultPath);
+        ShowRenderButton = !ShowResultActions;
+
+        OpenResultCommand.RaiseCanExecuteChanged();
+        OpenFolderCommand.RaiseCanExecuteChanged();
 
         // Mirror active/terminal render status to the host prompt line (MX-5/6) so progress stays
         // visible while the dialog is minimized. Idle (Ready) states are not pushed, to avoid noise;
@@ -387,6 +429,15 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public bool ShowProgress { get; set; }
 
     [Notify]
+    public bool ShowResultActions { get; set; }
+
+    [Notify]
+    public bool ShowRenderButton { get; set; } = true;
+
+    [Notify]
+    public string ResultPath { get; set; } = string.Empty;
+
+    [Notify]
     public bool CanRender { get; set; }
 
     [Notify]
@@ -401,6 +452,12 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand CancelCommand { get; private set; } = null!;
 
     public ICommand DetailsCommand { get; private set; } = null!;
+
+    public RelayCommand OpenResultCommand { get; private set; } = null!;
+
+    public RelayCommand OpenFolderCommand { get; private set; } = null!;
+
+    public ICommand NewRenderCommand { get; private set; } = null!;
 
     #endregion
 

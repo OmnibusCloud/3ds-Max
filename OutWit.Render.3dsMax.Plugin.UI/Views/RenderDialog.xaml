@@ -122,10 +122,20 @@
                     <Button Content="Cancel" Padding="10,5" Margin="0,0,8,0" Command="{Binding CancelCommand}"
                             IsEnabled="{Binding CanCancel}"
                             Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
+
+                    <!-- Result actions (shown when a render has completed) -->
+                    <Button Content="Open" Padding="10,5" Margin="0,0,8,0" Command="{Binding OpenResultCommand}"
+                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
+                    <Button Content="Open folder" Padding="10,5" Margin="0,0,8,0" Command="{Binding OpenFolderCommand}"
+                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
+                    <Button Content="New render" Padding="10,5" Margin="0,0,8,0" Command="{Binding NewRenderCommand}"
+                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
+
                     <Button Content="Render" Padding="14,5" Command="{Binding RenderCommand}"
                             IsEnabled="{Binding CanRender}"
                             Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}"
-                            FontWeight="SemiBold" />
+                            FontWeight="SemiBold"
+                            Visibility="{Binding ShowRenderButton, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
             </DockPanel>
         </Border>
