@@ -7,6 +7,12 @@ namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 /// </summary>
 public sealed class MaxConnectedRenderPreflightService
 {
+    #region Constants
+
+    private const string EXPORT_BLEND_MODE = "ExportBlend";
+
+    #endregion
+
     #region Fields
 
     private static readonly HashSet<string> VALID_RENDER_MODES =
@@ -14,7 +20,8 @@ public sealed class MaxConnectedRenderPreflightService
         "RenderStill",
         "RenderStillTiled",
         "RenderFrames",
-        "RenderVideo"
+        "RenderVideo",
+        EXPORT_BLEND_MODE
     ];
 
     private readonly MaxSceneExportService m_sceneExportService;
@@ -44,23 +51,27 @@ public sealed class MaxConnectedRenderPreflightService
         if (string.IsNullOrWhiteSpace(request.CloudUrl) && string.IsNullOrWhiteSpace(request.IdentityUrl))
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "OmnibusCloud URL or Identity URL is required before connected launch."));
 
-        if (!request.UseAllClients && string.IsNullOrWhiteSpace(request.SelectedGroupName))
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select one execution group or enable 'Run on all clients' before connected launch."));
-
         if (!VALID_RENDER_MODES.Contains(request.RenderMode))
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Unsupported render mode '{request.RenderMode}'."));
 
-        if (request.ResolutionX <= 0 || request.ResolutionY <= 0)
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Render resolution must be greater than zero."));
+        // ExportBlend builds the .blend host-side: no farm group, resolution, or frame range applies.
+        if (request.RenderMode != EXPORT_BLEND_MODE)
+        {
+            if (!request.UseAllClients && string.IsNullOrWhiteSpace(request.SelectedGroupName))
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select one execution group or enable 'Run on all clients' before connected launch."));
 
-        if (request.FrameStart <= 0 || request.FrameEnd < request.FrameStart)
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Frame range is invalid for connected launch."));
+            if (request.ResolutionX <= 0 || request.ResolutionY <= 0)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Render resolution must be greater than zero."));
 
-        if ((request.RenderMode == "RenderStill" || request.RenderMode == "RenderStillTiled") && request.FrameEnd != request.FrameStart)
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Still render modes usually expect a single frame. The current frame range will be reduced later unless changed."));
+            if (request.FrameStart <= 0 || request.FrameEnd < request.FrameStart)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Frame range is invalid for connected launch."));
 
-        if (request.RenderMode == "RenderVideo" && request.FrameEnd == request.FrameStart)
-            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Video launch usually expects more than one frame."));
+            if ((request.RenderMode == "RenderStill" || request.RenderMode == "RenderStillTiled") && request.FrameEnd != request.FrameStart)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Still render modes usually expect a single frame. The current frame range will be reduced later unless changed."));
+
+            if (request.RenderMode == "RenderVideo" && request.FrameEnd == request.FrameStart)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Video launch usually expects more than one frame."));
+        }
 
         var hasErrors = diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Error) || !validation.IsSuccess;
 

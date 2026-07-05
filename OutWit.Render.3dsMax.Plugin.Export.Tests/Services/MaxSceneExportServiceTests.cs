@@ -441,6 +441,29 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
+    public void ConnectedRenderPreflightPassesForExportBlendWithoutGroupOrResolutionTest()
+    {
+        // ExportBlend builds the .blend host-side: no execution group, resolution, or frame range
+        // applies, so preflight must pass with only the endpoint configured (regression for the
+        // Export dialog's default target being blocked).
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "ExportBlend",
+            OutputFolder = Path.GetTempPath()
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.True);
+            Assert.That(result.Diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Error), Is.False);
+        });
+    }
+
+    [Test]
     public async Task LoadExecutionScopeFailsWhenSignedOutTest()
     {
         var sessionService = new FakeMaxCloudSessionService
