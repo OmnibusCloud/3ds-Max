@@ -15,6 +15,7 @@
 ## План
 `omnibuscloud-3dsmax-plugin-implementation-plan.md` — 7 фаз внедрения, привязка к классам репозитория.
 `omnibuscloud-3dsmax-production-plan.md` — план доведения до production (по аудитам 2026-07-04: контроллер Render.Dcc, функциональность плагина, соответствие дизайну).
+`render-quality-roadmap.md` — roadmap рендер-качества: планка «faithful», корпус тестовых сцен, критерии приёмки, волны работ с гейтами (текущий фокус).
 
 ## Эндпоинты
 Identity (вход) — `auth.omnibuscloud.com` · Cloud (ферма) — `engine.omnibuscloud.com`
