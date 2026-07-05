@@ -66,19 +66,21 @@ Remove the hard aborts and crashes so a picture always comes back.
 - **2.14** Bound collector memory for deformation sampling so crowd scenes don't OOM (cap/stream per-frame capture; diagnostic if truncated). *(FishTank — Tier B, but the crash is fixed here.)*
 **Gate:** all 10 scenes produce an image (Tier B included); no aborts/OOM.
 
-### Wave 2 — Exposure: no Tier-A scene blown out or black (criterion 3)
-The #1 fidelity bug. Fix systematic overexposure.
-- **2.16b** Overhaul light-power calibration: calibrate each light against its **actual** distance to the lit geometry, not the scene radius; add a hard **max output-wattage clamp**; keep the low-end boost so nothing renders black.
+### Wave 2 — Framing: the camera shows the subject (criterion 2)  *(was Wave 3 — promoted; the baseline #1 defect)*
+The camera lands on empty space in 8/10 scenes. Fix the coordinate pipeline first.
+- **Root fix** — the mesh-vs-camera coordinate mismatch: investigate why non-mesh (camera/light) node positions need `nonMeshTranslationScale` at all when both come from `GetNodeTM` world matrices. Make mesh geometry and camera/light positions live in one consistent space so a camera at its Max world position frames the same geometry. This likely removes or corrects the `nonMeshTranslationScale` heuristic and the forced mesh unit-scale.
+- **2.17** Render through the **active render camera** (`summary.ActiveRenderCameraName`, already resolved from `RendCamNode`/active view), not "first camera node" — reorder that camera's node first (client-side) or thread an `ActiveCameraId`.
+- Verify target-camera look-at orientation is captured (multi-camera scenes).
+- Fallback framing: when no camera is authored, aim the synthesized viewport camera at the scene bounds.
+**Gate:** every Tier-A scene shows the intended subject/composition (no black/empty frames).
+
+### Wave 3 — Exposure: no Tier-A scene blown out or black (criterion 3)  *(was Wave 2)*
+Now that the camera frames the subject, fix systematic over/under-exposure.
+- **2.16b** Overhaul light-power calibration: calibrate each light against its **actual** distance to the lit geometry, not the scene radius; add a hard **max output-wattage clamp** (baseline intensities reached 8.07 billion W); keep the low-end boost so nothing renders black.
 - **2.16** Normalize photometric (`ILightscapeLight`) intensity to a multiplier-equivalent before calibration.
 - **2.18a** Set a sensible default `ViewTransform` (AgX) + exposure so residual highlights tone-map instead of clipping.
 - Unit-test the mapper clamp/calibration (pure logic, no Max needed).
 **Gate:** every Tier-A scene is sanely exposed; Tier-B not blown to white. **→ Ship plugin release.**
-
-### Wave 3 — Framing: correct camera (criterion 2)
-- **2.17** Resolve the **active render camera** (the render/active-viewport camera), not "first camera"; mark it so the generator renders through it (reorder so it's first, or add `RenderSettings.ActiveCameraId` + a small generator change).
-- Verify target-camera orientation/look-at is captured correctly (hardwood's cameras all framed wrong — investigate coordinate/target handling).
-- Fallback framing: when no camera is authored, frame the synthesized camera to the scene bounds.
-**Gate:** every Tier-A scene shows the intended composition.
 
 ### Wave 4 — Materials & environment fidelity (criteria 4 & 5)
 - **2.18b** Carry the Max environment-map intensity into `World.Strength` so HDRI scenes are correctly lit (not under-lit).
@@ -98,20 +100,22 @@ The #1 fidelity bug. Fix systematic overexposure.
 
 Updated after each wave (✅ pass / ⚠️ partial / ❌ fail / — not yet run).
 
-| Scene | Renders | Framing | Exposure | Materials | Textures |
-|---|---|---|---|---|---|
-| Maxine | ❌ (empty mesh) | — | ❌ (579k W) | — | — |
-| Ape | — | — | — | — | — |
-| A08trans | — | — | — | — | — |
-| Flex-TeaPotBounce | — | — | — | — | — |
-| Displacement-MoonRock | — | — | — | — | — |
-| Lighting-Vertex | — | — | — | — | — |
-| MotionBlur-DragonFlying | — | — | — | — | — |
-| troll_cleric29 | — | — | — | — | — |
-| hardwood_hdri_Arnold (B) | ⚠️ (renders) | ❌ (wrong cam) | ❌ (4.7M W) | ⚠️ | ✅ |
-| FishTank (B) | ❌ (OOM) | — | — | — | — |
+**Baseline captured 2026-07-05 (Wave 0 sweep, current plugin 0.6.0).** 0/10 acceptable; only 1 shows its subject at all.
 
-Known data points from 2026-07-05 pre-work renders are pre-filled; Wave 0 fills the rest.
+| Scene | Renders | Framing | Exposure | Materials | Textures | Baseline image |
+|---|---|---|---|---|---|---|
+| Maxine | ❌ | — | — | — | — | FARM_FAIL: empty mesh `mesh:412` |
+| Ape | ✅ | ❌ | — | — | ✅(none) | uniform green — subject off-frame |
+| A08trans | ✅ | ❌ | — | — | ✅ | black — camera on empty space |
+| Flex-TeaPotBounce | ✅ | ❌ | — | — | ✅(none) | black — camera on empty space (maxI 81M W) |
+| Displacement-MoonRock | ✅ | ❌ | — | — | ✅ | black — camera on empty space |
+| Lighting-Vertex | ✅ | ❌ | — | — | ✅ | black — camera on empty space |
+| MotionBlur-DragonFlying | ✅ | ⚠️ | ❌ | ⚠️ | ✅ | **dragon visible** but washed-out pink, dark wing |
+| troll_cleric29 | ✅ | ❌ | ❌ | — | ✅ | floor blown white (maxI 8.07**billion** W), troll absent |
+| hardwood_hdri_Arnold (B) | ✅ | ❌ | ❌ | ⚠️ | ✅ | wrong panels fill frame (maxI 4.7M W) |
+| FishTank (B) | ❌ | — | — | — | — | EXPORT_FAIL: collector OOM (exit 127) |
+
+**Root cause (baseline verdict): FRAMING is the dominant defect, not lighting.** 8/10 render the camera pointed at empty space / the wrong thing (black, uniform background, or a floor). Only MotionBlur-Dragon frames its subject. The `MaxSceneDccSceneMapper.nonMeshTranslationScale` heuristic scales camera/light positions by an averaged mesh-node scale to reconcile a coordinate/units mismatch between mesh geometry (object-space verts + world node TM) and non-mesh nodes — and it mispositions the camera on most scenes → empty frames. Exposure is *also* broken (intensities of 4.7M–8.07B W from the distance calibration), but it **cannot be judged until framing is fixed** (a black frame from a mis-aimed camera tells us nothing about exposure). Hence the wave order below was swapped: **framing before exposure**.
 
 ---
 
