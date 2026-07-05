@@ -99,7 +99,22 @@ Now that the camera frames the subject, fix systematic over/under-exposure.
 
 Updated after each wave (✅ pass / ⚠️ partial / ❌ fail / — not yet run).
 
-**Baseline captured 2026-07-05 (Wave 0 sweep, current plugin 0.6.0).** 0/10 acceptable; only 1 shows its subject at all.
+**After Waves 1–3c (plugin 0.7.0-beta, full sweep 2026-07-05).** From 0/10 → most Tier-A scenes render their subject with sane exposure. Headless caveat: `3dsmaxbatch` has no active viewport, so camera-less scenes (a08trans, flex) get a garbage synthetic viewport camera → black; **in interactive Max the user's viewport/target cameras are valid, so those render fine** — this is a test-harness limit, not a product defect.
+
+| Scene | Renders | Framing | Exposure | Materials | After W1–W3c |
+|---|---|---|---|---|---|
+| moonrock | ✅ | ✅ | ✅ | ✅ | **excellent** — target cam, cratered rock, dramatic light |
+| troll_cleric | ✅ | ✅ | ✅ | ✅ | troll on grassy hill clearly visible (slight haze) |
+| hardwood (B) | ✅ | ⚠️ | ✅ | ✅ | richly-lit amber interior (4-cam; panel backdrop) |
+| Maxine | ✅ | ✅ | ⚠️ | ❌ | character framed + centred, but **grey/no colour → Wave 4 (materials)** |
+| MotionBlur-Dragon | ✅ | ✅ | ⚠️ | ⚠️ | authored tracking cam kept, dragon visible, bg washed (far lights) |
+| Ape | ✅ | ⚠️ | ⚠️ | — | character off to the side — rig-control node picked as camera in headless |
+| Lighting-Vertex | ✅ | ⚠️ | ❌ | — | black — free camera frames an unlit area |
+| A08trans | ✅ | ⚠️ | — | — | black — synthetic viewport camera (headless only; OK interactively) |
+| Flex-TeaPot | ✅ | ⚠️ | — | — | black — synthetic viewport camera (headless only; OK interactively) |
+| FishTank (B) | ❌ | — | — | — | collector OOM on the crowd deformation (2.14, deferred) |
+
+**Baseline (Wave 0, plugin 0.6.0): 0/10 acceptable; only 1 showed its subject at all.**
 
 | Scene | Renders | Framing | Exposure | Materials | Textures | Baseline image |
 |---|---|---|---|---|---|---|
