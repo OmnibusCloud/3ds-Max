@@ -166,53 +166,78 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (sceneObject is ILightObject lightObject)
             {
-                added = true;
-                m_summary.LightsCount++;
-                AddName(m_summary.LightNames, childNode.Name);
                 var lightId = $"light:{childNode.Handle}";
-                m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
+                var lightSnapshot = ExtractLight(childNode, lightObject, lightId);
+
+                // A light that is off or carries no positive intensity contributes nothing and would
+                // fail Dcc validation ("light requires positive intensity"), aborting the whole scene.
+                // Drop it here so the rest of the scene still renders; the export service surfaces a
+                // Warning from SkippedInactiveLightCount.
+                if (IsLightActive(lightObject) && lightSnapshot.Intensity > 0d)
                 {
-                    Id = nodeId,
-                    Name = childNode.Name,
-                    ParentId = parentId,
-                    Kind = DccNodeKind.Light,
-                    LocalTransform = localTransform,
-                    TransformKeyframes = transformKeyframes,
-                    LightId = lightId,
-                    Visible = !childNode.IsNodeHidden(false),
-                    Renderable = childNode.Renderable
-                });
-                m_summary.Lights.Add(ExtractLight(childNode, lightObject, lightId));
+                    added = true;
+                    m_summary.LightsCount++;
+                    AddName(m_summary.LightNames, childNode.Name);
+                    m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
+                    {
+                        Id = nodeId,
+                        Name = childNode.Name,
+                        ParentId = parentId,
+                        Kind = DccNodeKind.Light,
+                        LocalTransform = localTransform,
+                        TransformKeyframes = transformKeyframes,
+                        LightId = lightId,
+                        Visible = !childNode.IsNodeHidden(false),
+                        Renderable = childNode.Renderable
+                    });
+                    m_summary.Lights.Add(lightSnapshot);
+                }
+                else
+                {
+                    m_summary.SkippedInactiveLightCount++;
+                }
             }
 
             if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1)
             {
-                added = true;
-                m_summary.MeshesCount++;
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
-                SampleDeformationFrames(childNode, meshSnapshot);
-                var materialBindingMap = GetMaterialBindingMap(childNode.Mtl);
-                NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
-                var materialBindingId = ResolveMaterialBindingId(meshSnapshot, materialBindingMap.MaterialIds);
 
-                if (UsesPerTriangleMaterialBinding(meshSnapshot))
-                    materialBindingId = null;
-
-                m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
+                // A mesh with no vertices (a helper/degenerate object that still converts to a
+                // TriObject) fails Dcc validation ("mesh requires positions"), aborting the whole
+                // scene. Drop it so the rest renders; the export service surfaces a Warning from
+                // SkippedEmptyMeshCount. Children re-parent onto the nearest INCLUDED ancestor.
+                if (meshSnapshot.Positions.Count == 0)
                 {
-                    Id = nodeId,
-                    Name = childNode.Name,
-                    ParentId = parentId,
-                    Kind = DccNodeKind.Mesh,
-                    LocalTransform = localTransform,
-                    TransformKeyframes = transformKeyframes,
-                    MeshId = meshId,
-                    MaterialBindingId = materialBindingId,
-                    Visible = !childNode.IsNodeHidden(false),
-                    Renderable = childNode.Renderable
-                });
-                m_summary.Meshes.Add(meshSnapshot);
+                    m_summary.SkippedEmptyMeshCount++;
+                }
+                else
+                {
+                    added = true;
+                    m_summary.MeshesCount++;
+                    SampleDeformationFrames(childNode, meshSnapshot);
+                    var materialBindingMap = GetMaterialBindingMap(childNode.Mtl);
+                    NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
+                    var materialBindingId = ResolveMaterialBindingId(meshSnapshot, materialBindingMap.MaterialIds);
+
+                    if (UsesPerTriangleMaterialBinding(meshSnapshot))
+                        materialBindingId = null;
+
+                    m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
+                    {
+                        Id = nodeId,
+                        Name = childNode.Name,
+                        ParentId = parentId,
+                        Kind = DccNodeKind.Mesh,
+                        LocalTransform = localTransform,
+                        TransformKeyframes = transformKeyframes,
+                        MeshId = meshId,
+                        MaterialBindingId = materialBindingId,
+                        Visible = !childNode.IsNodeHidden(false),
+                        Renderable = childNode.Renderable
+                    });
+                    m_summary.Meshes.Add(meshSnapshot);
+                }
             }
 
             // Children re-parent onto this node only if it was emitted; otherwise they keep the
@@ -638,6 +663,29 @@ internal sealed class MaxSceneSnapshotCollector
         {
             return true;
         }
+    }
+
+    private bool IsLightActive(ILightObject lightObject)
+    {
+        // A light switched off in 3ds Max (the "On" checkbox) contributes nothing and would export a
+        // dead source. GetUseLight reads that flag (0 = off). Its managed overload varies (no-arg vs
+        // time), so resolve it reflectively and default to active on any failure — an API quirk must
+        // never silently drop a real light.
+        try
+        {
+            var method = lightObject.GetType().GetMethod("GetUseLight", [typeof(int)]);
+            if (method != null && method.Invoke(lightObject, [m_coreInterface.Time]) is int withTime)
+                return withTime != 0;
+
+            method = lightObject.GetType().GetMethod("GetUseLight", Type.EmptyTypes);
+            if (method?.Invoke(lightObject, null) is int noArg)
+                return noArg != 0;
+        }
+        catch
+        {
+        }
+
+        return true;
     }
 
     private string? TryExtractMaterialBinding(IMtl? material)

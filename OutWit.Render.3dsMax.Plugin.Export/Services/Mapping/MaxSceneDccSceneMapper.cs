@@ -55,7 +55,7 @@ internal static class MaxSceneDccSceneMapper
         var sceneBounds = MaxSceneBounds.Compute(summary);
         var lightPositionsById = ResolveLightPositions(summary, nonMeshTranslationScale);
 
-        return new DccSceneData
+        var scene = new DccSceneData
         {
             SceneName = summary.SceneName,
             SourceApplication = new DccApplicationData
@@ -217,6 +217,13 @@ internal static class MaxSceneDccSceneMapper
                 })
             ]
         };
+
+        // Aim the render camera at the scene so the subject is actually in frame. Max camera
+        // orientation does not survive the round trip reliably, so we recompute framing from the
+        // geometry bounds rather than trust the captured quaternion.
+        MaxSceneCameraFramer.Apply(scene, summary.ActiveRenderCameraName);
+
+        return scene;
     }
 
     private static double NormalizeCameraFarClip(double nearClip, double farClip)

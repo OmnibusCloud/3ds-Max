@@ -58,6 +58,11 @@ public sealed class MaxSceneSnapshotData
 
     public int LightsCount { get; set; }
 
+    // Content the collector deliberately dropped so it never aborts the server-side build.
+    public int SkippedEmptyMeshCount { get; set; }
+
+    public int SkippedInactiveLightCount { get; set; }
+
     public int AnimatedChannelsCount { get; set; }
 
     public int FrameStart { get; set; } = 1;

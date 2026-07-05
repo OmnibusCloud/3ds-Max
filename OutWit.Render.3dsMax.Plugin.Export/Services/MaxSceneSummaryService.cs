@@ -68,6 +68,8 @@ public sealed class MaxSceneSummaryService
             TexturesCount = snapshot.TexturesCount,
             CamerasCount = snapshot.CamerasCount,
             LightsCount = snapshot.LightsCount,
+            SkippedEmptyMeshCount = snapshot.SkippedEmptyMeshCount,
+            SkippedInactiveLightCount = snapshot.SkippedInactiveLightCount,
             AnimatedChannelsCount = snapshot.AnimatedChannelsCount,
             FrameStart = frameStart,
             FrameEnd = frameEnd,

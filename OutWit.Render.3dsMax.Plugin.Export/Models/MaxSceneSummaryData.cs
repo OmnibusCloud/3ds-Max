@@ -62,6 +62,12 @@ public sealed class MaxSceneSummaryData
 
     public int LightsCount { get; set; }
 
+    // Non-renderable content the collector deliberately dropped so it never aborts the server-side
+    // build (an empty mesh / a light with no positive intensity both fail Dcc validation).
+    public int SkippedEmptyMeshCount { get; set; }
+
+    public int SkippedInactiveLightCount { get; set; }
+
     public int AnimatedChannelsCount { get; set; }
 
     public int FrameStart { get; set; } = 1;

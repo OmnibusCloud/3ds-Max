@@ -196,6 +196,26 @@ public sealed class MaxSceneExportService
             });
         }
 
+        if (summary.SkippedEmptyMeshCount > 0)
+        {
+            diagnostics.Add(new MaxSceneDiagnosticItem
+            {
+                Severity = MaxSceneDiagnosticSeverity.Warning,
+                Message = $"Skipped {summary.SkippedEmptyMeshCount} empty mesh object(s) with no geometry.",
+                SuggestedAction = "These carry no renderable vertices (helper/degenerate objects); they are excluded so the rest of the scene renders."
+            });
+        }
+
+        if (summary.SkippedInactiveLightCount > 0)
+        {
+            diagnostics.Add(new MaxSceneDiagnosticItem
+            {
+                Severity = MaxSceneDiagnosticSeverity.Warning,
+                Message = $"Skipped {summary.SkippedInactiveLightCount} light(s) that are switched off or have no positive intensity.",
+                SuggestedAction = "Turn the light on or raise its multiplier in 3ds Max if it should contribute to the render."
+            });
+        }
+
         if (string.IsNullOrWhiteSpace(summary.ActiveRenderCameraName) && summary.CamerasCount > 0)
         {
             diagnostics.Add(new MaxSceneDiagnosticItem
