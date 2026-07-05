@@ -67,6 +67,7 @@ Plus: substring-matching failure detection (M3), no job re-attach after dialog c
 | 2.12 | DCC sweep (L2..L6): dedupe `ToPythonStringLiteral`, `InnerClone`/`Is` consistency, cancellation in `MaterializeAttachmentsAsync`, build-Blender watchdog, sanitizer-collision test | S | Controllers |
 | 2.13 | Zero-intensity lights must not block the scene (2026-07-05 sweep: Viewport-Dragon fails validation on "light requires positive intensity") — collector skips them with a Warning diagnostic | S | Plugin |
 | 2.14 | Bound collector memory on deformation sampling (sweep: FishTank crowd scene OOMs the .NET collector) — cap/stream per-frame corner capture + actionable diagnostic instead of a crash | M | Plugin |
+| 2.15 | Preflight the selected scope's capacity before submit + humanize "No fallback nodes available": call `GetCapacityAsync`, and when the chosen group has no compatible node (offline / schedule-blocked / missing controller), tell the user which and offer "run on all clients" — the raw farm error currently reads as a bug (2026-07-05: a group render failed only because the group's single online node was momentarily out of schedule; controller WAS distributed). | S | Plugin |
 
 **Gate:** all unit suites green; 3dsmaxbatch smokes green; kill-a-node-mid-render chaos check (Grid reassignment observed from the plugin); replayable logs for a failed job.
 
