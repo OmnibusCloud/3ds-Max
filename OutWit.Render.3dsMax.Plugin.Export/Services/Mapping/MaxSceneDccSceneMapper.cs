@@ -272,9 +272,10 @@ internal static class MaxSceneDccSceneMapper
 
     private static DccTransformData MapNodeTransform(DccNodeKind kind, MaxSceneTransformSnapshotData transform, double nonMeshTranslationScale)
     {
-        // Mesh nodes keep their raw translation and a forced unit scale (the mesh vertices already
-        // carry their world extent); non-mesh nodes (camera/light) get the import scale applied to
-        // their translation and keep their own scale. Shared by the static transform and every
+        // Every node keeps its full captured TRS. Mesh vertices are OBJECT-space (the collector bakes
+        // only the objTM·nodeTM⁻¹ pivot/WSM delta), so dropping the node scale breaks any scaled mesh
+        // (a 0.017-scaled prop inflates 60×). Non-mesh nodes (camera/light) additionally get the
+        // legacy import scale applied to their translation. Shared by the static transform and every
         // animation keyframe so they stay consistent.
         var isMesh = kind == DccNodeKind.Mesh;
         return new DccTransformData
@@ -294,9 +295,9 @@ internal static class MaxSceneDccSceneMapper
             },
             Scale = new DccVector3Data
             {
-                X = isMesh ? 1d : transform.Scale.X,
-                Y = isMesh ? 1d : transform.Scale.Y,
-                Z = isMesh ? 1d : transform.Scale.Z
+                X = transform.Scale.X,
+                Y = transform.Scale.Y,
+                Z = transform.Scale.Z
             }
         };
     }
@@ -342,22 +343,11 @@ internal static class MaxSceneDccSceneMapper
 
     private static double ResolveNonMeshTranslationScale(MaxSceneSummaryData summary)
     {
-        var meshNodeScales = summary.Nodes
-            .Where(me => me.Kind == DccNodeKind.Mesh)
-            .SelectMany(me => new[]
-            {
-                me.LocalTransform.Scale.X,
-                me.LocalTransform.Scale.Y,
-                me.LocalTransform.Scale.Z
-            })
-            .Where(me => me > 0d)
-            .ToArray();
-
-        if (meshNodeScales.Length == 0)
-            return 1d;
-
-        var representativeScale = meshNodeScales.Average();
-        return representativeScale is > 0d and < 0.5d ? representativeScale : 1d;
+        // Historical compensation for the era when mesh node scale was forced to 1 (cameras had to
+        // shrink towards the unscaled geometry). Mesh transforms now keep their true scale, so every
+        // node already lives in the same Max world coordinates — any factor here would MISplace
+        // cameras and lights.
+        return 1d;
     }
 
     private static Dictionary<string, DccVector3Data> ResolveLightPositions(MaxSceneSummaryData summary, double nonMeshTranslationScale)

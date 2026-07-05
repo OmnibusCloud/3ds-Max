@@ -1101,8 +1101,10 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Scene, Is.Not.Null);
             Assert.That(result.Scene!.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Translation.X, Is.EqualTo(1d));
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Translation.Y, Is.EqualTo(2d));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.X, Is.EqualTo(1d));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.Z, Is.EqualTo(1d));
+            // Mesh node scale is preserved (vertices are object-space; dropping the scale inflated
+            // any scaled prop by its inverse factor).
+            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.X, Is.EqualTo(1.5d));
+            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.Z, Is.EqualTo(0.5d));
             Assert.That(result.Scene.Meshes.Single().Uv0[0].X, Is.EqualTo(0.1d));
             Assert.That(result.Scene.Meshes.Single().Uv0[0].Y, Is.EqualTo(0.2d));
         });
@@ -1191,8 +1193,11 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void ValidateCurrentSceneScalesNonMeshTranslationsForSmallImportedMeshScaleTest()
+    public void ValidateCurrentSceneKeepsNonMeshTranslationsAndMeshScaleTest()
     {
+        // Historical behaviour scaled camera/light translations by the average mesh scale to
+        // compensate for the mesh scale being dropped. Mesh transforms now keep their true scale,
+        // so every node stays at its raw Max world coordinates.
         var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
         snapshot.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.X = 0.1d;
         snapshot.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.Y = 0.1d;
@@ -1212,19 +1217,20 @@ public sealed class MaxSceneExportServiceTests
         {
             Assert.That(result.IsSuccess, Is.True);
             Assert.That(result.Scene, Is.Not.Null);
-            // The light (not touched by the camera framer) demonstrates the non-mesh translation scale:
-            // its raw (40,-60,80) is imported-scaled by 0.1 to (4,-6,8). (The camera's translation is
-            // re-derived by the auto-framer here — it does not face the subject — so it is not asserted.)
-            Assert.That(result.Scene!.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.X, Is.EqualTo(4d).Within(1e-9));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Y, Is.EqualTo(-6d).Within(1e-9));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Z, Is.EqualTo(8d).Within(1e-9));
-            // Light at scaled position (4,-6,8); scene centre at the mesh node (1,2,3); the mesh's
-            // local bounding radius is 1, so the characteristic distance is the light-to-centre
-            // distance sqrt(98). The single light normalizes to a unit multiplier, so power =
-            // 1200 * d^2 / 68.
-            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(1d * 1200d * 98d / 68d).Within(1e-6));
-            // The 20-unit cutoff comfortably clears the subject (sqrt(98) ~= 9.9), so it survives.
-            Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(20d).Within(1e-9));
+            // The light (not touched by the camera framer) keeps its raw translation; the mesh keeps
+            // its true node scale. (The camera's translation is re-derived by the auto-framer here —
+            // it does not face the subject — so it is not asserted.)
+            Assert.That(result.Scene!.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.X, Is.EqualTo(40d).Within(1e-9));
+            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Y, Is.EqualTo(-60d).Within(1e-9));
+            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Z, Is.EqualTo(80d).Within(1e-9));
+            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:mesh").LocalTransform.Scale.X, Is.EqualTo(0.1d).Within(1e-9));
+            // Light at (40,-60,80); scene centre at the mesh node (1,2,3): the characteristic
+            // distance squared is 39^2 + 62^2 + 77^2 = 11294. The single light normalizes to a unit
+            // multiplier, so power = 1200 * d^2 / 68.
+            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(1d * 1200d * 11294d / 68d).Within(1e-6));
+            // The 20-unit cutoff no longer clears the light-to-subject distance (~106), so it is
+            // dropped below the generator threshold (infinite range).
+            Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(0.01d).Within(1e-9));
         });
     }
 
@@ -1411,8 +1417,8 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(mappedMesh.TransformKeyframes, Has.Count.EqualTo(2));
             Assert.That(mappedMesh.TransformKeyframes[1].Frame, Is.EqualTo(10));
             Assert.That(mappedMesh.TransformKeyframes[1].Transform.Translation.X, Is.EqualTo(5d).Within(1e-9));
-            // Mesh node scale is forced to 1 — applied to keyframes too, not just the static transform.
-            Assert.That(mappedMesh.TransformKeyframes[0].Transform.Scale.X, Is.EqualTo(1d).Within(1e-9));
+            // Mesh node scale is preserved — on keyframes too, not just the static transform.
+            Assert.That(mappedMesh.TransformKeyframes[0].Transform.Scale.X, Is.EqualTo(2d).Within(1e-9));
         });
     }
 

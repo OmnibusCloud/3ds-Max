@@ -151,15 +151,11 @@ internal sealed class MaxSceneSnapshotCollector
                 AddName(m_summary.CameraNames, childNode.Name);
                 var cameraId = $"camera:{childNode.Handle}";
 
-                // Respect the artist's exact aim. The raw matrix→quaternion decomposition of a camera's
-                // node TM is in 3ds Max's row-vector convention — the conjugate of the local→world
-                // quaternion the Blender generator's camera path expects — so a preserved camera renders
-                // pointed the wrong way (it stares past the subject). Rebuild the orientation from the
-                // real world-space look direction (target aim for a target camera, the local -Z axis for
-                // a free camera) so the user's framing survives the round trip. Top-level only, so the
-                // world-space look rotation is a valid local transform.
-                if (effectiveParentNode.IsRootNode && TryResolveCameraLookRotation(childNode, out var aimedRotation))
-                    localTransform.Rotation = aimedRotation;
+                // A 3ds Max camera looks down its local -Z; the Blender generator applies
+                // rotation @ RotX(-90°) before assigning it. Compose RotX(+90°) here so the pair
+                // cancels and the camera keeps its exact authored orientation (including roll),
+                // for free, target and parented cameras alike.
+                ComposeCameraLightAxisCorrection(localTransform, transformKeyframes);
 
                 m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                 {
@@ -190,6 +186,11 @@ internal sealed class MaxSceneSnapshotCollector
                     added = true;
                     m_summary.LightsCount++;
                     AddName(m_summary.LightNames, childNode.Name);
+
+                    // Lights share the generator's rotation @ RotX(-90°) camera path; compose the
+                    // cancelling RotX(+90°) so spot/sun directions survive exactly (see camera above).
+                    ComposeCameraLightAxisCorrection(localTransform, transformKeyframes);
+
                     m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                     {
                         Id = nodeId,
@@ -283,6 +284,12 @@ internal sealed class MaxSceneSnapshotCollector
             Name = $"{node.Name}Mesh"
         };
 
+        // 3ds Max places geometry with the OBJECT TM (node TM ∘ pivot offset ∘ world-space
+        // modifiers), not the node TM alone: moved pivots and WSM-deformed objects (e.g. the
+        // hardwood paint tools) live in the difference. Bake objTM·nodeTM⁻¹ into the vertices so
+        // the exported node transform is sufficient to place the mesh exactly.
+        var correction = ComputeObjectToNodeCorrection(node, m_coreInterface.Time);
+
         // Compute the smoothing-group-aware vertex normals so curved surfaces export smooth and
         // hard edges (smoothing-group boundaries / unsmoothed faces) stay hard.
         mesh.BuildNormals();
@@ -307,8 +314,12 @@ internal sealed class MaxSceneSnapshotCollector
                 var sourceVertexIndex = (int)face.GetVert(vertexIndex);
                 var point = mesh.GetVert(sourceVertexIndex);
                 var normal = ResolveVertexNormal(mesh, face, sourceVertexIndex, faceNormal);
-                meshData.Positions.Add(new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z });
-                meshData.Normals.Add(new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z });
+                meshData.Positions.Add(correction == null
+                    ? new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z }
+                    : TransformPoint(correction, point));
+                meshData.Normals.Add(correction == null
+                    ? new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z }
+                    : TransformNormal(correction, normal));
                 meshData.Uv0.Add(ExtractUv(mesh, faceIndex, vertexIndex));
                 if (hasSecondUv)
                     meshData.Uv1.Add(ExtractUvFromChannel(mesh, 2, faceIndex, vertexIndex));
@@ -681,67 +692,30 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private bool TryResolveCameraLookRotation(IINode cameraNode, out MaxSceneQuaternionSnapshotData rotation)
+    // The generator assigns camera/light rotation as `rotation @ RotX(-90°)` (Blender cameras look
+    // down local -Z, Max cameras/lights too, but the neutral capture convention is local -Y forward).
+    // Composing RotX(+90°) here makes that pair cancel exactly, so the authored orientation —
+    // including roll — survives for free, target and parented cameras and directed lights.
+    // Hamilton product q ⊗ (s,0,0,s) with s = sin45° = cos45°.
+    private static void ComposeCameraLightAxisCorrection(
+        MaxSceneTransformSnapshotData localTransform,
+        List<MaxSceneTransformKeyframeSnapshotData> transformKeyframes)
     {
-        rotation = new MaxSceneQuaternionSnapshotData { W = 1d };
-
-        try
-        {
-            var time = m_coreInterface.Time;
-            var cameraTm = cameraNode.GetNodeTM(time, m_global.Interval.Create());
-            var camPos = cameraTm.Trans;
-
-            // IINode.Target is the look-at target of a target camera/light (null for a free camera).
-            var target = cameraNode.GetType().GetProperty("Target", BindingFlags.Instance | BindingFlags.Public)?.GetValue(cameraNode) as IINode;
-
-            Vector3 forward;
-            if (target != null)
-            {
-                // Target camera: aim exactly from the camera to its target node.
-                var targetPos = target.GetNodeTM(time, m_global.Interval.Create()).Trans;
-                forward = new Vector3(targetPos.X - camPos.X, targetPos.Y - camPos.Y, targetPos.Z - camPos.Z);
-            }
-            else
-            {
-                // Free camera: a 3ds Max camera looks down its local -Z axis. Row 2 of the node TM is
-                // that local Z axis expressed in world space, so the world look direction is its negation.
-                var localZ = cameraTm.GetRow(2);
-                forward = new Vector3(-localZ.X, -localZ.Y, -localZ.Z);
-            }
-
-            forward = Vector3.Normalize(forward);
-            if (!float.IsFinite(forward.X) || forward.LengthSquared() < 1e-8f)
-                return false;
-
-            rotation = LookAtRotation(forward);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        localTransform.Rotation = ComposeRotXPlus90(localTransform.Rotation);
+        foreach (var keyframe in transformKeyframes)
+            keyframe.Transform.Rotation = ComposeRotXPlus90(keyframe.Transform.Rotation);
     }
 
-    // Builds the captured-convention quaternion whose local -Y points along <paramref name="forward"/>
-    // and local +Z is world up — the same convention MaxSceneCameraFramer uses so the Blender
-    // generator's rotation @ RotX(-90deg) correction aims the camera correctly.
-    private static MaxSceneQuaternionSnapshotData LookAtRotation(Vector3 forward)
+    private static MaxSceneQuaternionSnapshotData ComposeRotXPlus90(MaxSceneQuaternionSnapshotData q)
     {
-        var worldUp = new Vector3(0f, 0f, 1f);
-        var yAxis = -forward;
-        var zAxis = worldUp - Vector3.Dot(worldUp, yAxis) * yAxis;
-        if (zAxis.LengthSquared() < 1e-6f)
-            zAxis = new Vector3(0f, 1f, 0f) - Vector3.Dot(new Vector3(0f, 1f, 0f), yAxis) * yAxis;
-        zAxis = Vector3.Normalize(zAxis);
-        var xAxis = Vector3.Normalize(Vector3.Cross(yAxis, zAxis));
-
-        var matrix = new Matrix4x4(
-            xAxis.X, xAxis.Y, xAxis.Z, 0f,
-            yAxis.X, yAxis.Y, yAxis.Z, 0f,
-            zAxis.X, zAxis.Y, zAxis.Z, 0f,
-            0f, 0f, 0f, 1f);
-        var q = Quaternion.CreateFromRotationMatrix(matrix);
-        return new MaxSceneQuaternionSnapshotData { X = q.X, Y = q.Y, Z = q.Z, W = q.W };
+        const double s = 0.70710678118654752d;
+        return new MaxSceneQuaternionSnapshotData
+        {
+            X = (q.W + q.X) * s,
+            Y = (q.Y + q.Z) * s,
+            Z = (q.Z - q.Y) * s,
+            W = (q.W - q.X) * s
+        };
     }
 
     private bool IsLightActive(ILightObject lightObject)
@@ -935,6 +909,70 @@ internal sealed class MaxSceneSnapshotCollector
         return imageAssetId;
     }
 
+    // objTM·nodeTM⁻¹ in Max row-vector convention; null when they coincide (the common case), so the
+    // per-vertex work is skipped entirely for pivot-clean meshes.
+    private IMatrix3? ComputeObjectToNodeCorrection(IINode node, int time)
+    {
+        try
+        {
+            var objectTm = node.GetObjTMAfterWSM(time, m_global.Interval.Create());
+            var nodeTm = node.GetNodeTM(time, m_global.Interval.Create());
+            var inverseNodeTm = m_global.Matrix3.Create();
+            m_global.Inverse(nodeTm, inverseNodeTm);
+            var correction = m_global.Matrix3.Create();
+            m_global.MatrixMultiply(objectTm, inverseNodeTm, correction);
+            return IsIdentityMatrix(correction) ? null : correction;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsIdentityMatrix(IMatrix3 matrix)
+    {
+        const double epsilon = 1e-5;
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        var row3 = matrix.GetRow(3);
+        return Math.Abs(row0.X - 1d) < epsilon && Math.Abs(row0.Y) < epsilon && Math.Abs(row0.Z) < epsilon
+               && Math.Abs(row1.X) < epsilon && Math.Abs(row1.Y - 1d) < epsilon && Math.Abs(row1.Z) < epsilon
+               && Math.Abs(row2.X) < epsilon && Math.Abs(row2.Y) < epsilon && Math.Abs(row2.Z - 1d) < epsilon
+               && Math.Abs(row3.X) < epsilon && Math.Abs(row3.Y) < epsilon && Math.Abs(row3.Z) < epsilon;
+    }
+
+    // Row-vector point transform: v' = v.x·row0 + v.y·row1 + v.z·row2 + row3.
+    private static MaxSceneVector3SnapshotData TransformPoint(IMatrix3 matrix, IPoint3 point)
+    {
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        var row3 = matrix.GetRow(3);
+        return new MaxSceneVector3SnapshotData
+        {
+            X = point.X * row0.X + point.Y * row1.X + point.Z * row2.X + row3.X,
+            Y = point.X * row0.Y + point.Y * row1.Y + point.Z * row2.Y + row3.Y,
+            Z = point.X * row0.Z + point.Y * row1.Z + point.Z * row2.Z + row3.Z
+        };
+    }
+
+    // Rotation/scale part only, renormalized. Pivot offsets and WSM deltas are rigid in practice, so
+    // the inverse-transpose refinement for sheared matrices is deliberately skipped.
+    private static MaxSceneVector3SnapshotData TransformNormal(IMatrix3 matrix, IPoint3 normal)
+    {
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        var x = normal.X * row0.X + normal.Y * row1.X + normal.Z * row2.X;
+        var y = normal.X * row0.Y + normal.Y * row1.Y + normal.Z * row2.Y;
+        var z = normal.X * row0.Z + normal.Y * row1.Z + normal.Z * row2.Z;
+        var length = Math.Sqrt(x * x + y * y + z * z);
+        if (length < 1e-9d)
+            return new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z };
+        return new MaxSceneVector3SnapshotData { X = x / length, Y = y / length, Z = z / length };
+    }
+
     private MaxSceneTransformSnapshotData ExtractLocalTransform(IINode node, IINode parentNode)
     {
         return ExtractLocalTransformAtTime(node, parentNode, m_coreInterface.Time);
@@ -1047,10 +1085,15 @@ internal sealed class MaxSceneSnapshotCollector
 
         var rotation = m_global.Quat.Create(rotationMatrix);
 
+        // Quat.Create returns the quaternion in 3ds Max's row-vector convention — the CONJUGATE of
+        // the Hamilton local→world quaternion Blender's rotation_quaternion applies. Store the
+        // conjugate so downstream consumers get the true rotation. Proven per-node against Max
+        // ground truth (camera aim dot=1.000 only under conjugation; mesh Box63 world bbox matches
+        // at 0.1 units conjugated vs 3.7 raw).
         return new MaxSceneTransformSnapshotData
         {
             Translation = new MaxSceneVector3SnapshotData { X = translation.X, Y = translation.Y, Z = translation.Z },
-            Rotation = new MaxSceneQuaternionSnapshotData { X = rotation.X, Y = rotation.Y, Z = rotation.Z, W = rotation.W },
+            Rotation = new MaxSceneQuaternionSnapshotData { X = -rotation.X, Y = -rotation.Y, Z = -rotation.Z, W = rotation.W },
             Scale = new MaxSceneVector3SnapshotData
             {
                 X = scaleX <= 0d ? 1d : scaleX,
@@ -1462,13 +1505,18 @@ internal sealed class MaxSceneSnapshotCollector
             var mesh = triObject.Mesh;
             var positions = new List<MaxSceneVector3SnapshotData>(expectedCornerCount);
 
+            // WSMs can be animated, so the object→node correction is re-resolved at this frame.
+            var correction = ComputeObjectToNodeCorrection(node, time);
+
             for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
             {
                 var face = mesh.GetFace(faceIndex);
                 for (var vertexIndex = 0; vertexIndex < 3; vertexIndex++)
                 {
                     var point = mesh.GetVert((int)face.GetVert(vertexIndex));
-                    positions.Add(new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z });
+                    positions.Add(correction == null
+                        ? new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z }
+                        : TransformPoint(correction, point));
                 }
             }
 
