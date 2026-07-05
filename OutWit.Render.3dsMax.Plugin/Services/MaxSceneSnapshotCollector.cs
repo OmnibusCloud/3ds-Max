@@ -151,11 +151,14 @@ internal sealed class MaxSceneSnapshotCollector
                 AddName(m_summary.CameraNames, childNode.Name);
                 var cameraId = $"camera:{childNode.Handle}";
 
-                // Respect a target camera's exact aim: 3ds Max target cameras look at a separate
-                // target node whose direction the raw matrix→quaternion decomposition does not encode
-                // reliably. When present (and the camera is top-level so local == world), rebuild the
-                // orientation from the real look direction so the user's framing survives the round trip.
-                if (effectiveParentNode.IsRootNode && TryResolveTargetLookRotation(childNode, out var aimedRotation))
+                // Respect the artist's exact aim. The raw matrix→quaternion decomposition of a camera's
+                // node TM is in 3ds Max's row-vector convention — the conjugate of the local→world
+                // quaternion the Blender generator's camera path expects — so a preserved camera renders
+                // pointed the wrong way (it stares past the subject). Rebuild the orientation from the
+                // real world-space look direction (target aim for a target camera, the local -Z axis for
+                // a free camera) so the user's framing survives the round trip. Top-level only, so the
+                // world-space look rotation is a valid local transform.
+                if (effectiveParentNode.IsRootNode && TryResolveCameraLookRotation(childNode, out var aimedRotation))
                     localTransform.Rotation = aimedRotation;
 
                 m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
@@ -678,22 +681,35 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private bool TryResolveTargetLookRotation(IINode cameraNode, out MaxSceneQuaternionSnapshotData rotation)
+    private bool TryResolveCameraLookRotation(IINode cameraNode, out MaxSceneQuaternionSnapshotData rotation)
     {
         rotation = new MaxSceneQuaternionSnapshotData { W = 1d };
 
         try
         {
+            var time = m_coreInterface.Time;
+            var cameraTm = cameraNode.GetNodeTM(time, m_global.Interval.Create());
+            var camPos = cameraTm.Trans;
+
             // IINode.Target is the look-at target of a target camera/light (null for a free camera).
             var target = cameraNode.GetType().GetProperty("Target", BindingFlags.Instance | BindingFlags.Public)?.GetValue(cameraNode) as IINode;
-            if (target == null)
-                return false;
 
-            var time = m_coreInterface.Time;
-            var camPos = cameraNode.GetNodeTM(time, m_global.Interval.Create()).Trans;
-            var targetPos = target.GetNodeTM(time, m_global.Interval.Create()).Trans;
+            Vector3 forward;
+            if (target != null)
+            {
+                // Target camera: aim exactly from the camera to its target node.
+                var targetPos = target.GetNodeTM(time, m_global.Interval.Create()).Trans;
+                forward = new Vector3(targetPos.X - camPos.X, targetPos.Y - camPos.Y, targetPos.Z - camPos.Z);
+            }
+            else
+            {
+                // Free camera: a 3ds Max camera looks down its local -Z axis. Row 2 of the node TM is
+                // that local Z axis expressed in world space, so the world look direction is its negation.
+                var localZ = cameraTm.GetRow(2);
+                forward = new Vector3(-localZ.X, -localZ.Y, -localZ.Z);
+            }
 
-            var forward = Vector3.Normalize(new Vector3(targetPos.X - camPos.X, targetPos.Y - camPos.Y, targetPos.Z - camPos.Z));
+            forward = Vector3.Normalize(forward);
             if (!float.IsFinite(forward.X) || forward.LengthSquared() < 1e-8f)
                 return false;
 
