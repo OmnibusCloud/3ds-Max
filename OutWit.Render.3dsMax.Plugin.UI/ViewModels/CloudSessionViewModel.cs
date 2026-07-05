@@ -8,6 +8,12 @@ namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 
 public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
 {
+    #region Fields
+
+    private Task? m_sessionRestoreTask;
+
+    #endregion
+
     #region Constructors
 
     public CloudSessionViewModel(ApplicationViewModel applicationVm) : base(applicationVm)
@@ -58,6 +64,15 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
     #endregion
 
     #region Functions
+
+    /// <summary>
+    /// Silently restores the persisted session at most once per plugin session. Every dialog awaits
+    /// this before loading session-dependent state, so only the first caller pays the restore cost.
+    /// </summary>
+    public Task EnsureSessionRestoredAsync()
+    {
+        return m_sessionRestoreTask ??= RestoreSessionAsync();
+    }
 
     /// <summary>
     /// Attempts to silently restore the persisted session when the window opens.

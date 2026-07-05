@@ -29,6 +29,8 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private bool m_cancelRequested;
 
+    private MaxConnectedRenderJobState? m_activeJobState;
+
     #endregion
 
     #region Constructors
@@ -79,9 +81,15 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task InitializeAsync()
     {
-        var result = await Task.Run(() => SceneExport.ValidateCurrentScene());
+        // Scene validation reads the 3ds Max scene through the single-threaded Max SDK and must run
+        // on the Max main thread: do it synchronously before the first await.
+        var result = SceneExport.ValidateCurrentScene();
         SummaryVm.Apply(result.Summary);
         DiagnosticsVm.Apply(result.Diagnostics);
+        UpdateStatus();
+
+        // Silent session restore so the default Blender target is available without a browser trip.
+        await CloudVm.EnsureSessionRestoredAsync();
         UpdateStatus();
     }
 
@@ -113,16 +121,21 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
     }
 
-    private async Task ExportDccJsonAsync()
+    private Task ExportDccJsonAsync()
     {
         StatusLine = "Exporting DCC JSON…";
-        var result = await Task.Run(() => SceneExport.ExportCurrentScene(OutputFolder, MaxSceneExportOutputFormat.Json));
+
+        // Scene capture + write go through the single-threaded 3ds Max SDK: run synchronously on the
+        // Max main thread (no Task.Run).
+        var result = SceneExport.ExportCurrentScene(OutputFolder, MaxSceneExportOutputFormat.Json);
         DiagnosticsVm.Apply(result.Diagnostics);
 
         if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.OutputPath))
             Complete(result.OutputPath!);
         else
             Fail(result.StatusText);
+
+        return Task.CompletedTask;
     }
 
     private async Task ExportBlendAsync()
@@ -140,7 +153,9 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             OutputFolder = outputFolder
         };
 
-        var jobState = await Task.Run(() => ConnectedRender.LaunchRenderAsync(request));
+        // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
+        // stay on the Max main thread; only the submission part awaits the network.
+        var jobState = await ConnectedRender.LaunchRenderAsync(request);
         DiagnosticsVm.Apply(jobState.Diagnostics);
 
         if (!Guid.TryParse(jobState.JobId, out _))
@@ -149,21 +164,36 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             return;
         }
 
-        while (!m_cancelRequested && !jobState.IsCompleted)
+        m_activeJobState = jobState;
+
+        try
         {
-            if (!string.IsNullOrWhiteSpace(jobState.StatusText)
-                && jobState.StatusText.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+            while (!jobState.IsCompleted)
             {
-                Fail(jobState.StatusText);
-                return;
+                if (jobState.IsCancelled)
+                {
+                    StatusLine = "Export cancelled";
+                    return;
+                }
+
+                if (!m_cancelRequested
+                    && !string.IsNullOrWhiteSpace(jobState.StatusText)
+                    && jobState.StatusText.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    Fail(jobState.StatusText);
+                    return;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2));
+
+                jobState = await ConnectedRender.RefreshJobAsync(jobState);
+                m_activeJobState = jobState;
+                DiagnosticsVm.Apply(jobState.Diagnostics);
             }
-
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            if (m_cancelRequested)
-                return;
-
-            jobState = await Task.Run(() => ConnectedRender.RefreshJobAsync(jobState));
-            DiagnosticsVm.Apply(jobState.Diagnostics);
+        }
+        finally
+        {
+            m_activeJobState = null;
         }
 
         if (jobState.IsCompleted && !string.IsNullOrWhiteSpace(jobState.PrimaryArtifactPath))
@@ -193,6 +223,13 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         {
             m_cancelRequested = true;
             StatusLine = "Cancelling…";
+
+            // Actually stop the server-side ExportBlend job; the poll loop observes the terminal
+            // cancelled status. Fire-and-forget by design: the loop keeps running either way.
+            var jobState = m_activeJobState;
+            if (jobState != null)
+                _ = ConnectedRender.CancelJobAsync(jobState);
+
             return;
         }
 

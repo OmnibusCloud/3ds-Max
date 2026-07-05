@@ -102,7 +102,9 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
             OutputFolder = outputFolder
         };
 
-        var result = await Task.Run(() => ApplicationVm.ConnectedRenderService.LaunchRenderAsync(request));
+        // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
+        // stay on the Max main thread; only the submission part awaits the network.
+        var result = await ApplicationVm.ConnectedRenderService.LaunchRenderAsync(request);
 
         CurrentJobState = result;
         LaunchVm.ApplyJobState(result);

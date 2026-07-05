@@ -64,6 +64,11 @@ public sealed class SignInViewModel : ViewModelBase<ApplicationViewModel>
 
     private void StartSignIn()
     {
+        _ = StartSignInAsync();
+    }
+
+    private async Task StartSignInAsync()
+    {
         // Already signed in (e.g. a session was restored) — show success immediately.
         if (CloudVm.IsSignedIn)
         {
@@ -73,6 +78,23 @@ public sealed class SignInViewModel : ViewModelBase<ApplicationViewModel>
 
         State = SignInState.SigningIn;
         UpdateStatus();
+
+        try
+        {
+            // Silent restore first (persisted refresh token): no browser round-trip when the
+            // previous session is still valid.
+            await CloudVm.EnsureSessionRestoredAsync();
+        }
+        catch
+        {
+            // Restore is best-effort; fall through to the interactive browser flow.
+        }
+
+        if (CloudVm.IsSignedIn)
+        {
+            Resolve();
+            return;
+        }
 
         if (!CloudVm.SignInCommand.CanExecute(null))
         {

@@ -206,7 +206,17 @@ public sealed class MaxPluginBootstrap
 
     private ApplicationViewModel EnsureApplicationViewModel()
     {
-        return m_applicationVm ??= m_commandService.CreateApplicationViewModel();
+        if (m_applicationVm != null)
+            return m_applicationVm;
+
+        m_applicationVm = m_commandService.CreateApplicationViewModel();
+
+        // One-time silent session restore (persisted refresh token): dialogs open signed-in and the
+        // menu gate reflects the restored session without a browser round-trip. Restore handles its
+        // own errors, so fire-and-forget is safe here; dialogs await the same memoized task.
+        _ = m_applicationVm.CloudSessionVm.EnsureSessionRestoredAsync();
+
+        return m_applicationVm;
     }
 
     #endregion

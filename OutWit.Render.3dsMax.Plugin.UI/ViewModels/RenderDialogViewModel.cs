@@ -22,6 +22,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private bool m_cancelRequested;
 
+    private MaxConnectedRenderJobState? m_activeJobState;
+
     #endregion
 
     #region Constructors
@@ -59,7 +61,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     private void InitCommands()
     {
         RenderCommand = new RelayCommandAsync(RenderAsync);
-        CancelCommand = new RelayCommand(_ => Cancel());
+        CancelCommand = new RelayCommandAsync(CancelAsync);
         DetailsCommand = new RelayCommand(_ => ShowDetails());
         UpdateStatus();
     }
@@ -70,8 +72,13 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task InitializeAsync()
     {
-        await LoadExecutionScopeAsync();
+        // Scene validation reads the 3ds Max scene through the single-threaded Max SDK and must run
+        // on the Max main thread: do it synchronously before the first await, then go async for the
+        // network-only work (silent session restore, execution scope).
         ValidateScene();
+
+        await CloudVm.EnsureSessionRestoredAsync();
+        await LoadExecutionScopeAsync();
     }
 
     private async Task LoadExecutionScopeAsync()
@@ -106,8 +113,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Status = MaxRenderStatus.Submitting();
         UpdateStatus();
 
+        // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
+        // stay on the Max main thread; only the submission part awaits the network.
         var request = BuildRequest();
-        var jobState = await Task.Run(() => ConnectedRender.LaunchRenderAsync(request));
+        var jobState = await ConnectedRender.LaunchRenderAsync(request);
 
         LaunchVm.ApplyJobState(jobState);
         DiagnosticsVm.Apply(jobState.Diagnostics);
@@ -119,50 +128,78 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             return;
         }
 
+        // Cancel pressed while the launch was in flight — stop the job we just submitted.
+        if (m_cancelRequested)
+            jobState = await ConnectedRender.CancelJobAsync(jobState);
+
         await PollUntilTerminalAsync(jobState);
     }
 
     private async Task PollUntilTerminalAsync(MaxConnectedRenderJobState jobState)
     {
         // Source of truth is the server job status (MX-13), polled until terminal. Close != cancel
-        // (MX-5): if the dialog is closed the job keeps running; only Cancel stops the loop.
-        while (!m_cancelRequested)
+        // (MX-5): if the dialog is closed the job keeps running. Cancel requests a server-side stop
+        // and the loop keeps polling until the farm reports the terminal cancelled status.
+        m_activeJobState = jobState;
+
+        try
         {
-            Status = MapJobToStatus(jobState);
-            UpdateStatus();
-
-            if (jobState.IsCompleted)
+            while (true)
             {
-                Status = MaxRenderStatus.Completed();
+                if (jobState.IsCancelled)
+                {
+                    Status = MaxRenderStatus.Cancelled();
+                    UpdateStatus();
+                    return;
+                }
+
+                if (jobState.IsCompleted)
+                {
+                    Status = MaxRenderStatus.Completed();
+                    UpdateStatus();
+                    return;
+                }
+
+                if (IsFailed(jobState))
+                {
+                    Status = MaxRenderStatus.Failed(jobState.StatusText);
+                    UpdateStatus();
+                    return;
+                }
+
+                Status = m_cancelRequested ? MaxRenderStatus.Cancelling() : MapJobToStatus(jobState);
                 UpdateStatus();
-                return;
+
+                await Task.Delay(TimeSpan.FromSeconds(2));
+
+                jobState = await ConnectedRender.RefreshJobAsync(jobState);
+                m_activeJobState = jobState;
+                LaunchVm.ApplyJobState(jobState);
+                DiagnosticsVm.Apply(jobState.Diagnostics);
             }
-
-            if (IsFailed(jobState))
-            {
-                Status = MaxRenderStatus.Failed(jobState.StatusText);
-                UpdateStatus();
-                return;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            if (m_cancelRequested)
-                break;
-
-            jobState = await Task.Run(() => ConnectedRender.RefreshJobAsync(jobState));
-            LaunchVm.ApplyJobState(jobState);
-            DiagnosticsVm.Apply(jobState.Diagnostics);
         }
-
-        Status = MaxRenderStatus.Cancelling();
-        UpdateStatus();
+        finally
+        {
+            m_activeJobState = null;
+        }
     }
 
-    private void Cancel()
+    private async Task CancelAsync()
     {
+        if (m_cancelRequested)
+            return;
+
         m_cancelRequested = true;
         Status = MaxRenderStatus.Cancelling();
         UpdateStatus();
+
+        // Actually stop the job on the farm; the poll loop observes the terminal cancelled status.
+        var jobState = m_activeJobState;
+        if (jobState != null)
+        {
+            jobState = await ConnectedRender.CancelJobAsync(jobState);
+            DiagnosticsVm.Apply(jobState.Diagnostics);
+        }
     }
 
     private void ShowDetails()
