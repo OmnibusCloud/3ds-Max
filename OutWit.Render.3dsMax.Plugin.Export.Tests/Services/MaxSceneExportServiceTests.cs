@@ -1212,16 +1212,17 @@ public sealed class MaxSceneExportServiceTests
         {
             Assert.That(result.IsSuccess, Is.True);
             Assert.That(result.Scene, Is.Not.Null);
-            Assert.That(result.Scene!.Nodes.Single(me => me.Id == "node:camera").LocalTransform.Translation.X, Is.EqualTo(5d).Within(1e-9));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:camera").LocalTransform.Translation.Y, Is.EqualTo(-7d).Within(1e-9));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:camera").LocalTransform.Translation.Z, Is.EqualTo(9d).Within(1e-9));
-            Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.X, Is.EqualTo(4d).Within(1e-9));
+            // The light (not touched by the camera framer) demonstrates the non-mesh translation scale:
+            // its raw (40,-60,80) is imported-scaled by 0.1 to (4,-6,8). (The camera's translation is
+            // re-derived by the auto-framer here — it does not face the subject — so it is not asserted.)
+            Assert.That(result.Scene!.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.X, Is.EqualTo(4d).Within(1e-9));
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Y, Is.EqualTo(-6d).Within(1e-9));
             Assert.That(result.Scene.Nodes.Single(me => me.Id == "node:light").LocalTransform.Translation.Z, Is.EqualTo(8d).Within(1e-9));
             // Light at scaled position (4,-6,8); scene centre at the mesh node (1,2,3); the mesh's
             // local bounding radius is 1, so the characteristic distance is the light-to-centre
-            // distance sqrt(98). Power = multiplier * 1200 * d^2 / 68.
-            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(2d * 1200d * 98d / 68d).Within(1e-6));
+            // distance sqrt(98). The single light normalizes to a unit multiplier, so power =
+            // 1200 * d^2 / 68.
+            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(1d * 1200d * 98d / 68d).Within(1e-6));
             // The 20-unit cutoff comfortably clears the subject (sqrt(98) ~= 9.9), so it survives.
             Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(20d).Within(1e-9));
         });
@@ -1311,8 +1312,9 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Scene.Cameras.Single().FarClip, Is.EqualTo(500d));
             Assert.That(result.Scene.Lights.Single().Kind, Is.EqualTo(OutWit.Controller.Render.Dcc.Model.DccLightKind.Point));
             // Light at origin; scene centre at the mesh node (1,2,3) → characteristic distance
-            // sqrt(14). Power = multiplier * 1200 * d^2 / 68.
-            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(2d * 1200d * 14d / 68d).Within(1e-6));
+            // sqrt(14). The single light is normalized to a unit multiplier by auto-exposure (its raw
+            // intensity is the scene median), so power = 1200 * d^2 / 68.
+            Assert.That(result.Scene.Lights.Single().Intensity, Is.EqualTo(1d * 1200d * 14d / 68d).Within(1e-6));
             Assert.That(result.Scene.Lights.Single().Range, Is.EqualTo(20d));
         });
     }

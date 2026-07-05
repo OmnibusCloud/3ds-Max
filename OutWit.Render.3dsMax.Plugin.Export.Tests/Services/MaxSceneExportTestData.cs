@@ -90,9 +90,18 @@ internal static class MaxSceneExportTestData
                 },
                 new MaxSceneNodeSnapshotData
                 {
+                    // Positioned above the mesh (at 1,2,3) looking down -Y at it: the camera framer
+                    // preserves a camera that already faces the subject, so these mapper tests exercise
+                    // the raw camera/light mapping rather than the auto-framing fallback.
                     Id = "node:camera",
                     Name = "CameraNode",
                     Kind = OutWit.Controller.Render.Dcc.Model.DccNodeKind.Camera,
+                    LocalTransform = new MaxSceneTransformSnapshotData
+                    {
+                        Translation = new MaxSceneVector3SnapshotData { X = 1d, Y = 12d, Z = 3d },
+                        Rotation = new MaxSceneQuaternionSnapshotData { X = 0d, Y = 0d, Z = 0d, W = 1d },
+                        Scale = new MaxSceneVector3SnapshotData { X = 1d, Y = 1d, Z = 1d }
+                    },
                     CameraId = "camera:main"
                 },
                 new MaxSceneNodeSnapshotData
