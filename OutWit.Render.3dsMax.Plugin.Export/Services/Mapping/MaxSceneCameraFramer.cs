@@ -35,10 +35,10 @@ internal static class MaxSceneCameraFramer
     // outlier (particle system, skybox) and excluded from the framing bounds.
     private const double OUTLIER_RADIUS_FACTOR = 4d;
 
-    // An animated authored camera is kept when its forward is within ~75° of the direction to the
-    // scene centre (a generous cone — it only has to be pointed the right general way, since it may
-    // track a subject that has moved off the rest-pose centre).
-    private const float AIMED_AT_SUBJECT_DOT = 0.25f;
+    // The authored camera is kept when its forward is within ~80° of the direction to the scene
+    // centre — a generous cone that respects a deliberate (possibly off-centre) composition and only
+    // overrides a camera pointed away from all geometry.
+    private const float FACES_SUBJECT_DOT = 0.17f;
 
     #endregion
 
@@ -78,16 +78,16 @@ internal static class MaxSceneCameraFramer
         var toCentre = center - eye;
         var distanceToCentre = toCentre.Length();
 
-        // Preserve the authored camera only for ANIMATED scenes: a crafted moving shot (an animated
-        // camera, or a static camera framing an animated subject) intentionally tracks motion that a
-        // single static auto-frame cannot follow, so overriding it would make it worse. A static scene
-        // is always auto-framed (centres the subject) because its captured orientation is unreliable.
-        // The guard still requires the camera to aim generally toward the geometry, so a genuinely
-        // broken animated camera is not preserved.
-        if (distanceToCentre >= (float)Math.Max(MIN_USABLE_CAMERA_DISTANCE, radius * 0.05d) && IsSceneAnimated(scene, renderCameraNode))
+        // Respect the user's framing: keep the authored camera whenever it faces the scene from a
+        // usable distance. 3ds Max target cameras are already oriented from their target (collector),
+        // and a correctly-captured free/animated camera also survives here — so we only override a
+        // camera that points AWAY from all geometry (the broken round-trip case) or a degenerate
+        // synthetic viewport camera. This never second-guesses a deliberate composition that is at
+        // least pointed the right way.
+        if (distanceToCentre >= (float)Math.Max(MIN_USABLE_CAMERA_DISTANCE, radius * 0.05d))
         {
             var forward = RotateCapturedForward(renderCameraNode.LocalTransform.Rotation);
-            if (Vector3.Dot(Vector3.Normalize(forward), toCentre / distanceToCentre) >= AIMED_AT_SUBJECT_DOT)
+            if (Vector3.Dot(Vector3.Normalize(forward), toCentre / distanceToCentre) >= FACES_SUBJECT_DOT)
                 return;
         }
 
@@ -110,21 +110,6 @@ internal static class MaxSceneCameraFramer
         camera.FarClip = distance + radius * 4d + 10d;
         camera.NearClipKeyframes.Clear();
         camera.FarClipKeyframes.Clear();
-    }
-
-    private static bool IsSceneAnimated(DccSceneData scene, DccNodeData renderCameraNode)
-    {
-        if (renderCameraNode.TransformKeyframes.Count > 0)
-            return true;
-
-        // A renderable mesh with baked per-frame deformation means the subject moves; the authored
-        // camera was framed around that motion.
-        var renderableMeshIds = scene.Nodes
-            .Where(me => me.Kind == DccNodeKind.Mesh && me.Renderable && me.MeshId != null)
-            .Select(me => me.MeshId!)
-            .ToHashSet(StringComparer.Ordinal);
-
-        return scene.Meshes.Any(me => renderableMeshIds.Contains(me.Id) && me.DeformationFrames.Count > 0);
     }
 
     /// <summary>

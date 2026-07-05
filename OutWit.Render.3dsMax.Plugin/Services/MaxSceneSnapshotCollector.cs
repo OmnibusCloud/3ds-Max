@@ -4,6 +4,7 @@ using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Snapshots;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Services;
@@ -149,6 +150,14 @@ internal sealed class MaxSceneSnapshotCollector
                 m_summary.CamerasCount++;
                 AddName(m_summary.CameraNames, childNode.Name);
                 var cameraId = $"camera:{childNode.Handle}";
+
+                // Respect a target camera's exact aim: 3ds Max target cameras look at a separate
+                // target node whose direction the raw matrix→quaternion decomposition does not encode
+                // reliably. When present (and the camera is top-level so local == world), rebuild the
+                // orientation from the real look direction so the user's framing survives the round trip.
+                if (effectiveParentNode.IsRootNode && TryResolveTargetLookRotation(childNode, out var aimedRotation))
+                    localTransform.Rotation = aimedRotation;
+
                 m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                 {
                     Id = nodeId,
@@ -663,6 +672,56 @@ internal sealed class MaxSceneSnapshotCollector
         {
             return true;
         }
+    }
+
+    private bool TryResolveTargetLookRotation(IINode cameraNode, out MaxSceneQuaternionSnapshotData rotation)
+    {
+        rotation = new MaxSceneQuaternionSnapshotData { W = 1d };
+
+        try
+        {
+            // IINode.Target is the look-at target of a target camera/light (null for a free camera).
+            var target = cameraNode.GetType().GetProperty("Target", BindingFlags.Instance | BindingFlags.Public)?.GetValue(cameraNode) as IINode;
+            if (target == null)
+                return false;
+
+            var time = m_coreInterface.Time;
+            var camPos = cameraNode.GetNodeTM(time, m_global.Interval.Create()).Trans;
+            var targetPos = target.GetNodeTM(time, m_global.Interval.Create()).Trans;
+
+            var forward = Vector3.Normalize(new Vector3(targetPos.X - camPos.X, targetPos.Y - camPos.Y, targetPos.Z - camPos.Z));
+            if (!float.IsFinite(forward.X) || forward.LengthSquared() < 1e-8f)
+                return false;
+
+            rotation = LookAtRotation(forward);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Builds the captured-convention quaternion whose local -Y points along <paramref name="forward"/>
+    // and local +Z is world up — the same convention MaxSceneCameraFramer uses so the Blender
+    // generator's rotation @ RotX(-90deg) correction aims the camera correctly.
+    private static MaxSceneQuaternionSnapshotData LookAtRotation(Vector3 forward)
+    {
+        var worldUp = new Vector3(0f, 0f, 1f);
+        var yAxis = -forward;
+        var zAxis = worldUp - Vector3.Dot(worldUp, yAxis) * yAxis;
+        if (zAxis.LengthSquared() < 1e-6f)
+            zAxis = new Vector3(0f, 1f, 0f) - Vector3.Dot(new Vector3(0f, 1f, 0f), yAxis) * yAxis;
+        zAxis = Vector3.Normalize(zAxis);
+        var xAxis = Vector3.Normalize(Vector3.Cross(yAxis, zAxis));
+
+        var matrix = new Matrix4x4(
+            xAxis.X, xAxis.Y, xAxis.Z, 0f,
+            yAxis.X, yAxis.Y, yAxis.Z, 0f,
+            zAxis.X, zAxis.Y, zAxis.Z, 0f,
+            0f, 0f, 0f, 1f);
+        var q = Quaternion.CreateFromRotationMatrix(matrix);
+        return new MaxSceneQuaternionSnapshotData { X = q.X, Y = q.Y, Z = q.Z, W = q.W };
     }
 
     private bool IsLightActive(ILightObject lightObject)
