@@ -65,6 +65,8 @@ Plus: substring-matching failure detection (M3), no job re-attach after dialog c
 | 2.10 | DCC-M2: ADR-001 — Dcc.Scripts bracket `OutWit.Controller.Render [1.18.0, 2.0.0)`; module/csproj min Render ≥ 1.18 | S | Controllers |
 | 2.11 | DCC-M5: AxisSystem policy — enforce Z-up/right-handed at validation (reject others) or implement conversion; plugin already exports Z-up | S | Controllers |
 | 2.12 | DCC sweep (L2..L6): dedupe `ToPythonStringLiteral`, `InnerClone`/`Is` consistency, cancellation in `MaterializeAttachmentsAsync`, build-Blender watchdog, sanitizer-collision test | S | Controllers |
+| 2.13 | Zero-intensity lights must not block the scene (2026-07-05 sweep: Viewport-Dragon fails validation on "light requires positive intensity") — collector skips them with a Warning diagnostic | S | Plugin |
+| 2.14 | Bound collector memory on deformation sampling (sweep: FishTank crowd scene OOMs the .NET collector) — cap/stream per-frame corner capture + actionable diagnostic instead of a crash | M | Plugin |
 
 **Gate:** all unit suites green; 3dsmaxbatch smokes green; kill-a-node-mid-render chaos check (Grid reassignment observed from the plugin); replayable logs for a failed job.
 
@@ -94,7 +96,7 @@ Order matters: 3.1 first — it fixes most of the perceived mismatch everywhere 
 | 4.3 | Publish + deploy: Dcc.Model 1.4.1 + Dcc 1.5.0 + Dcc.Scripts 1.1.1 via publish.yml; WitCloud pins Dcc `1.4.*`→`1.5.*` (bump in ALL csprojs that reference it — NU1605 lesson) + image tag + user deploys | S/M |
 | 4.4 | Final QA matrix: live e2e per mode × engine on real scenes (incl. an animated/deformation scene, HDRI scene, photometric lights); plugin version 1.0.0-beta | M |
 
-Deferred / demand-driven: DCC-H2 large-scene ref path (blob-backed `DccSceneRef` + binary geometry sidecar); varying-topology sim export (exporter/contract limitation); Max theme live-change subscription.
+Deferred / demand-driven: DCC-H2 large-scene ref path (blob-backed `DccSceneRef` + binary geometry sidecar) — the 2026-07-05 @Data sweep upgraded this from "risk" to "measured": animated character scenes produce 132–487 MB DCC JSON (salsa_dancing 487 MB ≈ ~95 MB MemoryPack travelling inline in one submission message); varying-topology sim export (exporter/contract limitation); Max theme live-change subscription. Sweep also confirmed M7 live: the procedural lavaFlowShader exports "successfully" with zero warnings about its procedural maps (Clamped Turb / Fractal) — silent visual loss.
 
 ---
 
