@@ -33,6 +33,8 @@ public sealed class MaxConnectedRenderService
 
     /// <summary>
     /// Launches a connected render: runs preflight, prepares the launch package, and submits it through the configured transport.
+    /// Must be called on the 3ds Max main thread — preflight and preparation capture the scene through
+    /// the single-threaded Max SDK synchronously before the submission awaits the network.
     /// </summary>
     /// <param name="request">The launch request.</param>
     /// <param name="cancellationToken">Cancels the launch.</param>
@@ -71,6 +73,18 @@ public sealed class MaxConnectedRenderService
     {
         ArgumentNullException.ThrowIfNull(jobState);
         return m_submissionService.RefreshAsync(jobState, cancellationToken);
+    }
+
+    /// <summary>
+    /// Requests cancellation of one previously launched connected-render job on the farm.
+    /// </summary>
+    /// <param name="jobState">The job state to cancel.</param>
+    /// <param name="cancellationToken">Cancels the cancel request itself.</param>
+    /// <returns>The updated job state.</returns>
+    public Task<MaxConnectedRenderJobState> CancelJobAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(jobState);
+        return m_submissionService.CancelAsync(jobState, cancellationToken);
     }
 
     #endregion

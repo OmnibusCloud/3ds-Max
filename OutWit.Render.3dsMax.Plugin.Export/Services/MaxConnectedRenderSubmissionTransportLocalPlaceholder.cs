@@ -26,6 +26,19 @@ public sealed class MaxConnectedRenderSubmissionTransportLocalPlaceholder : IMax
         return Task.FromResult(Refresh(jobState));
     }
 
+    /// <summary>
+    /// Marks one local placeholder submission as cancelled (there is no remote job to stop).
+    /// </summary>
+    public Task<MaxConnectedRenderJobState> CancelAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(jobState);
+
+        jobState.UpdatedUtc = DateTime.UtcNow;
+        jobState.IsCancelled = true;
+        jobState.StatusText = "Cancelled local placeholder submission.";
+        return Task.FromResult(jobState);
+    }
+
     #endregion
 
     #region Tools

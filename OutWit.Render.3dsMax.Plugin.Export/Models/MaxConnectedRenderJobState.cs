@@ -23,7 +23,19 @@ public sealed class MaxConnectedRenderJobState
 
     public bool IsCompleted { get; set; }
 
+    /// <summary>
+    /// True once the farm reports the job as cancelled (terminal, distinct from failure).
+    /// </summary>
+    public bool IsCancelled { get; set; }
+
     public bool IsPlaceholderLocalSubmission { get; set; }
+
+    /// <summary>
+    /// The submitted frame range; used to name per-frame results for frame-sequence jobs.
+    /// </summary>
+    public int FrameStart { get; set; }
+
+    public int FrameEnd { get; set; }
 
     public DateTime SubmittedUtc { get; set; }
 
@@ -42,6 +54,11 @@ public sealed class MaxConnectedRenderJobState
     public Guid? UploadedPackageBlobId { get; set; }
 
     public Guid? ResultBlobId { get; set; }
+
+    /// <summary>
+    /// Per-frame result blob ids for frame-sequence jobs (RenderFrames returns a blob collection).
+    /// </summary>
+    public List<Guid> ResultFrameBlobIds { get; set; } = [];
 
     public string UploadReceiptPath { get; set; } = string.Empty;
 

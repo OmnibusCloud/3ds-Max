@@ -47,5 +47,16 @@ public sealed class MaxConnectedRenderSubmissionService
         return m_transport.RefreshAsync(jobState, cancellationToken);
     }
 
+    /// <summary>
+    /// Requests cancellation of one previously submitted connected render job through the configured transport.
+    /// </summary>
+    /// <param name="jobState">The job state to cancel.</param>
+    /// <param name="cancellationToken">Cancels the cancel request itself.</param>
+    /// <returns>The updated job state.</returns>
+    public Task<MaxConnectedRenderJobState> CancelAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
+    {
+        return m_transport.CancelAsync(jobState, cancellationToken);
+    }
+
     #endregion
 }

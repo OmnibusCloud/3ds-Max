@@ -108,6 +108,8 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 ProgressPercent = 5d,
                 IsCompleted = false,
                 IsPlaceholderLocalSubmission = false,
+                FrameStart = request.FrameStart,
+                FrameEnd = request.FrameEnd,
                 SubmittedUtc = now,
                 UpdatedUtc = DateTime.UtcNow,
                 PackageFolderPath = package.PackageFolderPath,
@@ -157,26 +159,35 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
             jobState.ProgressPercent = Math.Clamp(info.OverallProgress * 100d, 0d, 100d);
             jobState.IsCompleted = info.Status == ProcessingJobStatus.Completed;
+            jobState.IsCancelled = info.Status == ProcessingJobStatus.Cancelled;
             jobState.StatusText = string.IsNullOrWhiteSpace(info.ErrorMessage)
                 ? $"OmnibusCloud job status: {info.Status}."
                 : $"OmnibusCloud job status: {info.Status}. {info.ErrorMessage}";
 
             if (jobState.IsCompleted)
             {
-                if (jobState.ResultBlobId == null)
+                // Fetch the result blob(s) to local files so 'Download Result' copies the real cloud
+                // output (the .blend for ExportBlend, the image/video for renders, the per-frame
+                // images for frame sequences). Idempotent + retried on later refreshes.
+                if (jobState.RenderMode == "RenderFrames")
                 {
-                    var resultBlobId = await client.Jobs.GetResultAsync<Guid>(jobId, ct: cancellationToken);
-                    if (resultBlobId != Guid.Empty)
-                    {
-                        jobState.ResultBlobId = resultBlobId;
-                        jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with result blob '{resultBlobId}'."));
-                    }
+                    await FetchFrameResultBlobIdsAsync(client, jobState, jobId, cancellationToken);
+                    await TryDownloadFrameResultBlobsAsync(client, jobState, cancellationToken);
                 }
+                else
+                {
+                    if (jobState.ResultBlobId == null)
+                    {
+                        var resultBlobId = await client.Jobs.GetResultAsync<Guid>(jobId, ct: cancellationToken);
+                        if (resultBlobId != Guid.Empty)
+                        {
+                            jobState.ResultBlobId = resultBlobId;
+                            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with result blob '{resultBlobId}'."));
+                        }
+                    }
 
-                // Fetch the result blob to a local file so 'Download Result' copies the real cloud
-                // output (the .blend for ExportBlend, the image/video for renders) instead of the
-                // local launch-package placeholder. Idempotent + retried on later refreshes.
-                await TryDownloadResultBlobAsync(client, jobState, cancellationToken);
+                    await TryDownloadResultBlobAsync(client, jobState, cancellationToken);
+                }
             }
 
             return jobState;
@@ -185,6 +196,49 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         {
             jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Job refresh failed: {ex.Message}"));
             jobState.StatusText = "Job refresh failed.";
+            return jobState;
+        }
+    }
+
+    /// <summary>
+    /// Requests server-side cancellation of one previously submitted connected render job.
+    /// </summary>
+    /// <param name="jobState">The job state to cancel.</param>
+    /// <param name="cancellationToken">Cancels the cancel request itself.</param>
+    /// <returns>The updated job state.</returns>
+    public async Task<MaxConnectedRenderJobState> CancelAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(jobState);
+
+        jobState.UpdatedUtc = DateTime.UtcNow;
+
+        if (!Guid.TryParse(jobState.JobId, out var jobId))
+        {
+            // Never reached the farm (blocked / failed locally) — cancelling is a local no-op.
+            jobState.IsCancelled = true;
+            jobState.StatusText = "Cancelled before submission.";
+            return jobState;
+        }
+
+        var client = await m_connectionService.GetClientAsync(jobState.CloudUrl, cancellationToken);
+        if (client == null)
+        {
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Sign in to OmnibusCloud before cancelling the job."));
+            jobState.StatusText = "Cancel failed. No signed-in cloud connection.";
+            return jobState;
+        }
+
+        try
+        {
+            await client.Jobs.CancelAsync(jobId, cancellationToken);
+            jobState.StatusText = "Cancel requested. Waiting for the farm to stop the job.";
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Requested cancellation of OmnibusCloud job '{jobId}'."));
+            return jobState;
+        }
+        catch (Exception ex)
+        {
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Job cancel failed: {ex.Message}"));
+            jobState.StatusText = "Job cancel failed.";
             return jobState;
         }
     }
@@ -295,6 +349,103 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         return receiptPath;
     }
 
+    private static async Task FetchFrameResultBlobIdsAsync(
+        IWitCloudClient client,
+        MaxConnectedRenderJobState jobState,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        if (jobState.ResultFrameBlobIds.Count > 0)
+            return;
+
+        // RenderDccSceneFrames returns a BlobCollection whose deserialized shape varies with the
+        // transport path (Guid[] / Guid?[] / List<Guid?>). Probe each shape, most common first —
+        // the same proven approach as the live distributed tests.
+        var frameBlobIds = await FetchFrameBlobIdsAsync(client, jobId, cancellationToken);
+        if (frameBlobIds.Count == 0)
+            return;
+
+        jobState.ResultFrameBlobIds = frameBlobIds;
+        jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with {frameBlobIds.Count} frame result blobs."));
+    }
+
+    private static async Task<List<Guid>> FetchFrameBlobIdsAsync(IWitCloudClient client, Guid jobId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await client.Jobs.GetResultAsync<Guid[]>(jobId, ct: cancellationToken);
+            if (result is { Length: > 0 })
+                return result.Where(me => me != Guid.Empty).ToList();
+        }
+        catch
+        {
+            // Shape mismatch — try the next known result shape.
+        }
+
+        try
+        {
+            var nullableResult = await client.Jobs.GetResultAsync<Guid?[]>(jobId, ct: cancellationToken);
+            if (nullableResult is { Length: > 0 })
+                return nullableResult.Where(me => me.HasValue && me.Value != Guid.Empty).Select(me => me!.Value).ToList();
+        }
+        catch
+        {
+            // Shape mismatch — try the next known result shape.
+        }
+
+        try
+        {
+            var listResult = await client.Jobs.GetResultAsync<List<Guid?>>(jobId, ct: cancellationToken);
+            if (listResult is { Count: > 0 })
+                return listResult.Where(me => me.HasValue && me.Value != Guid.Empty).Select(me => me!.Value).ToList();
+        }
+        catch
+        {
+            // No readable result shape; the next refresh retries.
+        }
+
+        return [];
+    }
+
+    private static async Task TryDownloadFrameResultBlobsAsync(
+        IWitCloudClient client,
+        MaxConnectedRenderJobState jobState,
+        CancellationToken cancellationToken)
+    {
+        if (jobState.ResultFrameBlobIds.Count == 0)
+            return;
+
+        try
+        {
+            var resultFolder = BuildResultFolder(jobState, jobState.ResultFrameBlobIds[0]);
+            Directory.CreateDirectory(resultFolder);
+
+            var downloaded = 0;
+            for (var index = 0; index < jobState.ResultFrameBlobIds.Count; index++)
+            {
+                var framePath = Path.Combine(resultFolder, $"frame_{jobState.FrameStart + index:D4}.png");
+
+                // Idempotent across refreshes: skip frames that already landed.
+                if (!File.Exists(framePath))
+                {
+                    await client.Blobs.DownloadBlobToFileAsync(jobState.ResultFrameBlobIds[index], framePath, ct: cancellationToken);
+                    downloaded++;
+                }
+
+                if (index == 0)
+                    jobState.PrimaryArtifactPath = framePath;
+            }
+
+            if (downloaded > 0)
+                jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Downloaded {downloaded} frame results to '{resultFolder}'."));
+        }
+        catch (Exception ex)
+        {
+            // Leave the remaining frames for the next refresh to retry.
+            jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, $"Frame result download failed (will retry on next refresh): {ex.Message}"));
+        }
+    }
+
     private static async Task TryDownloadResultBlobAsync(
         IWitCloudClient client,
         MaxConnectedRenderJobState jobState,
@@ -329,8 +480,13 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
     private static string BuildResultPath(MaxConnectedRenderJobState jobState, Guid blobId)
     {
         var extension = ResolveResultExtension(jobState.RenderMode);
+        return Path.Combine(BuildResultFolder(jobState, blobId), $"result{extension}");
+    }
+
+    private static string BuildResultFolder(MaxConnectedRenderJobState jobState, Guid blobId)
+    {
         var jobFolder = string.IsNullOrWhiteSpace(jobState.JobId) ? blobId.ToString("N") : jobState.JobId.Replace('-', '_');
-        return Path.Combine(Path.GetTempPath(), "OmnibusCloudResults", jobFolder, $"result{extension}");
+        return Path.Combine(Path.GetTempPath(), "OmnibusCloudResults", jobFolder);
     }
 
     private static string ResolveResultExtension(string renderMode) => renderMode switch

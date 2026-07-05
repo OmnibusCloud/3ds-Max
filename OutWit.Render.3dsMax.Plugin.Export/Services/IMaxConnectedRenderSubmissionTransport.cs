@@ -26,5 +26,14 @@ public interface IMaxConnectedRenderSubmissionTransport
     /// <returns>The refreshed job state.</returns>
     Task<MaxConnectedRenderJobState> RefreshAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Requests cancellation of one previously submitted connected render job on the farm.
+    /// The job stays active until a later refresh observes the terminal cancelled status.
+    /// </summary>
+    /// <param name="jobState">The job state to cancel.</param>
+    /// <param name="cancellationToken">Cancels the cancel request itself.</param>
+    /// <returns>The updated job state.</returns>
+    Task<MaxConnectedRenderJobState> CancelAsync(MaxConnectedRenderJobState jobState, CancellationToken cancellationToken = default);
+
     #endregion
 }

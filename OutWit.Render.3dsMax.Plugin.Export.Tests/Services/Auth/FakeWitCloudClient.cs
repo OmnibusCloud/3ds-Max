@@ -22,9 +22,9 @@ internal sealed class FakeWitCloudClient : IWitCloudClient
 
     public IWitCloudScripts Scripts => throw new NotSupportedException("Scripts facet is not faked.");
 
-    public IWitCloudJobs Jobs => throw new NotSupportedException("Jobs facet is not faked.");
+    public IWitCloudJobs Jobs => FakeJobs;
 
-    public IWitCloudBlobs Blobs => throw new NotSupportedException("Blobs facet is not faked.");
+    public IWitCloudBlobs Blobs => FakeBlobs;
 
     #endregion
 
@@ -40,6 +40,10 @@ internal sealed class FakeWitCloudClient : IWitCloudClient
     #region Properties
 
     public ExecutionScopeOptions ScopeOptions { get; set; } = new();
+
+    public FakeWitCloudJobs FakeJobs { get; } = new();
+
+    public FakeWitCloudBlobs FakeBlobs { get; } = new();
 
     #endregion
 }
