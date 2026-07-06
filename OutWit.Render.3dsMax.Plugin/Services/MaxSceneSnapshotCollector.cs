@@ -689,7 +689,8 @@ internal sealed class MaxSceneSnapshotCollector
         {
             Id = cameraId,
             Name = node.Name,
-            VerticalFovDegrees = RadiansToDegrees(cameraObject.GetFOV(time)),
+            // Max GetFOV is the HORIZONTAL field of view; the neutral model stores vertical.
+            VerticalFovDegrees = HorizontalToVerticalFovDegrees(RadiansToDegrees(cameraObject.GetFOV(time))),
             NearClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 0, 0.1d) : 0.1d,
             FarClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 1, 1000d) : 1000d,
             IsPerspective = !cameraObject.IsOrtho
@@ -1698,6 +1699,20 @@ internal sealed class MaxSceneSnapshotCollector
         return radians * 180d / Math.PI;
     }
 
+    // vFov = 2·atan(tan(hFov/2) · height/width). Falls back to the horizontal value when the render
+    // resolution is not known yet — a wider frame beats a degenerate one.
+    private double HorizontalToVerticalFovDegrees(double horizontalFovDegrees)
+    {
+        var width = (double)m_summary.RenderWidth;
+        var height = (double)m_summary.RenderHeight;
+        if (width <= 0d || height <= 0d || horizontalFovDegrees <= 0d || horizontalFovDegrees >= 180d)
+            return horizontalFovDegrees;
+
+        var halfHorizontalRadians = horizontalFovDegrees * Math.PI / 360d;
+        var verticalRadians = 2d * Math.Atan(Math.Tan(halfHorizontalRadians) * height / width);
+        return verticalRadians * 180d / Math.PI;
+    }
+
     private static string SanitizeId(string value)
     {
         return string.Concat(value.Trim().ToLowerInvariant().Select(me => char.IsLetterOrDigit(me) ? me : '_')).Trim('_');
@@ -1973,7 +1988,7 @@ internal sealed class MaxSceneSnapshotCollector
 
         var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
 
-        snapshot.VerticalFovKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => RadiansToDegrees(cameraObject.GetFOV(time)));
+        snapshot.VerticalFovKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => HorizontalToVerticalFovDegrees(RadiansToDegrees(cameraObject.GetFOV(time))));
         snapshot.NearClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 0, 0.1d));
         snapshot.FarClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 1, 1000d));
     }
