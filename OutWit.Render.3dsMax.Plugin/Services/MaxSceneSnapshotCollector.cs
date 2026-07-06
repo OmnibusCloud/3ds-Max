@@ -25,6 +25,7 @@ internal sealed class MaxSceneSnapshotCollector
     private readonly Dictionary<object, string> m_materialIdsByReference;
     private readonly Dictionary<string, string> m_imageAssetIdsByPath;
     private readonly Dictionary<string, string> m_bakedImageAssetIdsByPath;
+    private bool? m_isScanlineRenderer;
     private readonly HashSet<string> m_usedMaterialIds;
     private readonly HashSet<string> m_usedImageAssetIds;
 
@@ -870,6 +871,45 @@ internal sealed class MaxSceneSnapshotCollector
         };
     }
 
+    // Detects whether the production renderer is the Default Scanline renderer (the only stock
+    // renderer that culls backfaces). Resolved reflectively — the renderer accessor varies across
+    // managed SDK versions — and cached; any failure means "not scanline" (double-sided, safe).
+    private bool IsScanlineRenderer()
+    {
+        if (m_isScanlineRenderer.HasValue)
+            return m_isScanlineRenderer.Value;
+
+        try
+        {
+            var renderer = m_coreInterface.GetCurrentRenderer(false);
+            var className = renderer?.ClassName(false);
+            m_isScanlineRenderer = className?.Contains("scanline", StringComparison.OrdinalIgnoreCase) == true;
+        }
+        catch
+        {
+            m_isScanlineRenderer = false;
+        }
+
+        return m_isScanlineRenderer.Value;
+    }
+
+    private static bool IsTwoSidedMaterial(IMtl material)
+    {
+        try
+        {
+            if (material.GetType().GetProperty("TwoSided", BindingFlags.Instance | BindingFlags.Public)?.GetValue(material) is bool viaProperty)
+                return viaProperty;
+
+            if (material.GetType().GetMethod("GetTwoSided", Type.EmptyTypes)?.Invoke(material, null) is bool viaMethod)
+                return viaMethod;
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
     private bool IsLightActive(ILightObject lightObject)
     {
         // A light switched off in 3ds Max (the "On" checkbox) contributes nothing and would export a
@@ -917,6 +957,12 @@ internal sealed class MaxSceneSnapshotCollector
 
         ReadMaterialAppearance(material, materialSnapshot);
         ReadMaterialTextureSlots(material, materialSnapshot);
+
+        // Scanline hides backfaces unless the material is flagged 2-Sided; interiors are routinely
+        // authored with inward-facing walls the camera looks through from outside. Carry that
+        // single-sidedness so the generator can mirror it (Cycles renders double-sided by default,
+        // which turns such walls into view blockers). Arnold/ART render double-sided — no cull.
+        materialSnapshot.BackfaceCull = IsScanlineRenderer() && !IsTwoSidedMaterial(material);
 
         m_summary.Materials.Add(materialSnapshot);
         return materialId;

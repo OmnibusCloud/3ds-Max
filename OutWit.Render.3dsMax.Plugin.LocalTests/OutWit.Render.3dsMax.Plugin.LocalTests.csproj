@@ -27,7 +27,7 @@
 
   <ItemGroup>
     <PackageReference Include="OutWit.Cloud.SDK" Version="1.1.*" />
-    <PackageReference Include="OutWit.Controller.Render.Dcc.Model" Version="1.4.*" />
+    <PackageReference Include="OutWit.Controller.Render.Dcc.Model" Version="1.5.*" />
     <PackageReference Include="OutWit.Controller.Render.Model" Version="1.3.0" />
   </ItemGroup>
 

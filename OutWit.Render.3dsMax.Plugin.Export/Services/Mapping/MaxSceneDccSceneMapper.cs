@@ -225,6 +225,7 @@ internal static class MaxSceneDccSceneMapper
                     Transmission = me.Transmission,
                     Ior = me.Ior,
                     DisplacementScale = me.DisplacementScale,
+                    BackfaceCull = me.BackfaceCull,
                     TextureSlots =
                     [
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData

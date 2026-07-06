@@ -26,6 +26,8 @@ public sealed class MaxSceneMaterialSnapshotData
     // (1.0); the collector overrides it from the material's displacement amount when present.
     public double DisplacementScale { get; set; } = 1d;
 
+    public bool BackfaceCull { get; set; }
+
     public List<MaxSceneTextureSlotSnapshotData> TextureSlots { get; set; } = [];
 
     #endregion
