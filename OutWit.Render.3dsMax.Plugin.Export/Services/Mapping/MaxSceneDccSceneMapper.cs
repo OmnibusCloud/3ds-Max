@@ -149,6 +149,7 @@ internal static class MaxSceneDccSceneMapper
                     Uv1 = [.. me.Uv1.Select(uv => new DccVector2Data { X = uv.X, Y = uv.Y })],
                     TriangleIndices = [.. me.TriangleIndices],
                     MaterialIndices = [.. me.MaterialIndices],
+                    SubdivisionLevels = me.SubdivisionLevels,
                     Colors = [.. me.Colors.Select(color => new DccColorData { R = color.R, G = color.G, B = color.B, A = color.A })],
                     DeformationFrames =
                     [
@@ -263,6 +264,10 @@ internal static class MaxSceneDccSceneMapper
         // orientation does not survive the round trip reliably, so we recompute framing from the
         // geometry bounds rather than trust the captured quaternion.
         MaxSceneCameraFramer.Apply(scene, summary.ActiveRenderCameraName);
+
+        // Sky-dome shells enclosing the scene render black under inverse-square lights — make
+        // them emit their own sky texture (Max lights them with default no-decay lights).
+        MaxSceneSkyDomeClassifier.Apply(scene);
 
         return scene;
     }

@@ -28,5 +28,9 @@ public sealed class MaxSceneMeshSnapshotData
     // frame's Positions count matches the base Positions count.
     public List<MaxSceneMeshDeformationFrameSnapshotData> DeformationFrames { get; set; } = [];
 
+    // Render-only Catmull-Clark subdivision levels (MeshSmooth/TurboSmooth "Render Iterations"
+    // minus what the exported viewport-state vertices already include). 0 = none.
+    public int SubdivisionLevels { get; set; }
+
     #endregion
 }

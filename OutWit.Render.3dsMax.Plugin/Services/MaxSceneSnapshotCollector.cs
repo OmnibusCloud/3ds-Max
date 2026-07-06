@@ -245,6 +245,7 @@ internal sealed class MaxSceneSnapshotCollector
                 {
                     added = true;
                     m_summary.MeshesCount++;
+                    meshSnapshot.SubdivisionLevels = ResolveRenderSubdivisionLevels(childNode);
                     SampleDeformationFrames(childNode, meshSnapshot);
                     var materialBindingMap = GetMaterialBindingMap(childNode.Mtl);
                     NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
@@ -299,6 +300,95 @@ internal sealed class MaxSceneSnapshotCollector
             _ = added;
             CollectSceneContent(childNode, effectiveParentNode, null);
         }
+    }
+
+    private static int ResolveRenderSubdivisionLevels(IINode node)
+    {
+        // MeshSmooth/TurboSmooth apply MORE subdivision at render time than in the viewport when
+        // "Render Iterations" is on (Ape's body: two modifiers with iterations=0/renderIters=1 —
+        // the exported viewport-state mesh is two levels coarser than the native render, giving
+        // faceted arms). The exported vertices already carry the VIEWPORT iterations, so export
+        // only the render-minus-viewport delta; the generator applies it as a Blender Subsurf.
+        try
+        {
+            var extraLevels = 0;
+            var current = node.ObjectRef;
+
+            while (current is IIDerivedObject derivedObject)
+            {
+                for (var modifierIndex = 0; modifierIndex < derivedObject.NumModifiers; modifierIndex++)
+                {
+                    var modifier = derivedObject.GetModifier(modifierIndex);
+                    if (modifier == null || !IsSubdivisionSmoothingModifier(modifier))
+                        continue;
+
+                    extraLevels += ResolveModifierRenderSubdivisionDelta(modifier);
+                }
+
+                current = derivedObject.ObjRef;
+            }
+
+            return Math.Clamp(extraLevels, 0, MAX_RENDER_SUBDIVISION_LEVELS);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool IsSubdivisionSmoothingModifier(IModifier modifier)
+    {
+        var className = modifier.ClassName(false)?.ToLowerInvariant();
+        return className is not null
+               && (className.Contains("meshsmooth") || className.Contains("turbosmooth") || className.Contains("opensubdiv"));
+    }
+
+    private static int ResolveModifierRenderSubdivisionDelta(IModifier modifier)
+    {
+        // A modifier disabled outright contributes to neither the viewport mesh nor the render.
+        try
+        {
+            if (!modifier.IsEnabled)
+                return 0;
+        }
+        catch
+        {
+        }
+
+        var viewportIterations = TryReadModifierParamBlockInt(modifier, "iterations", "iters") ?? 0;
+        var useRenderIterations = (TryReadModifierParamBlockInt(modifier, "userenderiterations", "userenderiters") ?? 0) != 0;
+        var renderIterations = useRenderIterations
+            ? TryReadModifierParamBlockInt(modifier, "renderiterations", "renderiters") ?? viewportIterations
+            : viewportIterations;
+
+        return Math.Max(0, renderIterations - viewportIterations);
+    }
+
+    private static int? TryReadModifierParamBlockInt(IModifier modifier, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < modifier.NumParamBlocks; blockIndex++)
+            {
+                if (modifier.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    return block.GetInt(def.Id, 0, 0);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private MaxSceneMeshSnapshotData ExtractMesh(IINode node, IObject sceneObject, string meshId)
@@ -2017,6 +2107,10 @@ internal sealed class MaxSceneSnapshotCollector
     // Empirical conversion from a Standard-material displacement amount (fraction) to Blender
     // displacement units, calibrated on the Displacement-MoonRock reference scene.
     private const double DISPLACEMENT_AMOUNT_TO_UNITS = 30d;
+
+    // Cap on exported render-only subdivision levels: each level quadruples the render-time face
+    // count, and beyond 3 the visual gain is nil while the render cost explodes.
+    private const int MAX_RENDER_SUBDIVISION_LEVELS = 3;
 
     private void SampleDeformationFrames(IINode node, MaxSceneMeshSnapshotData meshSnapshot)
     {
