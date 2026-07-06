@@ -49,13 +49,28 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
         }
         var cameraTransform = ResolveCameraTransform(summary, verticalFovDegrees);
 
+        // Clip planes must cover the actual scene: a viewport parked far from the geometry with the
+        // old fixed far=1000 clipped everything to black (Flex-TeaPotBounce sits ~3600 units out).
+        var clipBounds = MaxSceneBounds.Compute(summary);
+        var farClip = 1000d;
+        var nearClip = 0.1d;
+        if (clipBounds != null)
+        {
+            var dx = clipBounds.Value.CenterX - cameraTransform.Translation.X;
+            var dy = clipBounds.Value.CenterY - cameraTransform.Translation.Y;
+            var dz = clipBounds.Value.CenterZ - cameraTransform.Translation.Z;
+            var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            farClip = Math.Max(1000d, distance + clipBounds.Value.Radius * 4d + 10d);
+            nearClip = Math.Max(0.1d, Math.Min(distance * 0.01d, 10d));
+        }
+
         summary.Cameras.Add(new MaxSceneCameraSnapshotData
         {
             Id = SYNTHETIC_CAMERA_ID,
             Name = syntheticCameraName,
             VerticalFovDegrees = verticalFovDegrees,
-            NearClip = 0.1d,
-            FarClip = 1000d,
+            NearClip = nearClip,
+            FarClip = farClip,
             IsPerspective = true
         });
 

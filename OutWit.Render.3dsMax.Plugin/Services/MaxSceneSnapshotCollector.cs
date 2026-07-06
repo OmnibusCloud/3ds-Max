@@ -147,7 +147,10 @@ internal sealed class MaxSceneSnapshotCollector
             m_summary.NodesCount++;
             DetectMotionBlur(childNode);
 
-            var objectState = childNode.ObjectRef.Eval(m_coreInterface.Time);
+            // EvalWorldState (NOT ObjectRef.Eval) so world-space modifiers are included: a Flex
+            // teapot bound to a bounce space warp deforms only in the WSM stage, and PathDeform'd
+            // tools park their node TM while the WSM carries the real placement.
+            var objectState = childNode.EvalWorldState(m_coreInterface.Time, true);
             var sceneObject = objectState.Obj;
             var nodeId = $"node:{childNode.Handle}";
             var parentId = effectiveParentId;
@@ -1047,6 +1050,19 @@ internal sealed class MaxSceneSnapshotCollector
                 if (reflectColor is not null)
                     reflection = Math.Max(reflectColor.R, Math.Max(reflectColor.G, reflectColor.B));
             }
+            if (reflection is null)
+            {
+                // RaytraceMaterial exposes its reflectivity through neither a named param block nor
+                // the legacy getters — treat the class itself as a mirror.
+                try
+                {
+                    if (material.ClassName(false)?.Contains("raytrace", StringComparison.OrdinalIgnoreCase) == true)
+                        reflection = 1d;
+                }
+                catch
+                {
+                }
+            }
             if (reflection is not null)
             {
                 var reflectionFraction = reflection.Value > 1.001d ? reflection.Value / 100d : reflection.Value;
@@ -1062,7 +1078,13 @@ internal sealed class MaxSceneSnapshotCollector
                     if (baseLuminance < 0.1d)
                     {
                         var tint = TryReadParamBlockColor(material, time, "reflect", "reflection", "reflect_color", "reflection_color");
-                        snapshot.BaseColor = tint is not null && Math.Max(tint.R, Math.Max(tint.G, tint.B)) > 0.1d
+                        if (tint is null || Math.Max(tint.R, Math.Max(tint.G, tint.B)) <= 0.1d)
+                        {
+                            // Raytrace keeps the mirror tint in the specular channel.
+                            var specular = material.GetSpecular(time, false);
+                            tint = new MaxSceneColorSnapshotData { R = specular.R, G = specular.G, B = specular.B, A = 1d };
+                        }
+                        snapshot.BaseColor = Math.Max(tint.R, Math.Max(tint.G, tint.B)) > 0.1d
                             ? tint
                             : new MaxSceneColorSnapshotData { R = 0.9d, G = 0.9d, B = 0.9d, A = 1d };
                     }
@@ -2028,7 +2050,7 @@ internal sealed class MaxSceneSnapshotCollector
     {
         try
         {
-            var sceneObject = node.ObjectRef.Eval(time).Obj;
+            var sceneObject = node.EvalWorldState(time, true).Obj;
             if (sceneObject is null || sceneObject.CanConvertToType(m_global.TriObjectClassID) != 1)
                 return null;
 
