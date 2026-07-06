@@ -228,7 +228,11 @@ internal sealed class MaxSceneSnapshotCollector
             // Helper objects (Crowd/Delegate gizmos and the like) can still convert to a TriObject,
             // but Max never renders them — Butterfly's Crowd helper rendered as a floating white
             // diamond. Dummies already fail the TriObject conversion; this catches the rest.
-            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject)
+            // Shape (spline) objects convert to FILLED planar discs, but Max renders them as thin
+            // tubes of their "Render Thickness" (Maxine's rig control circles are 0.1-unit threads,
+            // invisible in the native render — our discs floated around her waist and arms). The
+            // converted mesh never matches the authored look, so shapes are skipped entirely.
+            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject && sceneObject is not IShapeObject)
             {
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);

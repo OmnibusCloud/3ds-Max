@@ -101,7 +101,10 @@ internal static class MaxSceneSkyDomeClassifier
 
         // The generator drives Emission Color from the base-color texture when a strength is set,
         // so the dome emits its own sky bitmap. Backdrop ray visibility keeps the glowing shell
-        // from acting as a giant area light around the scene.
+        // from acting as a giant area light around the scene. A black base kills the DIFFUSE
+        // response (the generator multiplies the texture by it): scene lights hitting the shell
+        // were adding a lit-diffuse wash on top of the emission and bleaching the sky.
+        material.BaseColor = new DccColorData { R = 0d, G = 0d, B = 0d, A = 1d };
         material.EmissionColor = new DccColorData { R = 1d, G = 1d, B = 1d, A = 1d };
         material.EmissionStrength = DOME_EMISSION_STRENGTH;
         node.IsBackdrop = true;
