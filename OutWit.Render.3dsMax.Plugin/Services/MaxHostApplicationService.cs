@@ -151,12 +151,35 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
 
         try
         {
-            return ConvertMatrixToTransform(global, activeView.AffineTM);
+            // AffineTM is the WORLD->VIEW matrix; the camera's world placement is its inverse.
+            // Feeding the raw matrix (the original behaviour) produced a garbage camera transform,
+            // so the synthesizer's "does the viewport face the geometry" test always failed and
+            // camera-less scenes rendered from the framing fallback instead of the authored view.
+            var cameraTm = global.Inverse(activeView.AffineTM);
+            var transform = ConvertMatrixToTransform(global, cameraTm);
+
+            // The synthesized camera flows through the generator's camera path (rotation @
+            // RotX(-90 deg)); compose the cancelling RotX(+90 deg) so the view survives exactly —
+            // same convention the collector applies to real camera nodes.
+            transform.Rotation = ComposeRotXPlus90(transform.Rotation);
+            return transform;
         }
         catch
         {
             return null;
         }
+    }
+
+    private static MaxSceneQuaternionSnapshotData ComposeRotXPlus90(MaxSceneQuaternionSnapshotData q)
+    {
+        const double s = 0.70710678118654752d;
+        return new MaxSceneQuaternionSnapshotData
+        {
+            X = (q.W + q.X) * s,
+            Y = (q.Y + q.Z) * s,
+            Z = (q.Z - q.Y) * s,
+            W = (q.W - q.X) * s
+        };
     }
 
     private static MaxSceneTransformSnapshotData ConvertMatrixToTransform(IGlobal global, IMatrix3 matrix)
@@ -179,10 +202,12 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
 
         var rotation = global.Quat.Create(rotationMatrix);
 
+        // Quat.Create returns 3ds Max's row-vector-convention quaternion — the conjugate of the
+        // Hamilton rotation downstream consumers apply (same fix as the collector's decomposition).
         return new MaxSceneTransformSnapshotData
         {
             Translation = new MaxSceneVector3SnapshotData { X = translation.X, Y = translation.Y, Z = translation.Z },
-            Rotation = new MaxSceneQuaternionSnapshotData { X = rotation.X, Y = rotation.Y, Z = rotation.Z, W = rotation.W },
+            Rotation = new MaxSceneQuaternionSnapshotData { X = -rotation.X, Y = -rotation.Y, Z = -rotation.Z, W = rotation.W },
             Scale = new MaxSceneVector3SnapshotData
             {
                 X = scaleX <= 0d ? 1d : scaleX,

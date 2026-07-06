@@ -137,7 +137,67 @@ public sealed class MaxConnectedRenderSceneAttachmentService
                 return candidatePath;
         }
 
+        // Library-relative paths (e.g. 'Scenes\Design Visualization\Concrete...jpg' from the 3ds Max
+        // content library) don't resolve against scene ancestors — search by FILE NAME under the
+        // scene's directory and one level of ancestors instead of failing the whole submission.
+        var fileName = Path.GetFileName(imageAsset.SourcePath);
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            foreach (var searchRootPath in EnumerateAncestorDirectories(sceneDirectoryPath).Take(3))
+            {
+                try
+                {
+                    var match = Directory.EnumerateFiles(searchRootPath, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                    if (match is not null)
+                        return match;
+                }
+                catch
+                {
+                    // Unreadable directory — keep walking up.
+                }
+            }
+
+            // Last resort: the 3ds Max install's own map library ('maps' next to 3dsmax.exe) —
+            // stock scenes reference it by paths relative to the content root.
+            foreach (var installMapsPath in EnumerateMaxInstallMapDirectories())
+            {
+                try
+                {
+                    var match = Directory.EnumerateFiles(installMapsPath, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                    if (match is not null)
+                        return match;
+                }
+                catch
+                {
+                }
+            }
+        }
+
         return null;
+    }
+
+    private static IEnumerable<string> EnumerateMaxInstallMapDirectories()
+    {
+        var autodeskRootPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Autodesk");
+        if (!Directory.Exists(autodeskRootPath))
+            yield break;
+
+        IEnumerable<string> installations;
+        try
+        {
+            installations = Directory.EnumerateDirectories(autodeskRootPath, "3ds Max *");
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (var installationPath in installations)
+        {
+            var mapsPath = Path.Combine(installationPath, "maps");
+            if (Directory.Exists(mapsPath))
+                yield return mapsPath;
+        }
     }
 
     private static IEnumerable<string> EnumerateAncestorDirectories(string directoryPath)

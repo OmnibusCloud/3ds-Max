@@ -38,7 +38,15 @@ internal static class MaxSceneActiveViewportCameraSynthesizer
             ? SYNTHETIC_CAMERA_NAME
             : summary.ActiveRenderCameraName;
 
-        var verticalFovDegrees = summary.ActiveViewportVerticalFovDegrees > 0d ? summary.ActiveViewportVerticalFovDegrees : 45d;
+        // The captured viewport FOV is HORIZONTAL (Max convention); the neutral camera stores
+        // vertical. Convert with the scene's render aspect.
+        var horizontalFovDegrees = summary.ActiveViewportVerticalFovDegrees > 0d ? summary.ActiveViewportVerticalFovDegrees : 45d;
+        var verticalFovDegrees = horizontalFovDegrees;
+        if (summary.RenderWidth > 0 && summary.RenderHeight > 0 && horizontalFovDegrees < 180d)
+        {
+            var halfHorizontalRadians = horizontalFovDegrees * Math.PI / 360d;
+            verticalFovDegrees = 2d * Math.Atan(Math.Tan(halfHorizontalRadians) * summary.RenderHeight / summary.RenderWidth) * 180d / Math.PI;
+        }
         var cameraTransform = ResolveCameraTransform(summary, verticalFovDegrees);
 
         summary.Cameras.Add(new MaxSceneCameraSnapshotData

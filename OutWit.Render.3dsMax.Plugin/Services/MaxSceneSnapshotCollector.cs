@@ -1036,6 +1036,39 @@ internal sealed class MaxSceneSnapshotCollector
 
             snapshot.Metallic = ReadMetalness(material, time);
 
+            // Legacy mirror materials (Raytrace "chrome", Standard with a full-strength reflection)
+            // carry their look in a reflection amount the PBR mapping otherwise ignores — the A02
+            // chrome balls exported as flat black. Fold a strong reflection into Metallic with a
+            // polished roughness so they read as mirrors.
+            var reflection = TryReadParamBlockFloat(material, time, "reflectionmapamount", "reflection_amount", "reflect_amount", "reflectionamount", "reflectamount");
+            if (reflection is null)
+            {
+                var reflectColor = TryReadParamBlockColor(material, time, "reflect", "reflection", "reflect_color", "reflection_color");
+                if (reflectColor is not null)
+                    reflection = Math.Max(reflectColor.R, Math.Max(reflectColor.G, reflectColor.B));
+            }
+            if (reflection is not null)
+            {
+                var reflectionFraction = reflection.Value > 1.001d ? reflection.Value / 100d : reflection.Value;
+                if (reflectionFraction > 0.5d)
+                {
+                    snapshot.Metallic = Math.Max(snapshot.Metallic, Math.Clamp(reflectionFraction, 0d, 1d));
+                    snapshot.Roughness = Math.Min(snapshot.Roughness, 0.15d);
+
+                    // A metallic surface takes its look from the base colour; Raytrace chrome keeps
+                    // its visible TINT in the reflect colour while the diffuse stays near-black
+                    // (which would render as a black mirror). Promote the tint into the base.
+                    var baseLuminance = Math.Max(snapshot.BaseColor.R, Math.Max(snapshot.BaseColor.G, snapshot.BaseColor.B));
+                    if (baseLuminance < 0.1d)
+                    {
+                        var tint = TryReadParamBlockColor(material, time, "reflect", "reflection", "reflect_color", "reflection_color");
+                        snapshot.BaseColor = tint is not null && Math.Max(tint.R, Math.Max(tint.G, tint.B)) > 0.1d
+                            ? tint
+                            : new MaxSceneColorSnapshotData { R = 0.9d, G = 0.9d, B = 0.9d, A = 1d };
+                    }
+                }
+            }
+
             // Self-illuminated materials (sky domes, glowing signs) render full-bright in Max;
             // carry that as emission so e.g. the dragon's cloud dome is lit from within instead of
             // rendering as a dark unlit interior.
