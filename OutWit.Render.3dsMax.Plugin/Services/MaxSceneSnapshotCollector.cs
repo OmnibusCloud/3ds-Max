@@ -24,6 +24,7 @@ internal sealed class MaxSceneSnapshotCollector
     private readonly HashSet<object> m_exportedTextures;
     private readonly Dictionary<object, string> m_materialIdsByReference;
     private readonly Dictionary<string, string> m_imageAssetIdsByPath;
+    private readonly Dictionary<string, string> m_bakedImageAssetIdsByPath;
     private readonly HashSet<string> m_usedMaterialIds;
     private readonly HashSet<string> m_usedImageAssetIds;
 
@@ -44,6 +45,7 @@ internal sealed class MaxSceneSnapshotCollector
         m_exportedTextures = new HashSet<object>(ReferenceEqualityComparer.Instance);
         m_materialIdsByReference = new Dictionary<object, string>(ReferenceEqualityComparer.Instance);
         m_imageAssetIdsByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        m_bakedImageAssetIdsByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         m_usedMaterialIds = new HashSet<string>(StringComparer.Ordinal);
         m_usedImageAssetIds = new HashSet<string>(StringComparer.Ordinal);
     }
@@ -110,7 +112,14 @@ internal sealed class MaxSceneSnapshotCollector
                          ?? (environmentMap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
 
             if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
+            {
+                // Procedural environment (Gradient sky etc.) — bake it as an equirectangular image
+                // so the backdrop keeps its authored look instead of collapsing to a flat colour.
+                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", 1024, 512);
+                if (!string.IsNullOrWhiteSpace(bakedId))
+                    m_summary.EnvironmentImageId = bakedId;
                 return;
+            }
 
             var imageAssetId = GetOrCreateImageAsset(bitmap);
             if (!string.IsNullOrWhiteSpace(imageAssetId))
@@ -481,6 +490,27 @@ internal sealed class MaxSceneSnapshotCollector
             var bitmap = texmap as IBitmapTex
                          ?? (texmap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
 
+            // Procedural maps (Noise, Gradient, Mix, Smoke, Checker…) carry no file — bake the
+            // texmap to a PNG so the artist's pattern survives instead of silently dropping it.
+            // Opacity is exempt: a mis-baked opacity map hides the whole object, which is far worse
+            // than a missing one.
+            if ((bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)) && texmap is not null
+                && slotKind.Value != DccTextureSlotKind.Opacity)
+            {
+                var bakedAssetId = TryBakeTexmapToImageAsset(texmap, $"{material.Name}_{slotKind.Value}", 512, 512);
+                if (!string.IsNullOrWhiteSpace(bakedAssetId))
+                {
+                    materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
+                    {
+                        Slot = slotKind.Value,
+                        ImageAssetId = bakedAssetId
+                    });
+                    assignedSlots.Add(slotKind.Value);
+                }
+
+                continue;
+            }
+
             if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
                 continue;
 
@@ -497,6 +527,17 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (slotKind.Value == DccTextureSlotKind.Displacement)
                 materialSnapshot.DisplacementScale = ReadDisplacementScale(material, m_coreInterface.Time);
+
+            // A Max BUMP map routed to the normal slot must keep the authored bump amount: applying
+            // a grey height map as a full-strength normal map carves fake canyons into flat wood
+            // (hardwood's beech planks rendered as black marble). Physical Material's amount lives
+            // in 'bump_map_amt' (default 0.3); when unreadable, 0.3 is the sane approximation.
+            if (slotKind.Value == DccTextureSlotKind.Normal
+                && material.GetSubTexmapSlotName(i, false)?.Contains("bump", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var bumpAmount = TryReadParamBlockFloat(material, m_coreInterface.Time, "bump_map_amt", "bump_amount", "bump_amt");
+                materialSnapshot.NormalStrength = Math.Clamp(bumpAmount ?? 0.3d, 0d, 2d);
+            }
         }
 
         // Fallback: a material with a bitmap but no recognised slot name still gets its base colour.
@@ -913,6 +954,23 @@ internal sealed class MaxSceneSnapshotCollector
             if (transparency > 0.1d && Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)) < 0.05d)
                 snapshot.BaseColor = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d };
 
+            // PBR transmission (Arnold/Physical glass) is a parameter, not legacy transparency —
+            // hardwood's red ball is ai_standard_surface with transmission 0.6 and a red
+            // transmission_color while its base_color is grey. Principled tints transmission via
+            // Base Color, so carry the transmission colour there.
+            if (snapshot.Transmission <= 0.01d)
+            {
+                var paramTransmission = TryReadParamBlockFloat(material, time, "transmission");
+                if (paramTransmission is > 0.01d)
+                {
+                    snapshot.Transmission = Math.Clamp(paramTransmission.Value, 0d, 1d);
+                    snapshot.Opacity = 1d;
+                    var transmissionColor = TryReadParamBlockColor(material, time, "transmission_color");
+                    if (transmissionColor is not null)
+                        snapshot.BaseColor = transmissionColor;
+                }
+            }
+
             // PBR materials expose roughness directly; legacy materials only carry glossiness
             // (0..1, higher = sharper highlight), which maps inversely to Blender roughness.
             var paramRoughness = TryReadParamBlockFloat(material, time, "roughness", "specular_roughness");
@@ -993,6 +1051,130 @@ internal sealed class MaxSceneSnapshotCollector
             return null;
 
         return materialBindingIds[materialIndex];
+    }
+
+    // Bakes a (procedural) texmap into a PNG under the session bake directory and registers it as
+    // an ImageAsset. The attachment uploader resolves the absolute SourcePath, so the baked file
+    // travels to the farm exactly like an authored bitmap. Returns null when baking fails — the
+    // slot is then simply omitted, matching the previous silent-drop behaviour.
+    private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height)
+    {
+        try
+        {
+            var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
+            Directory.CreateDirectory(bakeDirectory);
+            var fileName = $"{SanitizeId(bakeName)}_{texmap.GetHashCode():x8}.png";
+            var bakePath = Path.Combine(bakeDirectory, fileName);
+
+            if (m_bakedImageAssetIdsByPath.TryGetValue(bakePath, out var existingId))
+                return existingId;
+
+            if (!File.Exists(bakePath) && !TryRenderTexmapToFile(texmap, bakePath, width, height))
+                return null;
+
+            // A near-uniform bake means the map needed 3D/geometry context RenderBitmap cannot give
+            // (Mix by vertex position, Falloff…). A flat texture would then OVERRIDE the material's
+            // real colour (textured materials export a white base), so drop it and let the material
+            // colour stand.
+            if (IsNearUniformImage(bakePath))
+            {
+                try { File.Delete(bakePath); } catch { }
+                m_bakedImageAssetIdsByPath[bakePath] = string.Empty;
+                return null;
+            }
+
+            var imageAssetId = CreateUniquePrefixedId(m_usedImageAssetIds, "image", Path.GetFileNameWithoutExtension(fileName));
+            m_bakedImageAssetIdsByPath[bakePath] = imageAssetId;
+            m_summary.ImageAssets.Add(new MaxSceneImageAssetSnapshotData
+            {
+                Id = imageAssetId,
+                Name = Path.GetFileNameWithoutExtension(fileName),
+                SourcePath = bakePath,
+                RelativePath = $"textures/{fileName}",
+                AssetKind = "ImageAsset"
+            });
+
+            return imageAssetId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Samples a 32×32 grid of the PNG via WPF imaging (no extra dependencies in a WPF plugin) and
+    // reports whether all sampled pixels sit within a narrow band per channel.
+    private static bool IsNearUniformImage(string path)
+    {
+        try
+        {
+            var image = new System.Windows.Media.Imaging.BitmapImage();
+            image.BeginInit();
+            image.UriSource = new Uri(path);
+            image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            image.EndInit();
+
+            var converted = new System.Windows.Media.Imaging.FormatConvertedBitmap(image, System.Windows.Media.PixelFormats.Bgra32, null, 0d);
+            var width = converted.PixelWidth;
+            var height = converted.PixelHeight;
+            var stride = width * 4;
+            var pixels = new byte[stride * height];
+            converted.CopyPixels(pixels, stride, 0);
+
+            byte minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
+            for (var y = 0; y < height; y += Math.Max(1, height / 32))
+            {
+                for (var x = 0; x < width; x += Math.Max(1, width / 32))
+                {
+                    var offset = y * stride + x * 4;
+                    var b = pixels[offset];
+                    var g = pixels[offset + 1];
+                    var r = pixels[offset + 2];
+                    if (r < minR) minR = r;
+                    if (r > maxR) maxR = r;
+                    if (g < minG) minG = g;
+                    if (g > maxG) maxG = g;
+                    if (b < minB) minB = b;
+                    if (b > maxB) maxB = b;
+                }
+            }
+
+            const int threshold = 10;
+            return maxR - minR < threshold && maxG - minG < threshold && maxB - minB < threshold;
+        }
+        catch
+        {
+            // Cannot judge — keep the bake.
+            return false;
+        }
+    }
+
+    private bool TryRenderTexmapToFile(ITexmap texmap, string filePath, ushort width, ushort height)
+    {
+        try
+        {
+            var bitmapInfo = m_global.BitmapInfo.Create();
+            bitmapInfo.SetWidth(width);
+            bitmapInfo.SetHeight(height);
+            bitmapInfo.SetType(6); // BMM_TRUE_32
+            bitmapInfo.SetName(filePath);
+
+            var bitmap = m_global.TheManager.Create(bitmapInfo);
+            if (bitmap is null)
+                return false;
+
+            texmap.RenderBitmap(m_coreInterface.Time, bitmap, 1f, true);
+
+            bitmap.OpenOutput(bitmapInfo);
+            bitmap.Write(bitmapInfo, -2000000); // BMM_SINGLEFRAME
+            bitmap.Close(bitmapInfo, 1);        // BMM_CLOSE_COMPLETE
+
+            return File.Exists(filePath);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private string GetOrCreateImageAsset(IBitmapTex bitmapTexture)
