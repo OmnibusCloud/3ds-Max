@@ -233,8 +233,28 @@ internal sealed class MaxSceneSnapshotCollector
                     NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
                     var materialBindingId = ResolveMaterialBindingId(meshSnapshot, materialBindingMap.MaterialIds);
 
+                    // Generator contract: a mesh WITH MaterialIndices indexes the SCENE-level
+                    // materials list (per-face multi-material) and its node binding is ignored; a
+                    // mesh WITHOUT indices uses MaterialBindingId. The compacted per-node indices
+                    // above are NOT scene indices, so translate: single-material meshes drop their
+                    // (all-equal) indices and rely on the binding — keeping them made every mesh
+                    // render as scene.Materials[first index] (hardwood: 51 amber objects); true
+                    // multi-material meshes remap each compact index to the scene position.
                     if (UsesPerTriangleMaterialBinding(meshSnapshot))
+                    {
                         materialBindingId = null;
+                        if (!TryRemapMaterialIndicesToSceneOrder(meshSnapshot, materialBindingMap))
+                        {
+                            // A compact index did not resolve to a collected material — fall back
+                            // to the single-binding path so the mesh still renders.
+                            meshSnapshot.MaterialIndices.Clear();
+                            materialBindingId = materialBindingMap.MaterialIds.Count > 0 ? materialBindingMap.MaterialIds[0] : null;
+                        }
+                    }
+                    else
+                    {
+                        meshSnapshot.MaterialIndices.Clear();
+                    }
 
                     m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                     {
@@ -1350,6 +1370,32 @@ internal sealed class MaxSceneSnapshotCollector
     private static bool UsesPerTriangleMaterialBinding(MaxSceneMeshSnapshotData meshSnapshot)
     {
         return meshSnapshot.MaterialIndices.Distinct().Skip(1).Any();
+    }
+
+    // Rewrites the compacted per-node material indices as indices into the collected scene-level
+    // material list (m_summary.Materials order — the order the mapper and generator preserve).
+    private bool TryRemapMaterialIndicesToSceneOrder(MaxSceneMeshSnapshotData meshSnapshot, MaxMaterialBindingMap materialBindingMap)
+    {
+        var scenePositionByMaterialId = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < m_summary.Materials.Count; i++)
+            scenePositionByMaterialId[m_summary.Materials[i].Id] = i;
+
+        var scenePositionByCompactIndex = new Dictionary<int, int>();
+        for (var compactIndex = 0; compactIndex < materialBindingMap.MaterialIds.Count; compactIndex++)
+        {
+            if (!scenePositionByMaterialId.TryGetValue(materialBindingMap.MaterialIds[compactIndex], out var scenePosition))
+                return false;
+            scenePositionByCompactIndex[compactIndex] = scenePosition;
+        }
+
+        for (var i = 0; i < meshSnapshot.MaterialIndices.Count; i++)
+        {
+            if (!scenePositionByCompactIndex.TryGetValue(meshSnapshot.MaterialIndices[i], out var scenePosition))
+                return false;
+            meshSnapshot.MaterialIndices[i] = scenePosition;
+        }
+
+        return true;
     }
 
     private static string CreateUniquePrefixedId(HashSet<string> usedIds, string prefix, string value)

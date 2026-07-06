@@ -211,7 +211,13 @@ internal static class MaxSceneDccSceneMapper
                     Id = me.Id,
                     Name = me.Name,
                     Kind = DccMaterialKind.PrincipledSurface,
-                    BaseColor = new DccColorData { R = me.BaseColor.R, G = me.BaseColor.G, B = me.BaseColor.B, A = me.BaseColor.A },
+                    // The generator MULTIPLIES a base-color texture by this colour, but a 3ds Max
+                    // diffuse map REPLACES the diffuse colour — so a textured material exports a
+                    // white base (multiply-by-white == replace) instead of tinting/darkening the
+                    // texture with a UI swatch (unfinished wood ships a 0.49 grey swatch).
+                    BaseColor = me.TextureSlots.Any(slot => slot.Slot == DccTextureSlotKind.BaseColor)
+                        ? new DccColorData { R = 1d, G = 1d, B = 1d, A = 1d }
+                        : new DccColorData { R = me.BaseColor.R, G = me.BaseColor.G, B = me.BaseColor.B, A = me.BaseColor.A },
                     Opacity = me.Opacity,
                     Metallic = me.Metallic,
                     Roughness = me.Roughness,
@@ -317,7 +323,7 @@ internal static class MaxSceneDccSceneMapper
                 BackgroundColor = summary.EnvironmentColor is null
                     ? new DccColorData { R = 0d, G = 0d, B = 0d, A = 1d }
                     : new DccColorData { R = summary.EnvironmentColor.R, G = summary.EnvironmentColor.G, B = summary.EnvironmentColor.B, A = summary.EnvironmentColor.A },
-                Strength = 1d,
+                Strength = ResolveEnvironmentStrength(summary),
                 EnvironmentImageId = summary.EnvironmentImageId,
                 EnvironmentRotationDegrees = summary.EnvironmentRotationDegrees
             };
@@ -339,6 +345,55 @@ internal static class MaxSceneDccSceneMapper
             },
             Strength = 1d
         };
+    }
+
+    // Auto-expose the environment HDRI: authored HDRs span wildly different absolute levels, so
+    // normalize the world strength to a target ambient irradiance (E ≈ π·meanLuminance·strength).
+    // Falls back to the authored Strength=1 when the file cannot be found or decoded (.exr etc.).
+    private const double TARGET_ENVIRONMENT_IRRADIANCE = 1.6d;
+
+    private const double MIN_ENVIRONMENT_STRENGTH = 0.02d;
+
+    private static double ResolveEnvironmentStrength(MaxSceneSummaryData summary)
+    {
+        var asset = summary.ImageAssets.FirstOrDefault(me => me.Id == summary.EnvironmentImageId);
+        if (asset is null)
+            return 1d;
+
+        var path = ResolveImageAssetFile(summary, asset.SourcePath);
+        if (path is null || !path.EndsWith(".hdr", StringComparison.OrdinalIgnoreCase))
+            return 1d;
+
+        if (!MaxHdrLuminanceReader.TryComputeMeanLuminance(path, out var meanLuminance))
+            return 1d;
+
+        return Math.Clamp(TARGET_ENVIRONMENT_IRRADIANCE / (Math.PI * meanLuminance), MIN_ENVIRONMENT_STRENGTH, 1d);
+    }
+
+    // The collector stores the texture path as 3ds Max reports it, which is often just a file name.
+    // Resolve against the scene file's directory and a few ancestors — the same neighbourhood the
+    // attachment uploader searches.
+    private static string? ResolveImageAssetFile(MaxSceneSummaryData summary, string sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            return null;
+
+        if (System.IO.File.Exists(sourcePath))
+            return sourcePath;
+
+        var fileName = System.IO.Path.GetFileName(sourcePath);
+        var directory = System.IO.Path.GetDirectoryName(summary.SceneFilePath);
+
+        for (var depth = 0; depth < 4 && !string.IsNullOrEmpty(directory); depth++)
+        {
+            var candidate = System.IO.Path.Combine(directory, fileName);
+            if (System.IO.File.Exists(candidate))
+                return candidate;
+
+            directory = System.IO.Path.GetDirectoryName(directory);
+        }
+
+        return null;
     }
 
     private static double ResolveNonMeshTranslationScale(MaxSceneSummaryData summary)
