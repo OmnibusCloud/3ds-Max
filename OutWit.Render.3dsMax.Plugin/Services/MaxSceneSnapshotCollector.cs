@@ -712,18 +712,22 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    // The generator assigns camera/light rotation as `rotation @ RotX(-90°)` (Blender cameras look
-    // down local -Z, Max cameras/lights too, but the neutral capture convention is local -Y forward).
-    // Composing RotX(+90°) here makes that pair cancel exactly, so the authored orientation —
-    // including roll — survives for free, target and parented cameras and directed lights.
-    // Hamilton product q ⊗ (s,0,0,s) with s = sin45° = cos45°.
+    // The generator assigns the STATIC camera/light rotation as `rotation @ RotX(-90°)` (Blender
+    // cameras look down local -Z, Max cameras/lights too, but the neutral capture convention is
+    // local -Y forward). Composing RotX(+90°) here makes that pair cancel exactly, so the authored
+    // orientation — including roll — survives for free, target and parented cameras and directed
+    // lights. Hamilton product q ⊗ (s,0,0,s) with s = sin45° = cos45°.
+    //
+    // Animation keyframes are deliberately NOT composed: the generator's animation path assigns
+    // keyframed rotations via plain set_transform (no RotX(-90) correction), and since Max and
+    // Blender cameras share the -Z look axis the true quaternion is already correct there.
+    // Composing keyframes pitched every animated camera 90° off (troll/dragon rendered the sky).
     private static void ComposeCameraLightAxisCorrection(
         MaxSceneTransformSnapshotData localTransform,
         List<MaxSceneTransformKeyframeSnapshotData> transformKeyframes)
     {
+        _ = transformKeyframes;
         localTransform.Rotation = ComposeRotXPlus90(localTransform.Rotation);
-        foreach (var keyframe in transformKeyframes)
-            keyframe.Transform.Rotation = ComposeRotXPlus90(keyframe.Transform.Rotation);
     }
 
     private static MaxSceneQuaternionSnapshotData ComposeRotXPlus90(MaxSceneQuaternionSnapshotData q)
