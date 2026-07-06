@@ -225,7 +225,10 @@ internal sealed class MaxSceneSnapshotCollector
                 }
             }
 
-            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1)
+            // Helper objects (Crowd/Delegate gizmos and the like) can still convert to a TriObject,
+            // but Max never renders them — Butterfly's Crowd helper rendered as a floating white
+            // diamond. Dummies already fail the TriObject conversion; this catches the rest.
+            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject)
             {
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
@@ -688,7 +691,9 @@ internal sealed class MaxSceneSnapshotCollector
 
         // Max only applies clip planes when the camera's "Clip Manually" flag is on; with the flag
         // off GetClipDist returns stale junk (Ape's Camera01 stores near=1e-6, far=1 — everything
-        // beyond one unit clipped to an empty frame). Export the neutral defaults in that case.
+        // beyond one unit clipped to an empty frame). Max renders UNCLIPPED in that case, so emit a
+        // 0/0 sentinel: the mapper derives planes that cover the scene from its actual bounds (a
+        // fixed far=1000 clipped Butterfly's tree at ~2100 units to an empty sky).
         var manualClip = IsManualClipEnabled(cameraObject);
 
         var snapshot = new MaxSceneCameraSnapshotData
@@ -697,13 +702,13 @@ internal sealed class MaxSceneSnapshotCollector
             Name = node.Name,
             // Max GetFOV is the HORIZONTAL field of view; the neutral model stores vertical.
             VerticalFovDegrees = HorizontalToVerticalFovDegrees(RadiansToDegrees(cameraObject.GetFOV(time))),
-            NearClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 0, 0.1d) : 0.1d,
-            FarClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 1, 1000d) : 1000d,
+            NearClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 0, 0.1d) : 0d,
+            FarClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 1, 1000d) : 0d,
             IsPerspective = !cameraObject.IsOrtho
         };
 
         ReadCameraDepthOfField(cameraObject, time, snapshot);
-        SampleCameraPropertyKeyframes(cameraObject, snapshot);
+        SampleCameraPropertyKeyframes(cameraObject, snapshot, manualClip);
         return snapshot;
     }
 
@@ -2126,7 +2131,7 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private void SampleCameraPropertyKeyframes(ICameraObject cameraObject, MaxSceneCameraSnapshotData snapshot)
+    private void SampleCameraPropertyKeyframes(ICameraObject cameraObject, MaxSceneCameraSnapshotData snapshot, bool manualClip)
     {
         var frameStart = m_summary.FrameStart;
         var frameEnd = m_summary.FrameEnd;
@@ -2136,6 +2141,12 @@ internal sealed class MaxSceneSnapshotCollector
         var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
 
         snapshot.VerticalFovKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => HorizontalToVerticalFovDegrees(RadiansToDegrees(cameraObject.GetFOV(time))));
+
+        // Clip distances only mean anything with "Clip Manually" on — otherwise GetClipDist is
+        // stale junk and sampling it would animate the mapper's scene-derived planes away.
+        if (!manualClip)
+            return;
+
         snapshot.NearClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 0, 0.1d));
         snapshot.FarClipKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame, time => ResolveCameraClipDistance(cameraObject, time, 1, 1000d));
     }

@@ -8,14 +8,17 @@ namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 /// Synthesizes a default three-point lighting rig when a 3ds Max scene has no explicit lights.
 /// Such scenes render from the viewport on Max's default lighting, which the neutral DCC export
 /// cannot preserve — and the Blender generator builds an empty world, so the result would be
-/// pitch black. The lights are placed around the scene bounding sphere with raw multipliers; the
-/// mapper's photometric conversion turns those into scene-scale-correct Blender watts.
+/// pitch black. The rig uses SUN lights: their irradiance is distance-independent, so the result
+/// is identical at any scene scale — the earlier point-light rig needed distance²-calibrated
+/// watts that hit the mapper's power cap on large scenes (Butterfly, radius ~2100 units), which
+/// flattened the key/fill/back ratios into an even wash.
 /// </summary>
 internal static class MaxSceneDefaultLightSynthesizer
 {
     #region Constants
 
-    // Distance of the synthesized lights from the scene centre, in bounding-sphere radii.
+    // Distance of the synthesized lights from the scene centre, in bounding-sphere radii. Suns
+    // ignore distance; the offset keeps the nodes out of the geometry for inspection/debugging.
     private const double LIGHT_DISTANCE_IN_RADII = 2.5d;
 
     private const double MIN_LIGHT_DISTANCE = 5d;
@@ -26,7 +29,8 @@ internal static class MaxSceneDefaultLightSynthesizer
 
     // A compact three-point rig: key (bright, front-right-above), fill (softer, front-left),
     // back/rim (separates the subject from the empty background). Directions are in the scene's
-    // Z-up space; multipliers feed the mapper's distance-calibrated power.
+    // Z-up space; the mapper turns multipliers into sun irradiance (×4 W/m² — the median-of-lights
+    // reference floors at 1, so these emit 4 / 1.8 / 2 W/m² deterministically).
     private static readonly IReadOnlyList<SyntheticLight> SYNTHETIC_LIGHTS =
     [
         new SyntheticLight("key", 1d, 0.95d, 0.95d, 0.9d, (1d, -1d, 1d)),
@@ -60,12 +64,16 @@ internal static class MaxSceneDefaultLightSynthesizer
             {
                 Id = lightId,
                 Name = name,
-                Kind = DccLightKind.Point,
+                Kind = DccLightKind.Sun,
                 Color = new MaxSceneColorSnapshotData { R = light.ColorR, G = light.ColorG, B = light.ColorB, A = 1d },
                 Intensity = light.Multiplier,
                 Range = 0.01d,
                 SpotAngleDegrees = 45d
             });
+
+            // A sun emits along its node's generator-corrected forward; aim it from the offset
+            // position back at the scene centre (same look-at convention as the camera path).
+            var rotation = MaxCameraMath.BuildLookAtNodeRotation((-direction.X, -direction.Y, -direction.Z), (0d, 0d, 1d));
 
             summary.Nodes.Add(new MaxSceneNodeSnapshotData
             {
@@ -81,7 +89,7 @@ internal static class MaxSceneDefaultLightSynthesizer
                         Y = bounds.Value.CenterY + direction.Y * distance,
                         Z = bounds.Value.CenterZ + direction.Z * distance
                     },
-                    Rotation = new MaxSceneQuaternionSnapshotData { W = 1d },
+                    Rotation = new MaxSceneQuaternionSnapshotData { W = rotation.W, X = rotation.X, Y = rotation.Y, Z = rotation.Z },
                     Scale = new MaxSceneVector3SnapshotData { X = 1d, Y = 1d, Z = 1d }
                 },
                 Visible = true,

@@ -1254,9 +1254,12 @@ public sealed class MaxSceneExportServiceTests
             Assert.That(result.Summary.UsesSyntheticDefaultLights, Is.True);
             // Scene had no lights → a default rig is synthesized (not left black) and reported as Info.
             Assert.That(result.Scene!.Lights, Has.Count.GreaterThanOrEqualTo(2));
-            Assert.That(result.Scene.Lights.All(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccLightKind.Point), Is.True);
-            // Distance-calibrated power: a native-scale scene must get hundreds of watts, not ~1.
-            Assert.That(result.Scene.Lights.Max(me => me.Intensity), Is.GreaterThan(50d));
+            // Sun lights: irradiance is distance-independent, so the rig looks identical at any
+            // scene scale (a point rig hit the wattage cap on large scenes and washed flat).
+            Assert.That(result.Scene.Lights.All(me => me.Kind == OutWit.Controller.Render.Dcc.Model.DccLightKind.Sun), Is.True);
+            // Key sun at the reference irradiance (multiplier 1 × 4 W/m²); ratios preserved below it.
+            Assert.That(result.Scene.Lights.Max(me => me.Intensity), Is.EqualTo(4d).Within(1e-9));
+            Assert.That(result.Scene.Lights.Min(me => me.Intensity), Is.GreaterThan(0d));
             Assert.That(result.Diagnostics.Any(me => me.Message.Contains("Synthesized default", StringComparison.OrdinalIgnoreCase)), Is.True);
         });
     }

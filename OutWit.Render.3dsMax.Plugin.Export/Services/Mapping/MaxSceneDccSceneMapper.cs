@@ -57,6 +57,9 @@ internal static class MaxSceneDccSceneMapper
 
     private const double MAX_SUN_IRRADIANCE = 12d;
 
+    // DccLightData.Range model default — the contract validator requires sun lights to keep it.
+    private const double SUN_CONTRACT_RANGE = 10d;
+
     // Default Blender view transform: AgX tone-maps a wide dynamic range so bright scenes roll off to
     // white instead of clipping hard. Applied when the scene carries no explicit view transform.
     private const string DEFAULT_VIEW_TRANSFORM = "AgX";
@@ -71,6 +74,7 @@ internal static class MaxSceneDccSceneMapper
         var nonMeshTranslationScale = ResolveNonMeshTranslationScale(summary);
         var sceneBounds = MaxSceneBounds.Compute(summary);
         var lightPositionsById = ResolveLightPositions(summary, nonMeshTranslationScale);
+        var cameraDistancesById = ResolveCameraSceneDistances(summary, sceneBounds, nonMeshTranslationScale);
         var intensityReference = ResolveIntensityReference(summary);
 
         var scene = new DccSceneData
@@ -158,20 +162,24 @@ internal static class MaxSceneDccSceneMapper
             ],
             Cameras =
             [
-                .. summary.Cameras.Select(me => new DccCameraData
+                .. summary.Cameras.Select(me =>
                 {
-                    Id = me.Id,
-                    Name = me.Name,
-                    VerticalFovDegrees = me.VerticalFovDegrees,
-                    VerticalFovKeyframes = MapScalarKeyframes(me.VerticalFovKeyframes, value => value),
-                    NearClip = NormalizeCameraNearClip(me.NearClip, me.FarClip),
-                    NearClipKeyframes = MapScalarKeyframes(me.NearClipKeyframes, value => value),
-                    FarClip = NormalizeCameraFarClip(me.NearClip, me.FarClip),
-                    FarClipKeyframes = MapScalarKeyframes(me.FarClipKeyframes, value => value),
-                    IsPerspective = me.IsPerspective,
-                    EnableDepthOfField = me.EnableDepthOfField,
-                    FocusDistance = me.FocusDistance,
-                    FStop = me.FStop
+                    var clipPlanes = ResolveCameraClipPlanes(me, cameraDistancesById, sceneBounds);
+                    return new DccCameraData
+                    {
+                        Id = me.Id,
+                        Name = me.Name,
+                        VerticalFovDegrees = me.VerticalFovDegrees,
+                        VerticalFovKeyframes = MapScalarKeyframes(me.VerticalFovKeyframes, value => value),
+                        NearClip = clipPlanes.NearClip,
+                        NearClipKeyframes = MapScalarKeyframes(me.NearClipKeyframes, value => value),
+                        FarClip = clipPlanes.FarClip,
+                        FarClipKeyframes = MapScalarKeyframes(me.FarClipKeyframes, value => value),
+                        IsPerspective = me.IsPerspective,
+                        EnableDepthOfField = me.EnableDepthOfField,
+                        FocusDistance = me.FocusDistance,
+                        FStop = me.FStop
+                    };
                 })
             ],
             Lights =
@@ -257,6 +265,55 @@ internal static class MaxSceneDccSceneMapper
         MaxSceneCameraFramer.Apply(scene, summary.ActiveRenderCameraName);
 
         return scene;
+    }
+
+    private static (double NearClip, double FarClip) ResolveCameraClipPlanes(
+        MaxSceneCameraSnapshotData camera,
+        IReadOnlyDictionary<string, double> cameraDistancesById,
+        MaxSceneBounds? sceneBounds)
+    {
+        // Authored clip planes (Max "Clip Manually" on) pass through unchanged. The collector sends
+        // a 0/0 sentinel when the flag is off, because Max renders UNCLIPPED in that case — a fixed
+        // far=1000 clipped Butterfly's tree (~2100 units from the camera) to an empty sky. Derive
+        // planes that cover the whole scene from the camera's distance to the geometry, mirroring
+        // the synthesized-viewport-camera formula.
+        if (camera.FarClip > 0d)
+            return (NormalizeCameraNearClip(camera.NearClip, camera.FarClip), NormalizeCameraFarClip(camera.NearClip, camera.FarClip));
+
+        if (sceneBounds == null || !cameraDistancesById.TryGetValue(camera.Id, out var distance))
+            return (DEFAULT_CAMERA_NEAR_CLIP, DEFAULT_CAMERA_FAR_CLIP);
+
+        return (
+            Math.Max(DEFAULT_CAMERA_NEAR_CLIP, Math.Min(distance * 0.01d, 10d)),
+            Math.Max(DEFAULT_CAMERA_FAR_CLIP, distance + sceneBounds.Value.Radius * 4d + 10d));
+    }
+
+    private static Dictionary<string, double> ResolveCameraSceneDistances(MaxSceneSummaryData summary, MaxSceneBounds? sceneBounds, double nonMeshTranslationScale)
+    {
+        var cameraDistancesById = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (sceneBounds == null)
+            return cameraDistancesById;
+
+        foreach (var node in summary.Nodes.Where(me => me.Kind == DccNodeKind.Camera && !string.IsNullOrWhiteSpace(me.CameraId)))
+        {
+            // An animated camera can travel; take the farthest pose so the derived far plane covers
+            // the whole flight, not just the parked transform.
+            var distance = DistanceToSceneCenter(node.LocalTransform, sceneBounds.Value, nonMeshTranslationScale);
+            foreach (var keyframe in node.TransformKeyframes)
+                distance = Math.Max(distance, DistanceToSceneCenter(keyframe.Transform, sceneBounds.Value, nonMeshTranslationScale));
+
+            cameraDistancesById[node.CameraId!] = distance;
+        }
+
+        return cameraDistancesById;
+    }
+
+    private static double DistanceToSceneCenter(MaxSceneTransformSnapshotData transform, MaxSceneBounds sceneBounds, double nonMeshTranslationScale)
+    {
+        var dx = sceneBounds.CenterX - transform.Translation.X * nonMeshTranslationScale;
+        var dy = sceneBounds.CenterY - transform.Translation.Y * nonMeshTranslationScale;
+        var dz = sceneBounds.CenterZ - transform.Translation.Z * nonMeshTranslationScale;
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     private static double NormalizeCameraFarClip(double nearClip, double farClip)
@@ -505,6 +562,11 @@ internal static class MaxSceneDccSceneMapper
 
     private static double ResolveLightRangeValue(DccLightKind kind, double range, double characteristicDistance)
     {
+        // Range is meaningless for a sun (its irradiance is distance-independent) and the Dcc
+        // contract requires it to stay at the model default.
+        if (kind == DccLightKind.Sun)
+            return SUN_CONTRACT_RANGE;
+
         if (kind is not DccLightKind.Point and not DccLightKind.Spot)
             return range;
 
