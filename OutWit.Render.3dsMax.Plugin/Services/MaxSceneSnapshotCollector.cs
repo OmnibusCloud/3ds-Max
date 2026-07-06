@@ -123,11 +123,12 @@ internal sealed class MaxSceneSnapshotCollector
     }
 
     // Walks the node hierarchy. Only mesh/camera/light nodes are emitted; non-geometry parents
-    // (dummies, groups, bones, point helpers) are skipped. To avoid emitting a node whose ParentId
-    // points at a skipped helper (the generator rejects a dangling parent reference), children of a
-    // skipped node "re-parent" onto the nearest INCLUDED ancestor — tracked by effectiveParentNode /
-    // effectiveParentId — and their local transform is computed relative to that ancestor (or world
-    // when there is none).
+    // (dummies, groups, bones, point helpers) are skipped. Every emitted node carries its WORLD
+    // transform (and world-sampled keyframes) with no ParentId: rebuilding Max's parent chains in
+    // Blender accumulated per-link TRS decomposition error (a scaled/stretched bone chain sheared
+    // its children — Maxine's bone-parented hair and eyes drifted ~64 units off the head), and
+    // world-space sampling also captures motion a static-local child INHERITS from an animated
+    // ancestor. effectiveParentNode always stays the scene root.
     private void CollectSceneContent(IINode parentNode, IINode effectiveParentNode, string? effectiveParentId)
     {
         for (var i = 0; i < parentNode.NumberOfChildren; i++)
@@ -267,17 +268,20 @@ internal sealed class MaxSceneSnapshotCollector
                         MeshId = meshId,
                         MaterialBindingId = materialBindingId,
                         Visible = !childNode.IsNodeHidden(false),
-                        Renderable = childNode.Renderable
+                        // Max excludes hidden geometry from renders by default ("Render Hidden
+                        // Geometry" off), but the generator maps Visible to hide_viewport only —
+                        // fold hidden into Renderable so hidden rig helpers (Maxine's muscle
+                        // meshes) stop appearing in our renders.
+                        Renderable = childNode.Renderable && !childNode.IsNodeHidden(false)
                     });
                     m_summary.Meshes.Add(meshSnapshot);
                 }
             }
 
-            // Children re-parent onto this node only if it was emitted; otherwise they keep the
-            // current effective ancestor so a skipped helper never becomes a dangling ParentId.
-            var childEffectiveParentNode = added ? childNode : effectiveParentNode;
-            var childEffectiveParentId = added ? nodeId : effectiveParentId;
-            CollectSceneContent(childNode, childEffectiveParentNode, childEffectiveParentId);
+            // World-space export: children never re-parent — transforms stay relative to the scene
+            // root regardless of what was emitted above.
+            _ = added;
+            CollectSceneContent(childNode, effectiveParentNode, null);
         }
     }
 
@@ -352,6 +356,82 @@ internal sealed class MaxSceneSnapshotCollector
         }
 
         return meshData;
+    }
+
+    // Looks up a colour parameter by internal name across the material's parameter blocks —
+    // renderer-agnostic (PhysicalMaterial and Arnold both name it "base_color"). Returns null when
+    // no such parameter exists or the read fails, so callers keep the legacy IMtl fallback.
+    private static MaxSceneColorSnapshotData? TryReadParamBlockColor(IMtl material, int time, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < material.NumParamBlocks; blockIndex++)
+            {
+                if (material.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    try
+                    {
+                        var color = block.GetColor(def.Id, time, 0);
+                        if (color is not null)
+                            return new MaxSceneColorSnapshotData { R = color.R, G = color.G, B = color.B, A = 1d };
+                    }
+                    catch
+                    {
+                        // Parameter is not a colour after all — keep scanning.
+                    }
+
+                    try
+                    {
+                        var point = block.GetPoint3(def.Id, time, 0);
+                        if (point is not null)
+                            return new MaxSceneColorSnapshotData { R = point.X, G = point.Y, B = point.Z, A = 1d };
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static double? TryReadParamBlockFloat(IMtl material, int time, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < material.NumParamBlocks; blockIndex++)
+            {
+                if (material.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    return block.GetFloat(def.Id, time, 0);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private static double ReadMetalness(IMtl material, int time)
@@ -518,7 +598,7 @@ internal sealed class MaxSceneSnapshotCollector
                 };
         }
 
-        var materialBindingMap = new MaxMaterialBindingMap();
+        var materialBindingMap = new MaxMaterialBindingMap { RawSubMaterialCount = material.NumSubMtls };
 
         for (var i = 0; i < material.NumSubMtls; i++)
         {
@@ -532,8 +612,9 @@ internal sealed class MaxSceneSnapshotCollector
 
             var compactMaterialIndex = materialBindingMap.MaterialIds.Count;
             materialBindingMap.MaterialIds.Add(materialId);
+            // Raw sub index only — the old extra [i+1] alias collapsed adjacent sub-materials
+            // (a 2-sub soccer ball rendered all-white because raw ID 1 resolved to sub 0).
             materialBindingMap.CompactMaterialIndexByRawIndex.TryAdd(i, compactMaterialIndex);
-            materialBindingMap.CompactMaterialIndexByRawIndex.TryAdd(i + 1, compactMaterialIndex);
         }
 
         if (materialBindingMap.MaterialIds.Count > 0)
@@ -556,13 +637,19 @@ internal sealed class MaxSceneSnapshotCollector
     private MaxSceneCameraSnapshotData ExtractCamera(IINode node, ICameraObject cameraObject, string cameraId)
     {
         var time = m_coreInterface.Time;
+
+        // Max only applies clip planes when the camera's "Clip Manually" flag is on; with the flag
+        // off GetClipDist returns stale junk (Ape's Camera01 stores near=1e-6, far=1 — everything
+        // beyond one unit clipped to an empty frame). Export the neutral defaults in that case.
+        var manualClip = IsManualClipEnabled(cameraObject);
+
         var snapshot = new MaxSceneCameraSnapshotData
         {
             Id = cameraId,
             Name = node.Name,
             VerticalFovDegrees = RadiansToDegrees(cameraObject.GetFOV(time)),
-            NearClip = ResolveCameraClipDistance(cameraObject, time, 0, 0.1d),
-            FarClip = ResolveCameraClipDistance(cameraObject, time, 1, 1000d),
+            NearClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 0, 0.1d) : 0.1d,
+            FarClip = manualClip ? ResolveCameraClipDistance(cameraObject, time, 1, 1000d) : 1000d,
             IsPerspective = !cameraObject.IsOrtho
         };
 
@@ -802,8 +889,13 @@ internal sealed class MaxSceneSnapshotCollector
         {
             var time = m_coreInterface.Time;
 
+            // Renderer-specific PBR materials (Arnold ai_standard_surface, some Physical variants)
+            // do not surface their colour through the legacy GetDiffuse (it returns the class
+            // default), so prefer an explicit base-colour parameter when the material carries one.
+            var paramBaseColor = TryReadParamBlockColor(material, time, "base_color", "basecolor", "diffuse_color");
             var diffuse = material.GetDiffuse(time, false);
-            snapshot.BaseColor = new MaxSceneColorSnapshotData { R = diffuse.R, G = diffuse.G, B = diffuse.B, A = 1d };
+            snapshot.BaseColor = paramBaseColor
+                                 ?? new MaxSceneColorSnapshotData { R = diffuse.R, G = diffuse.G, B = diffuse.B, A = 1d };
 
             // Material-level transparency in 3ds Max is refractive (glass), so map it to the
             // neutral material's transmission rather than alpha — alpha transparency comes from
@@ -821,9 +913,18 @@ internal sealed class MaxSceneSnapshotCollector
             if (transparency > 0.1d && Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)) < 0.05d)
                 snapshot.BaseColor = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d };
 
-            // Max glossiness (0..1, higher = sharper highlight) maps inversely to Blender roughness.
-            var shininess = material.GetShininess(time, false);
-            snapshot.Roughness = Math.Clamp(1d - shininess, 0d, 1d);
+            // PBR materials expose roughness directly; legacy materials only carry glossiness
+            // (0..1, higher = sharper highlight), which maps inversely to Blender roughness.
+            var paramRoughness = TryReadParamBlockFloat(material, time, "roughness", "specular_roughness");
+            if (paramRoughness is not null)
+            {
+                snapshot.Roughness = Math.Clamp(paramRoughness.Value, 0d, 1d);
+            }
+            else
+            {
+                var shininess = material.GetShininess(time, false);
+                snapshot.Roughness = Math.Clamp(1d - shininess, 0d, 1d);
+            }
 
             snapshot.Metallic = ReadMetalness(material, time);
         }
@@ -859,30 +960,20 @@ internal sealed class MaxSceneSnapshotCollector
 
     private static int NormalizeMaterialIndex(int rawMaterialIndex, MaxMaterialBindingMap materialBindingMap)
     {
-        if (materialBindingMap.CompactMaterialIndexByRawIndex.TryGetValue(rawMaterialIndex, out var compactMaterialIndex))
-            return compactMaterialIndex;
-
-        var oneBasedIndex = rawMaterialIndex - 1;
-        if (materialBindingMap.CompactMaterialIndexByRawIndex.TryGetValue(oneBasedIndex, out compactMaterialIndex))
-            return compactMaterialIndex;
-
-        var materialBindingCount = materialBindingMap.MaterialIds.Count;
-        if (rawMaterialIndex >= 0 && rawMaterialIndex < materialBindingCount)
-            return rawMaterialIndex;
-
-        if (oneBasedIndex >= 0 && oneBasedIndex < materialBindingCount)
-            return oneBasedIndex;
-
-        if (materialBindingCount == 1)
+        // 3ds Max assigns sub-materials by face MtlID modulo the Multi material's slot count (the
+        // SDK's GetFaceMtlIndex is 0-based). Wrap first, then look the slot up in the raw→compact
+        // dictionary; a slot whose sub-material did not resolve falls back to the first material.
+        if (materialBindingMap.MaterialIds.Count == 0)
             return 0;
 
-        if (rawMaterialIndex >= materialBindingCount)
-            return materialBindingCount - 1;
+        var wrapped = rawMaterialIndex;
+        var slotCount = Math.Max(materialBindingMap.RawSubMaterialCount, 1);
+        if (wrapped < 0 || wrapped >= slotCount)
+            wrapped = ((wrapped % slotCount) + slotCount) % slotCount;
 
-        if (rawMaterialIndex < 0)
-            return 0;
-
-        return rawMaterialIndex;
+        return materialBindingMap.CompactMaterialIndexByRawIndex.TryGetValue(wrapped, out var compactMaterialIndex)
+            ? compactMaterialIndex
+            : 0;
     }
 
     private static string? ResolveMaterialBindingId(MaxSceneMeshSnapshotData meshSnapshot, IReadOnlyList<string> materialBindingIds)
@@ -1348,6 +1439,30 @@ internal sealed class MaxSceneSnapshotCollector
         {
             return fallback;
         }
+    }
+
+    // The managed surface for the manual-clip flag varies (GetManualClip() vs a ManualClip
+    // property), so resolve it reflectively; default to disabled so stale stored clip planes
+    // never black out a render.
+    private static bool IsManualClipEnabled(ICameraObject cameraObject)
+    {
+        try
+        {
+            var method = cameraObject.GetType().GetMethod("GetManualClip", Type.EmptyTypes);
+            if (method?.Invoke(cameraObject, null) is int viaMethod)
+                return viaMethod != 0;
+
+            var property = cameraObject.GetType().GetProperty("ManualClip", BindingFlags.Instance | BindingFlags.Public);
+            if (property?.GetValue(cameraObject) is int viaProperty)
+                return viaProperty != 0;
+            if (property?.GetValue(cameraObject) is bool viaBool)
+                return viaBool;
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private static double RadiansToDegrees(double radians)
