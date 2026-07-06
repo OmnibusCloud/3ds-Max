@@ -350,10 +350,10 @@ internal sealed class MaxSceneSnapshotCollector
                 var normal = ResolveVertexNormal(mesh, face, sourceVertexIndex, faceNormal);
                 meshData.Positions.Add(correction == null
                     ? new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z }
-                    : TransformPoint(correction, point));
+                    : ApplyCorrection(correction.Value.ObjectTm, correction.Value.InverseNodeTm, point.X, point.Y, point.Z));
                 meshData.Normals.Add(correction == null
                     ? new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z }
-                    : TransformNormal(correction, normal));
+                    : ApplyCorrectionToNormal(correction.Value.ObjectTm, correction.Value.InverseNodeTm, normal));
                 meshData.Uv0.Add(ExtractUv(mesh, faceIndex, vertexIndex));
                 if (hasSecondUv)
                     meshData.Uv1.Add(ExtractUvFromChannel(mesh, 2, faceIndex, vertexIndex));
@@ -493,12 +493,15 @@ internal sealed class MaxSceneSnapshotCollector
 
             // Procedural maps (Noise, Gradient, Mix, Smoke, Checker…) carry no file — bake the
             // texmap to a PNG so the artist's pattern survives instead of silently dropping it.
-            // Opacity is exempt: a mis-baked opacity map hides the whole object, which is far worse
-            // than a missing one.
+            // Vertex-colour maps are exempt (the colours already travel as mesh colour attributes;
+            // a bake collapses them to a meaningless flat tint — lighting_vertex boxes turned
+            // yellow).
             if ((bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)) && texmap is not null
-                && slotKind.Value != DccTextureSlotKind.Opacity)
+                && !IsVertexColorTexmap(texmap))
             {
-                var bakedAssetId = TryBakeTexmapToImageAsset(texmap, $"{material.Name}_{slotKind.Value}", 512, 512);
+                // A dark opacity bake would hide the object outright — require a bright-enough map.
+                var minimumMeanLuminance = slotKind.Value == DccTextureSlotKind.Opacity ? 0.2d : 0d;
+                var bakedAssetId = TryBakeTexmapToImageAsset(texmap, $"{material.Name}_{slotKind.Value}", 512, 512, minimumMeanLuminance);
                 if (!string.IsNullOrWhiteSpace(bakedAssetId))
                 {
                     materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
@@ -527,7 +530,7 @@ internal sealed class MaxSceneSnapshotCollector
             assignedSlots.Add(slotKind.Value);
 
             if (slotKind.Value == DccTextureSlotKind.Displacement)
-                materialSnapshot.DisplacementScale = ReadDisplacementScale(material, m_coreInterface.Time);
+                materialSnapshot.DisplacementScale = ReadDisplacementScale(material, m_coreInterface.Time, i);
 
             // A Max BUMP map routed to the normal slot must keep the authored bump amount: applying
             // a grey height map as a full-strength normal map carves fake canyons into flat wood
@@ -1032,6 +1035,22 @@ internal sealed class MaxSceneSnapshotCollector
             }
 
             snapshot.Metallic = ReadMetalness(material, time);
+
+            // Self-illuminated materials (sky domes, glowing signs) render full-bright in Max;
+            // carry that as emission so e.g. the dragon's cloud dome is lit from within instead of
+            // rendering as a dark unlit interior.
+            var selfIllum = Math.Clamp(material.GetSelfIllum(time, false), 0d, 1d);
+            if (selfIllum > 0.05d)
+            {
+                snapshot.EmissionColor = new MaxSceneColorSnapshotData
+                {
+                    R = snapshot.BaseColor.R,
+                    G = snapshot.BaseColor.G,
+                    B = snapshot.BaseColor.B,
+                    A = 1d
+                };
+                snapshot.EmissionStrength = selfIllum;
+            }
         }
         catch
         {
@@ -1104,7 +1123,7 @@ internal sealed class MaxSceneSnapshotCollector
     // an ImageAsset. The attachment uploader resolves the absolute SourcePath, so the baked file
     // travels to the farm exactly like an authored bitmap. Returns null when baking fails — the
     // slot is then simply omitted, matching the previous silent-drop behaviour.
-    private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height)
+    private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height, double minimumMeanLuminance = 0d)
     {
         try
         {
@@ -1122,8 +1141,11 @@ internal sealed class MaxSceneSnapshotCollector
             // A near-uniform bake means the map needed 3D/geometry context RenderBitmap cannot give
             // (Mix by vertex position, Falloff…). A flat texture would then OVERRIDE the material's
             // real colour (textured materials export a white base), so drop it and let the material
-            // colour stand.
-            if (IsNearUniformImage(bakePath))
+            // colour stand. Opacity bakes additionally require a bright-enough mean so a mis-baked
+            // map never hides the whole object.
+            if (!TryAnalyzeImage(bakePath, out var isNearUniform, out var meanLuminance)
+                || isNearUniform
+                || meanLuminance < minimumMeanLuminance)
             {
                 try { File.Delete(bakePath); } catch { }
                 m_bakedImageAssetIdsByPath[bakePath] = string.Empty;
@@ -1149,10 +1171,29 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    // Samples a 32×32 grid of the PNG via WPF imaging (no extra dependencies in a WPF plugin) and
-    // reports whether all sampled pixels sit within a narrow band per channel.
-    private static bool IsNearUniformImage(string path)
+    // Class name check for vertex-colour maps ("Vertex Color" in stock Max): their data already
+    // travels as mesh colour attributes, so baking them is both wrong and lossy.
+    private static bool IsVertexColorTexmap(ITexmap texmap)
     {
+        try
+        {
+            var className = texmap.ClassName(false);
+            return className?.Contains("vertex", StringComparison.OrdinalIgnoreCase) == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Samples a 32×32 grid of the PNG via WPF imaging (no extra dependencies in a WPF plugin):
+    // reports whether all sampled pixels sit within a narrow band per channel, plus the mean
+    // luminance. Returns false when the image cannot be decoded (callers then keep the bake).
+    private static bool TryAnalyzeImage(string path, out bool isNearUniform, out double meanLuminance)
+    {
+        isNearUniform = false;
+        meanLuminance = 1d;
+
         try
         {
             var image = new System.Windows.Media.Imaging.BitmapImage();
@@ -1169,6 +1210,8 @@ internal sealed class MaxSceneSnapshotCollector
             converted.CopyPixels(pixels, stride, 0);
 
             byte minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
+            var luminanceSum = 0d;
+            var sampleCount = 0;
             for (var y = 0; y < height; y += Math.Max(1, height / 32))
             {
                 for (var x = 0; x < width; x += Math.Max(1, width / 32))
@@ -1177,6 +1220,8 @@ internal sealed class MaxSceneSnapshotCollector
                     var b = pixels[offset];
                     var g = pixels[offset + 1];
                     var r = pixels[offset + 2];
+                    luminanceSum += 0.2126d * r + 0.7152d * g + 0.0722d * b;
+                    sampleCount++;
                     if (r < minR) minR = r;
                     if (r > maxR) maxR = r;
                     if (g < minG) minG = g;
@@ -1187,12 +1232,14 @@ internal sealed class MaxSceneSnapshotCollector
             }
 
             const int threshold = 10;
-            return maxR - minR < threshold && maxG - minG < threshold && maxB - minB < threshold;
+            isNearUniform = maxR - minR < threshold && maxG - minG < threshold && maxB - minB < threshold;
+            meanLuminance = luminanceSum / Math.Max(sampleCount, 1) / 255d;
+            return true;
         }
         catch
         {
             // Cannot judge — keep the bake.
-            return false;
+            return true;
         }
     }
 
@@ -1253,24 +1300,80 @@ internal sealed class MaxSceneSnapshotCollector
         return imageAssetId;
     }
 
-    // objTM·nodeTM⁻¹ in Max row-vector convention; null when they coincide (the common case), so the
-    // per-vertex work is skipped entirely for pivot-clean meshes.
-    private IMatrix3? ComputeObjectToNodeCorrection(IINode node, int time)
+    // The object→node correction as a matrix PAIR (objTM, nodeTM⁻¹) applied sequentially per
+    // vertex. The out-parameter conventions of IGlobal.MatrixMultiply/Inverse are ambiguous in the
+    // managed wrapper (the original single-matrix implementation silently produced an identity and
+    // the whole correction was dead); the returning Inverse overload plus two explicit transforms
+    // sidestep that entirely. Null when the two TMs coincide (the common pivot-clean case).
+    private (IMatrix3 ObjectTm, IMatrix3 InverseNodeTm)? ComputeObjectToNodeCorrection(IINode node, int time)
     {
         try
         {
             var objectTm = node.GetObjTMAfterWSM(time, m_global.Interval.Create());
             var nodeTm = node.GetNodeTM(time, m_global.Interval.Create());
-            var inverseNodeTm = m_global.Matrix3.Create();
-            m_global.Inverse(nodeTm, inverseNodeTm);
-            var correction = m_global.Matrix3.Create();
-            m_global.MatrixMultiply(objectTm, inverseNodeTm, correction);
-            return IsIdentityMatrix(correction) ? null : correction;
+            var inverseNodeTm = m_global.Inverse(nodeTm);
+
+            // Probe: a correction that maps two probe points onto themselves is an identity.
+            var probeA = ApplyCorrection(objectTm, inverseNodeTm, 1.234, -2.345, 3.456);
+            var probeB = ApplyCorrection(objectTm, inverseNodeTm, -4.2, 0.57, -9.11);
+            const double epsilon = 1e-4;
+            if (Math.Abs(probeA.X - 1.234) < epsilon && Math.Abs(probeA.Y + 2.345) < epsilon && Math.Abs(probeA.Z - 3.456) < epsilon
+                && Math.Abs(probeB.X + 4.2) < epsilon && Math.Abs(probeB.Y - 0.57) < epsilon && Math.Abs(probeB.Z + 9.11) < epsilon)
+            {
+                return null;
+            }
+
+            return (objectTm, inverseNodeTm);
         }
         catch
         {
             return null;
         }
+    }
+
+    // v' = (v · objTM) · nodeTM⁻¹ in row-vector convention.
+    private static MaxSceneVector3SnapshotData ApplyCorrection(IMatrix3 objectTm, IMatrix3 inverseNodeTm, double x, double y, double z)
+    {
+        var world = TransformPointRaw(objectTm, x, y, z);
+        return TransformPointRaw(inverseNodeTm, world.X, world.Y, world.Z);
+    }
+
+    private static MaxSceneVector3SnapshotData TransformPointRaw(IMatrix3 matrix, double x, double y, double z)
+    {
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        var row3 = matrix.GetRow(3);
+        return new MaxSceneVector3SnapshotData
+        {
+            X = x * row0.X + y * row1.X + z * row2.X + row3.X,
+            Y = x * row0.Y + y * row1.Y + z * row2.Y + row3.Y,
+            Z = x * row0.Z + y * row1.Z + z * row2.Z + row3.Z
+        };
+    }
+
+    // Rotation/scale part only through both matrices, renormalized.
+    private static MaxSceneVector3SnapshotData ApplyCorrectionToNormal(IMatrix3 objectTm, IMatrix3 inverseNodeTm, IPoint3 normal)
+    {
+        var a = TransformVectorRaw(objectTm, normal.X, normal.Y, normal.Z);
+        var b = TransformVectorRaw(inverseNodeTm, a.X, a.Y, a.Z);
+        var length = Math.Sqrt(b.X * b.X + b.Y * b.Y + b.Z * b.Z);
+        if (length < 1e-9d)
+            return new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z };
+        return new MaxSceneVector3SnapshotData { X = b.X / length, Y = b.Y / length, Z = b.Z / length };
+    }
+
+    private static MaxSceneVector3SnapshotData TransformVectorRaw(IMatrix3 matrix, double x, double y, double z)
+    {
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        return new MaxSceneVector3SnapshotData
+        {
+            X = x * row0.X + y * row1.X + z * row2.X,
+            Y = x * row0.Y + y * row1.Y + z * row2.Y,
+            Z = x * row0.Z + y * row1.Z + z * row2.Z
+        };
     }
 
     private static bool IsIdentityMatrix(IMatrix3 matrix)
@@ -1286,36 +1389,7 @@ internal sealed class MaxSceneSnapshotCollector
                && Math.Abs(row3.X) < epsilon && Math.Abs(row3.Y) < epsilon && Math.Abs(row3.Z) < epsilon;
     }
 
-    // Row-vector point transform: v' = v.x·row0 + v.y·row1 + v.z·row2 + row3.
-    private static MaxSceneVector3SnapshotData TransformPoint(IMatrix3 matrix, IPoint3 point)
-    {
-        var row0 = matrix.GetRow(0);
-        var row1 = matrix.GetRow(1);
-        var row2 = matrix.GetRow(2);
-        var row3 = matrix.GetRow(3);
-        return new MaxSceneVector3SnapshotData
-        {
-            X = point.X * row0.X + point.Y * row1.X + point.Z * row2.X + row3.X,
-            Y = point.X * row0.Y + point.Y * row1.Y + point.Z * row2.Y + row3.Y,
-            Z = point.X * row0.Z + point.Y * row1.Z + point.Z * row2.Z + row3.Z
-        };
-    }
 
-    // Rotation/scale part only, renormalized. Pivot offsets and WSM deltas are rigid in practice, so
-    // the inverse-transpose refinement for sheared matrices is deliberately skipped.
-    private static MaxSceneVector3SnapshotData TransformNormal(IMatrix3 matrix, IPoint3 normal)
-    {
-        var row0 = matrix.GetRow(0);
-        var row1 = matrix.GetRow(1);
-        var row2 = matrix.GetRow(2);
-        var x = normal.X * row0.X + normal.Y * row1.X + normal.Z * row2.X;
-        var y = normal.X * row0.Y + normal.Y * row1.Y + normal.Z * row2.Y;
-        var z = normal.X * row0.Z + normal.Y * row1.Z + normal.Z * row2.Z;
-        var length = Math.Sqrt(x * x + y * y + z * z);
-        if (length < 1e-9d)
-            return new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z };
-        return new MaxSceneVector3SnapshotData { X = x / length, Y = y / length, Z = z / length };
-    }
 
     private MaxSceneTransformSnapshotData ExtractLocalTransform(IINode node, IINode parentNode)
     {
@@ -1830,7 +1904,7 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private static double ReadDisplacementScale(IMtl material, int time)
+    private static double ReadDisplacementScale(IMtl material, int time, int slotIndex)
     {
         // The displacement amount is renderer-specific (Standard/Physical/third-party each name it
         // differently) with no typed managed getter, so look it up by parameter internal name in the
@@ -1863,8 +1937,26 @@ internal sealed class MaxSceneSnapshotCollector
         {
         }
 
+        // Standard materials keep the displacement amount in the texmap-amount table (indexed by
+        // the same slot the map sits in — shader-dependent, so use the classified slot index, NOT
+        // a fixed channel id); the fraction converts to scene units via an empirical factor
+        // calibrated on the Displacement-MoonRock reference (19% amount -> pronounced spikes).
+        try
+        {
+            var method = material.GetType().GetMethod("GetTexmapAmt", [typeof(int), typeof(int)]);
+            if (method?.Invoke(material, [slotIndex, time]) is float amount && amount > 0f && amount < 1f)
+                return amount * DISPLACEMENT_AMOUNT_TO_UNITS;
+        }
+        catch
+        {
+        }
+
         return 1d;
     }
+
+    // Empirical conversion from a Standard-material displacement amount (fraction) to Blender
+    // displacement units, calibrated on the Displacement-MoonRock reference scene.
+    private const double DISPLACEMENT_AMOUNT_TO_UNITS = 30d;
 
     private void SampleDeformationFrames(IINode node, MaxSceneMeshSnapshotData meshSnapshot)
     {
@@ -1924,7 +2016,7 @@ internal sealed class MaxSceneSnapshotCollector
                     var point = mesh.GetVert((int)face.GetVert(vertexIndex));
                     positions.Add(correction == null
                         ? new MaxSceneVector3SnapshotData { X = point.X, Y = point.Y, Z = point.Z }
-                        : TransformPoint(correction, point));
+                        : ApplyCorrection(correction.Value.ObjectTm, correction.Value.InverseNodeTm, point.X, point.Y, point.Z));
                 }
             }
 

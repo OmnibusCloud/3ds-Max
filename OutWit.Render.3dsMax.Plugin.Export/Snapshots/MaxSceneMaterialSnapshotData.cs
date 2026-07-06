@@ -28,6 +28,10 @@ public sealed class MaxSceneMaterialSnapshotData
 
     public bool BackfaceCull { get; set; }
 
+    public MaxSceneColorSnapshotData EmissionColor { get; set; } = new() { R = 0d, G = 0d, B = 0d, A = 1d };
+
+    public double EmissionStrength { get; set; }
+
     public List<MaxSceneTextureSlotSnapshotData> TextureSlots { get; set; } = [];
 
     #endregion
