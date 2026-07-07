@@ -25,6 +25,59 @@ public sealed class MaxSceneDccSceneMapperContractTests
 
     #endregion
 
+    #region Backface Cull Closed Mesh Tests
+
+    [Test]
+    public void BackfaceCullIsClearedForClosedMeshesTest()
+    {
+        // Culling is a no-op in Scanline on a watertight mesh (front always covers back), while
+        // the backfacing→transparent emulation X-rays nested geometry (ape's eyeball turned
+        // see-through and exposed the black iris disc). A closed tetrahedron must lose the flag.
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Materials[0].BackfaceCull = true;
+        ReplaceMeshGeometry(snapshot, closed: true);
+
+        var scene = MapScene(snapshot);
+
+        Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.False);
+    }
+
+    [Test]
+    public void BackfaceCullSurvivesForOpenMeshesTest()
+    {
+        // An open shell (a wall) is exactly where Scanline culling changes the picture — the
+        // camera must keep seeing through its backfaces.
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Materials[0].BackfaceCull = true;
+        ReplaceMeshGeometry(snapshot, closed: false);
+
+        var scene = MapScene(snapshot);
+
+        Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.True);
+    }
+
+    private static void ReplaceMeshGeometry(MaxSceneSnapshotData snapshot, bool closed)
+    {
+        var mesh = snapshot.Meshes[0];
+        var a = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 0d };
+        var b = new MaxSceneVector3SnapshotData { X = 10d, Y = 0d, Z = 0d };
+        var c = new MaxSceneVector3SnapshotData { X = 0d, Y = 10d, Z = 0d };
+        var d = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 10d };
+
+        // Per-corner (unwelded) layout, like the collector emits.
+        var corners = closed
+            ? new[] { a, b, c, a, b, d, a, c, d, b, c, d }
+            : new[] { a, b, c };
+
+        mesh.Positions = [.. corners.Select(me => new MaxSceneVector3SnapshotData { X = me.X, Y = me.Y, Z = me.Z })];
+        mesh.Normals = [.. corners.Select(_ => new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 1d })];
+        mesh.Uv0 = [.. corners.Select(_ => new MaxSceneVector2SnapshotData { X = 0d, Y = 0d })];
+        mesh.TriangleIndices = [.. Enumerable.Range(0, corners.Length)];
+        mesh.MaterialIndices = [];
+    }
+
+    #endregion
+
     #region Teleport Keyframe Tests
 
     [Test]

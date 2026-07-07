@@ -117,7 +117,9 @@ internal sealed class MaxSceneSnapshotCollector
             {
                 // Procedural environment (Gradient sky etc.) — bake it as an equirectangular image
                 // so the backdrop keeps its authored look instead of collapsing to a flat colour.
-                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", 1024, 512);
+                // Near-uniform bakes are allowed here: a flat-ish sky is still the authored
+                // backdrop (A06's Noise environment reads as an even grey).
+                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", 1024, 512, allowNearUniform: true);
                 if (!string.IsNullOrWhiteSpace(bakedId))
                     m_summary.EnvironmentImageId = bakedId;
                 return;
@@ -746,6 +748,35 @@ internal sealed class MaxSceneSnapshotCollector
                     catch
                     {
                     }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    // Bool/int material parameters must be read with GetInt: GetFloat on a TYPE_BOOL param
+    // silently returns 0 (the spline-Renderable lesson).
+    private static int? TryReadParamBlockInt(IMtl material, int time, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < material.NumParamBlocks; blockIndex++)
+            {
+                if (material.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    return block.GetInt(def.Id, time, 0);
                 }
             }
         }
@@ -1422,6 +1453,16 @@ internal sealed class MaxSceneSnapshotCollector
                     var transmissionColor = TryReadParamBlockColor(material, time, "transmission_color");
                     if (transmissionColor is not null)
                         snapshot.BaseColor = transmissionColor;
+
+                    // A dominant subsurface layer sits ON TOP of transmission in layered PBR
+                    // shaders (ai_standard_surface): the surface reads as an opaque waxy solid,
+                    // not glass — hardwood's red ball (subsurface 1.0, transmission 0.6,
+                    // transmission_depth 10) is a solid red sphere in the native render, ours
+                    // rendered as translucent glass. Principled has no comparable layering, so
+                    // keep the transmission TINT in the base colour and drop the transmissivity.
+                    var subsurface = TryReadParamBlockFloat(material, time, "subsurface");
+                    if (subsurface is >= 0.5d)
+                        snapshot.Transmission = 0d;
                 }
             }
 
@@ -1431,6 +1472,14 @@ internal sealed class MaxSceneSnapshotCollector
             if (paramRoughness is not null)
             {
                 snapshot.Roughness = Math.Clamp(paramRoughness.Value, 0d, 1d);
+
+                // Physical Material's "Inv" toggle turns the spinner into GLOSSINESS. Ignoring it
+                // mirrors every surface finish in the scene: robby's floor (0.02 inverted = matte
+                // 0.98) rendered as a mirror while the copper robot (0.72 inverted = polished
+                // 0.28) rendered dull.
+                var roughnessInverted = TryReadParamBlockInt(material, time, "roughness_inv", "inv_roughness", "roughness_inversion");
+                if (roughnessInverted == 1)
+                    snapshot.Roughness = 1d - snapshot.Roughness;
             }
             else
             {
@@ -1595,7 +1644,7 @@ internal sealed class MaxSceneSnapshotCollector
     // an ImageAsset. The attachment uploader resolves the absolute SourcePath, so the baked file
     // travels to the farm exactly like an authored bitmap. Returns null when baking fails — the
     // slot is then simply omitted, matching the previous silent-drop behaviour.
-    private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height, double minimumMeanLuminance = 0d)
+    private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height, double minimumMeanLuminance = 0d, bool allowNearUniform = false)
     {
         try
         {
@@ -1614,9 +1663,11 @@ internal sealed class MaxSceneSnapshotCollector
             // (Mix by vertex position, Falloff…). A flat texture would then OVERRIDE the material's
             // real colour (textured materials export a white base), so drop it and let the material
             // colour stand. Opacity bakes additionally require a bright-enough mean so a mis-baked
-            // map never hides the whole object.
+            // map never hides the whole object. ENVIRONMENT bakes are exempt (allowNearUniform):
+            // there is no colour underneath to protect, and a flat-ish sky beats the black void a
+            // dropped environment leaves (A06's procedural Noise background).
             if (!TryAnalyzeImage(bakePath, out var isNearUniform, out var meanLuminance)
-                || isNearUniform
+                || (isNearUniform && !allowNearUniform)
                 || meanLuminance < minimumMeanLuminance)
             {
                 try { File.Delete(bakePath); } catch { }
@@ -2456,9 +2507,11 @@ internal sealed class MaxSceneSnapshotCollector
         return 1d;
     }
 
-    // Empirical conversion from a Standard-material displacement amount (fraction) to Blender
-    // displacement units, calibrated on the Displacement-MoonRock reference scene.
-    private const double DISPLACEMENT_AMOUNT_TO_UNITS = 30d;
+    // Scanline's Displacement amount is a percentage where full white at 100% displaces by
+    // 100 world units, i.e. amount-fraction × 100 units (MoonRock: 19% ≈ 19 units of relief,
+    // matching the native silhouette; the previous empirical 30 was calibrated against a
+    // midlevel-0.5 pipeline that also halved the effective height).
+    private const double DISPLACEMENT_AMOUNT_TO_UNITS = 100d;
 
     // Cap on exported render-only subdivision levels: each level quadruples the render-time face
     // count, and beyond 3 the visual gain is nil while the render cost explodes.

@@ -290,6 +290,13 @@ internal static class MaxSceneDccSceneMapper
         // interpolation — the cut lands instantly, exactly like Max's stepped keys render.
         MarkTeleportKeyframesConstant(scene, sceneBounds);
 
+        // Backface culling only changes a Scanline render on OPEN meshes (a wall shell): on a
+        // closed mesh the front surface always covers the back, so culling is a no-op in Max —
+        // while our backfacing→transparent emulation X-RAYS nested assemblies (the ape's eyeball
+        // turned transparent at grazing angles and exposed the black iris disc inside). Keep the
+        // flag only for materials that touch at least one open mesh.
+        ClearBackfaceCullForClosedMeshes(scene);
+
         // Aim the render camera at the scene so the subject is actually in frame. Max camera
         // orientation does not survive the round trip reliably, so we recompute framing from the
         // geometry bounds rather than trust the captured quaternion.
@@ -300,6 +307,88 @@ internal static class MaxSceneDccSceneMapper
         MaxSceneSkyDomeClassifier.Apply(scene);
 
         return scene;
+    }
+
+    private static void ClearBackfaceCullForClosedMeshes(DccSceneData scene)
+    {
+        var closedByMeshId = scene.Meshes.ToDictionary(mesh => mesh.Id, IsClosedMesh, StringComparer.Ordinal);
+        var materialTouchesOpenMesh = new HashSet<string>(StringComparer.Ordinal);
+        var meshesById = scene.Meshes.ToDictionary(mesh => mesh.Id, StringComparer.Ordinal);
+
+        foreach (var node in scene.Nodes)
+        {
+            if (node.MeshId is null || !meshesById.TryGetValue(node.MeshId, out var mesh))
+                continue;
+
+            var meshIsOpen = !closedByMeshId[mesh.Id];
+            if (!meshIsOpen)
+                continue;
+
+            if (node.MaterialBindingId is not null)
+                materialTouchesOpenMesh.Add(node.MaterialBindingId);
+
+            // Multi-material meshes index the scene materials list by position.
+            foreach (var materialIndex in mesh.MaterialIndices.Distinct())
+            {
+                if (materialIndex >= 0 && materialIndex < scene.Materials.Count)
+                    materialTouchesOpenMesh.Add(scene.Materials[materialIndex].Id);
+            }
+        }
+
+        foreach (var material in scene.Materials)
+        {
+            if (material.BackfaceCull && !materialTouchesOpenMesh.Contains(material.Id))
+                material.BackfaceCull = false;
+        }
+    }
+
+    // Watertight test on the per-corner (unwelded) payload mesh: cluster vertices by position,
+    // then every undirected edge must be shared by exactly two triangles.
+    private static bool IsClosedMesh(DccMeshData mesh)
+    {
+        if (mesh.TriangleIndices.Count < 12)
+            return false;
+
+        var clusterIdsByPosition = new Dictionary<(long X, long Y, long Z), int>();
+        var clusterIdsByVertex = new int[mesh.Positions.Count];
+        for (var i = 0; i < mesh.Positions.Count; i++)
+        {
+            var position = mesh.Positions[i];
+            var key = ((long)Math.Round(position.X * 10000d), (long)Math.Round(position.Y * 10000d), (long)Math.Round(position.Z * 10000d));
+            if (!clusterIdsByPosition.TryGetValue(key, out var clusterId))
+            {
+                clusterId = clusterIdsByPosition.Count;
+                clusterIdsByPosition[key] = clusterId;
+            }
+
+            clusterIdsByVertex[i] = clusterId;
+        }
+
+        var edgeCounts = new Dictionary<(int A, int B), int>();
+        for (var i = 0; i + 2 < mesh.TriangleIndices.Count; i += 3)
+        {
+            for (var corner = 0; corner < 3; corner++)
+            {
+                var a = clusterIdsByVertex[mesh.TriangleIndices[i + corner]];
+                var b = clusterIdsByVertex[mesh.TriangleIndices[i + (corner + 1) % 3]];
+                if (a == b)
+                    continue; // degenerate edge collapsed by clustering
+
+                var edge = a < b ? (a, b) : (b, a);
+                edgeCounts[edge] = edgeCounts.TryGetValue(edge, out var count) ? count + 1 : 1;
+            }
+        }
+
+        if (edgeCounts.Count == 0)
+            return false;
+
+        foreach (var count in edgeCounts.Values)
+        {
+            if (count != 2)
+                return false;
+        }
+
+        return true;
     }
 
     private static void MarkTeleportKeyframesConstant(DccSceneData scene, MaxSceneBounds? sceneBounds)
