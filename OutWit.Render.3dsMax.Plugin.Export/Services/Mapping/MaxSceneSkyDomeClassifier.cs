@@ -107,6 +107,7 @@ internal static class MaxSceneSkyDomeClassifier
         material.BaseColor = new DccColorData { R = 0d, G = 0d, B = 0d, A = 1d };
         material.EmissionColor = new DccColorData { R = 1d, G = 1d, B = 1d, A = 1d };
         material.EmissionStrength = DOME_EMISSION_STRENGTH;
+        material.EmissionCameraOnly = true;
         node.IsBackdrop = true;
     }
 

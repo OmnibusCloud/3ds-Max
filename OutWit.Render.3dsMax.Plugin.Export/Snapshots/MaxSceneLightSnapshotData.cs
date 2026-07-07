@@ -33,6 +33,9 @@ public sealed class MaxSceneLightSnapshotData
     // Spot edge softness [0,1] from the Max hotspot/falloff cone difference (0 = hard edge).
     public double SpotBlend { get; set; }
 
+    // The light does not attenuate with distance (Max standard lights default to decay "None").
+    public bool NoDecay { get; set; }
+
     public List<MaxSceneScalarKeyframeSnapshotData> SpotAngleKeyframes { get; set; } = [];
 
     public bool CastShadows { get; set; } = true;

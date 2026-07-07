@@ -1114,6 +1114,29 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
+    private static bool ReadDecayTypeIsNone(ILightObject lightObject)
+    {
+        // The runtime wrapper is the base LightObject: GenLight's DecayType is unreachable and
+        // ClassName degrades to a generic "Light", so classify by CLASS ID — standard Max lights
+        // (omni 0x1011, fspot 0x1012, tspot 0x1013, dir 0x1014, tdir 0x1015) default to decay
+        // "None". Authored attenuation surfaces through UseAtten — respect it by falling back to
+        // the physical model when the artist configured attenuation ranges.
+        try
+        {
+            var classIdPartA = lightObject.ClassID?.PartA ?? 0;
+            if (classIdPartA is < 0x1011 or > 0x1015)
+                return false;
+
+            var useAttenProperty = lightObject.GetType().GetProperty("UseAtten");
+            var usesAttenuation = useAttenProperty?.GetValue(lightObject) is bool useAtten && useAtten;
+            return !usesAttenuation;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private MaxSceneLightSnapshotData ExtractLight(IINode node, ILightObject lightObject, string lightId)
     {
         var time = m_coreInterface.Time;
@@ -1143,6 +1166,11 @@ internal sealed class MaxSceneSnapshotCollector
             Range = Math.Max(lightObject.GetTDist(time), 0.01d),
             SpotAngleDegrees = ResolveSpotAngleDegrees(kind, spotConeDegrees),
             SpotBlend = kind == DccLightKind.Spot ? spotBlend : 0d,
+            // Max standard lights default to decay "None" (constant illumination at any distance);
+            // photometric lights are physically inverse-square and keep the physical model.
+            NoDecay = kind is DccLightKind.Point or DccLightKind.Spot
+                      && lightObject is not ILightscapeLight
+                      && ReadDecayTypeIsNone(lightObject),
             CastShadows = ReadCastShadows(lightObject),
             AreaWidth = isArea ? areaWidth : 1d,
             AreaHeight = isArea ? areaHeight : 1d

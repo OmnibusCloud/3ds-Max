@@ -57,6 +57,11 @@ internal static class MaxSceneDccSceneMapper
 
     private const double MAX_SUN_IRRADIANCE = 12d;
 
+    // Constant-falloff (no-decay) lights: received irradiance is distance-independent and scales
+    // ~Strength/42 (measured in Blender 5.1 Cycles), so this strength yields a fully-lit surface
+    // for a raw Max multiplier of 1 — no distance² calibration, no wattage cap games.
+    private const double NO_DECAY_LIGHT_STRENGTH = 40d;
+
     // DccLightData.Range model default — the contract validator requires sun lights to keep it.
     private const double SUN_CONTRACT_RANGE = 10d;
 
@@ -205,13 +210,18 @@ internal static class MaxSceneDccSceneMapper
                         Kind = me.Kind,
                         Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
                         ColorKeyframes = MapColorKeyframes(me.ColorKeyframes),
-                        Intensity = ClampLightPower(me.Kind, normalizedIntensity * intensityFactor),
-                        IntensityKeyframes = MapScalarKeyframes(me.IntensityKeyframes, value => ClampLightPower(me.Kind, NormalizeRawIntensity(me, value, intensityReference) * intensityFactor)),
+                        Intensity = me.NoDecay
+                            ? NO_DECAY_LIGHT_STRENGTH * normalizedIntensity
+                            : ClampLightPower(me.Kind, normalizedIntensity * intensityFactor),
+                        IntensityKeyframes = MapScalarKeyframes(me.IntensityKeyframes, value => me.NoDecay
+                            ? NO_DECAY_LIGHT_STRENGTH * NormalizeRawIntensity(me, value, intensityReference)
+                            : ClampLightPower(me.Kind, NormalizeRawIntensity(me, value, intensityReference) * intensityFactor)),
                         Range = ResolveLightRangeValue(me.Kind, me.Range, characteristicDistance),
                         RangeKeyframes = MapScalarKeyframes(me.RangeKeyframes, value => ResolveLightRangeValue(me.Kind, value, characteristicDistance)),
                         SpotAngleDegrees = me.SpotAngleDegrees,
                         SpotAngleKeyframes = MapScalarKeyframes(me.SpotAngleKeyframes, value => value),
                         SpotBlend = me.SpotBlend,
+                        NoDecay = me.NoDecay,
                         CastShadows = me.CastShadows,
                         AreaWidth = me.AreaWidth,
                         AreaHeight = me.AreaHeight
@@ -242,6 +252,9 @@ internal static class MaxSceneDccSceneMapper
                     BackfaceCull = me.BackfaceCull,
                     EmissionColor = new DccColorData { R = me.EmissionColor.R, G = me.EmissionColor.G, B = me.EmissionColor.B, A = me.EmissionColor.A },
                     EmissionStrength = me.EmissionStrength,
+                    // Scanline has no GI: a self-illuminated surface glows but never lights the
+                    // scene (Lighting-Vertex's boxes flooded the interior through Cycles GI).
+                    EmissionCameraOnly = summary.UsesScanlineRenderer && me.EmissionStrength > 0d,
                     TextureSlots =
                     [
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData
