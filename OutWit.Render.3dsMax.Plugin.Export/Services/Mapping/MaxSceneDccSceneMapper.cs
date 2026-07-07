@@ -64,6 +64,10 @@ internal static class MaxSceneDccSceneMapper
     // white instead of clipping hard. Applied when the scene carries no explicit view transform.
     private const string DEFAULT_VIEW_TRANSFORM = "AgX";
 
+    // Scanline renders straight clamped sRGB with no filmic tone mapping — AgX on those scenes
+    // desaturated every colour toward pastel (dragon's deep-blue sky and red wings went pale).
+    private const string SCANLINE_VIEW_TRANSFORM = "Standard";
+
     #endregion
 
     #region Functions
@@ -106,7 +110,7 @@ internal static class MaxSceneDccSceneMapper
                 Fps = summary.FrameRate > 0 ? summary.FrameRate : 30,
                 Samples = 64,
                 TargetEngine = RenderEngine.Cycles,
-                ViewTransform = DEFAULT_VIEW_TRANSFORM,
+                ViewTransform = summary.UsesScanlineRenderer ? SCANLINE_VIEW_TRANSFORM : DEFAULT_VIEW_TRANSFORM,
                 MotionBlur = summary.MotionBlur,
                 MotionBlurShutter = summary.MotionBlurShutter > 0d ? summary.MotionBlurShutter : 0.5d
             },
@@ -207,6 +211,7 @@ internal static class MaxSceneDccSceneMapper
                         RangeKeyframes = MapScalarKeyframes(me.RangeKeyframes, value => ResolveLightRangeValue(me.Kind, value, characteristicDistance)),
                         SpotAngleDegrees = me.SpotAngleDegrees,
                         SpotAngleKeyframes = MapScalarKeyframes(me.SpotAngleKeyframes, value => value),
+                        SpotBlend = me.SpotBlend,
                         CastShadows = me.CastShadows,
                         AreaWidth = me.AreaWidth,
                         AreaHeight = me.AreaHeight

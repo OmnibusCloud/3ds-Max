@@ -92,5 +92,10 @@ public sealed class MaxSceneSnapshotData
     // Motion-blur shutter (fraction of a frame). Only applied when MotionBlur is true.
     public double MotionBlurShutter { get; set; } = 0.5d;
 
+    // True when the scene's production renderer is the Default Scanline renderer. Scanline
+    // renders straight clamped sRGB (no filmic tone mapping) — the mapper picks the matching
+    // Blender view transform from this.
+    public bool UsesScanlineRenderer { get; set; }
+
     #endregion
 }

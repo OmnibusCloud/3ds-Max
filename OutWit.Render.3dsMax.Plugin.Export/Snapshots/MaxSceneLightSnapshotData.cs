@@ -30,6 +30,9 @@ public sealed class MaxSceneLightSnapshotData
 
     public double SpotAngleDegrees { get; set; } = 45d;
 
+    // Spot edge softness [0,1] from the Max hotspot/falloff cone difference (0 = hard edge).
+    public double SpotBlend { get; set; }
+
     public List<MaxSceneScalarKeyframeSnapshotData> SpotAngleKeyframes { get; set; } = [];
 
     public bool CastShadows { get; set; } = true;

@@ -53,9 +53,16 @@ internal static class MaxSceneDefaultLightSynthesizer
 
         var distance = Math.Max(bounds.Value.Radius * LIGHT_DISTANCE_IN_RADII, MIN_LIGHT_DISTANCE);
 
+        // Max's default lighting is a HEADLIGHT — it illuminates whatever the camera sees. Aim
+        // the key sun along the camera's view direction so subjects seen from below/backlit
+        // (Butterfly against the sky) are lit like the source render instead of silhouetted.
+        var cameraBackward = ResolveCameraBackwardDirection(summary);
+
         foreach (var light in SYNTHETIC_LIGHTS)
         {
-            var direction = Normalize(light.Direction);
+            var direction = light.Key == "key" && cameraBackward != null
+                ? cameraBackward.Value
+                : Normalize(light.Direction);
             var lightId = $"light:default-{light.Key}";
             var nodeId = $"node:default-{light.Key}-light";
             var name = $"DefaultLight{char.ToUpperInvariant(light.Key[0])}{light.Key[1..]}";
@@ -108,6 +115,23 @@ internal static class MaxSceneDefaultLightSynthesizer
     #endregion
 
     #region Tools
+
+    // Direction FROM the scene BACK toward the camera (the rig offsets lights along it, and the
+    // key sun aims opposite — along the camera's view). Null when the scene has no camera.
+    private static (double X, double Y, double Z)? ResolveCameraBackwardDirection(MaxSceneSummaryData summary)
+    {
+        var cameraNode = summary.Nodes.FirstOrDefault(me => me.Kind == DccNodeKind.Camera);
+        if (cameraNode == null)
+            return null;
+
+        var rotation = cameraNode.LocalTransform.Rotation;
+        var forward = MaxCameraMath.ComputeGeneratorForward((rotation.W, rotation.X, rotation.Y, rotation.Z));
+        var length = Math.Sqrt(forward.X * forward.X + forward.Y * forward.Y + forward.Z * forward.Z);
+        if (length <= double.Epsilon)
+            return null;
+
+        return (-forward.X / length, -forward.Y / length, -forward.Z / length);
+    }
 
     private static (double X, double Y, double Z) Normalize((double X, double Y, double Z) v)
     {

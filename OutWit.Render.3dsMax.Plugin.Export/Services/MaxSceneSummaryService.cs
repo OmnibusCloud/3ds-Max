@@ -80,7 +80,8 @@ public sealed class MaxSceneSummaryService
             EnvironmentImageId = snapshot.EnvironmentImageId,
             EnvironmentRotationDegrees = snapshot.EnvironmentRotationDegrees,
             MotionBlur = snapshot.MotionBlur,
-            MotionBlurShutter = snapshot.MotionBlurShutter
+            MotionBlurShutter = snapshot.MotionBlurShutter,
+            UsesScanlineRenderer = snapshot.UsesScanlineRenderer
         };
 
         MaxSceneActiveViewportCameraSynthesizer.Apply(summary);

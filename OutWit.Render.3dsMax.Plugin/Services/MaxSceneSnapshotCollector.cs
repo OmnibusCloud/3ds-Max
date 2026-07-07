@@ -64,6 +64,7 @@ internal sealed class MaxSceneSnapshotCollector
         m_summary.TexturesCount = m_textures.Count;
         m_summary.MaterialNames = [.. m_materialNames];
         m_summary.TextureNames = [.. m_textureNames];
+        m_summary.UsesScanlineRenderer = IsScanlineRenderer();
     }
 
     private void ReadEnvironment()
@@ -228,11 +229,10 @@ internal sealed class MaxSceneSnapshotCollector
             // Helper objects (Crowd/Delegate gizmos and the like) can still convert to a TriObject,
             // but Max never renders them — Butterfly's Crowd helper rendered as a floating white
             // diamond. Dummies already fail the TriObject conversion; this catches the rest.
-            // Shape (spline) objects convert to FILLED planar discs, but Max renders them as thin
-            // tubes of their "Render Thickness" (Maxine's rig control circles are 0.1-unit threads,
-            // invisible in the native render — our discs floated around her waist and arms). The
-            // converted mesh never matches the authored look, so shapes are skipped entirely.
-            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject && sceneObject is not IShapeObject)
+            // Shape (spline) objects go through GetRenderMesh inside ExtractMesh: the TriObject
+            // conversion yields a FILLED planar disc while Max renders the "Render Thickness"
+            // tube (Maxine's rig circles are 0.1-unit threads, not discs).
+            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject)
             {
                 var meshId = $"mesh:{childNode.Handle}";
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
@@ -395,23 +395,243 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
-    private MaxSceneMeshSnapshotData ExtractMesh(IINode node, IObject sceneObject, string meshId)
+    // Number of sides for exported spline render tubes (matches the Max default render_sides=3;
+    // these are hairline threads, not showcase geometry).
+    private const int SHAPE_TUBE_SIDES = 3;
+
+    private MaxSceneMeshSnapshotData? TryExtractShapeRenderMesh(IINode node, IShapeObject shapeObject, IObject sceneObject, string meshId)
     {
-        var convertedObject = sceneObject;
-
-        if (convertedObject.CanConvertToType(m_global.TriObjectClassID) == 1)
-            convertedObject = convertedObject.ConvertToType(m_coreInterface.Time, m_global.TriObjectClassID);
-
-        if (convertedObject is not ITriObject triObject)
+        try
         {
-            return new MaxSceneMeshSnapshotData
+            var meshData = new MaxSceneMeshSnapshotData
             {
                 Id = meshId,
                 Name = $"{node.Name}Mesh"
             };
+
+            // "Enable In Renderer" off → Max never renders the shape; an empty mesh feeds the
+            // existing empty-mesh skip. The flag is a BOOL param — read it as an int (GetFloat
+            // returns 0 for bool params, which silently skipped every renderable spline).
+            if ((TryReadObjectParamBlockInt(sceneObject, "render_renderable", "renderable") ?? 0) == 0)
+                return meshData;
+
+            var thickness = TryReadObjectParamBlockFloat(sceneObject, "render_thickness", "thickness") ?? 0.1d;
+            var radius = Math.Max(thickness, 0.001d) / 2d;
+
+            var polyShape = m_global.PolyShape.Create();
+            shapeObject.MakePolyShape(m_coreInterface.Time, polyShape, -1, false);
+
+            var correction = ComputeObjectToNodeCorrection(node, m_coreInterface.Time);
+
+            for (var lineIndex = 0; lineIndex < polyShape.NumLines; lineIndex++)
+            {
+                var line = polyShape.Lines[lineIndex];
+                if (line == null || line.NumPts < 2)
+                    continue;
+
+                AppendPolylineTube(meshData, line, radius, correction);
+            }
+
+            return meshData;
+        }
+        catch
+        {
+            // Unreadable shape — fall back to the TriObject conversion path.
+            return null;
+        }
+    }
+
+    private static void AppendPolylineTube(
+        MaxSceneMeshSnapshotData meshData,
+        IPolyLine line,
+        double radius,
+        (IMatrix3 ObjectTm, IMatrix3 InverseNodeTm)? correction)
+    {
+        var count = line.NumPts;
+        var closed = line.IsClosed;
+        var points = new (double X, double Y, double Z)[count];
+        for (var index = 0; index < count; index++)
+        {
+            var point = line.Pts[index].P;
+            points[index] = (point.X, point.Y, point.Z);
         }
 
-        var mesh = triObject.Mesh;
+        // Ring of SHAPE_TUBE_SIDES vertices around every point, oriented by the local tangent.
+        var rings = new (double X, double Y, double Z)[count][];
+        for (var index = 0; index < count; index++)
+        {
+            var previous = points[index == 0 ? (closed ? count - 1 : 0) : index - 1];
+            var next = points[index == count - 1 ? (closed ? 0 : count - 1) : index + 1];
+            var tangent = Normalize((next.X - previous.X, next.Y - previous.Y, next.Z - previous.Z));
+            if (tangent == (0d, 0d, 0d))
+                tangent = (0d, 0d, 1d);
+
+            var reference = Math.Abs(tangent.Z) < 0.9d ? (X: 0d, Y: 0d, Z: 1d) : (X: 1d, Y: 0d, Z: 0d);
+            var side = Normalize(Cross(tangent, (reference.X, reference.Y, reference.Z)));
+            var up = Cross(side, tangent);
+
+            var ring = new (double X, double Y, double Z)[SHAPE_TUBE_SIDES];
+            for (var corner = 0; corner < SHAPE_TUBE_SIDES; corner++)
+            {
+                var angle = corner * 2d * Math.PI / SHAPE_TUBE_SIDES;
+                var (sin, cos) = (Math.Sin(angle), Math.Cos(angle));
+                ring[corner] = (
+                    points[index].X + (side.X * cos + up.X * sin) * radius,
+                    points[index].Y + (side.Y * cos + up.Y * sin) * radius,
+                    points[index].Z + (side.Z * cos + up.Z * sin) * radius);
+            }
+
+            rings[index] = ring;
+        }
+
+        var segmentCount = closed ? count : count - 1;
+        for (var segment = 0; segment < segmentCount; segment++)
+        {
+            var ringA = rings[segment];
+            var ringB = rings[(segment + 1) % count];
+            for (var corner = 0; corner < SHAPE_TUBE_SIDES; corner++)
+            {
+                var nextCorner = (corner + 1) % SHAPE_TUBE_SIDES;
+                AppendTubeTriangle(meshData, ringA[corner], ringB[corner], ringB[nextCorner], correction);
+                AppendTubeTriangle(meshData, ringA[corner], ringB[nextCorner], ringA[nextCorner], correction);
+            }
+        }
+    }
+
+    private static void AppendTubeTriangle(
+        MaxSceneMeshSnapshotData meshData,
+        (double X, double Y, double Z) a,
+        (double X, double Y, double Z) b,
+        (double X, double Y, double Z) c,
+        (IMatrix3 ObjectTm, IMatrix3 InverseNodeTm)? correction)
+    {
+        var normal = Normalize(Cross((b.X - a.X, b.Y - a.Y, b.Z - a.Z), (c.X - a.X, c.Y - a.Y, c.Z - a.Z)));
+        if (normal == (0d, 0d, 0d))
+            normal = (0d, 0d, 1d);
+
+        foreach (var vertex in new[] { a, b, c })
+        {
+            meshData.Positions.Add(correction == null
+                ? new MaxSceneVector3SnapshotData { X = vertex.X, Y = vertex.Y, Z = vertex.Z }
+                : ApplyCorrection(correction.Value.ObjectTm, correction.Value.InverseNodeTm, vertex.X, vertex.Y, vertex.Z));
+            meshData.Normals.Add(correction == null
+                ? new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z }
+                : ApplyCorrectionToTupleNormal(correction.Value.ObjectTm, correction.Value.InverseNodeTm, normal));
+            meshData.Uv0.Add(new MaxSceneVector2SnapshotData { X = 0d, Y = 0d });
+            meshData.TriangleIndices.Add(meshData.TriangleIndices.Count);
+        }
+    }
+
+    private static MaxSceneVector3SnapshotData ApplyCorrectionToTupleNormal(IMatrix3 objectTm, IMatrix3 inverseNodeTm, (double X, double Y, double Z) normal)
+    {
+        var a = TransformVectorRaw(objectTm, normal.X, normal.Y, normal.Z);
+        var b = TransformVectorRaw(inverseNodeTm, a.X, a.Y, a.Z);
+        var length = Math.Sqrt(b.X * b.X + b.Y * b.Y + b.Z * b.Z);
+        if (length < 1e-9d)
+            return new MaxSceneVector3SnapshotData { X = normal.X, Y = normal.Y, Z = normal.Z };
+        return new MaxSceneVector3SnapshotData { X = b.X / length, Y = b.Y / length, Z = b.Z / length };
+    }
+
+    private static (double X, double Y, double Z) Cross((double X, double Y, double Z) left, (double X, double Y, double Z) right)
+    {
+        return (
+            left.Y * right.Z - left.Z * right.Y,
+            left.Z * right.X - left.X * right.Z,
+            left.X * right.Y - left.Y * right.X);
+    }
+
+    private static (double X, double Y, double Z) Normalize((double X, double Y, double Z) vector)
+    {
+        var length = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y + vector.Z * vector.Z);
+        return length <= double.Epsilon ? (0d, 0d, 0d) : (vector.X / length, vector.Y / length, vector.Z / length);
+    }
+
+    private static int? TryReadObjectParamBlockInt(IObject sceneObject, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < sceneObject.NumParamBlocks; blockIndex++)
+            {
+                if (sceneObject.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    return block.GetInt(def.Id, 0, 0);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static double? TryReadObjectParamBlockFloat(IObject sceneObject, params string[] names)
+    {
+        try
+        {
+            for (var blockIndex = 0; blockIndex < sceneObject.NumParamBlocks; blockIndex++)
+            {
+                if (sceneObject.GetParamBlock(blockIndex) is not IIParamBlock2 block)
+                    continue;
+
+                for (var paramIndex = 0u; paramIndex < block.NumParams; paramIndex++)
+                {
+                    var def = block.GetParamDefByIndex(paramIndex);
+                    var name = def.IntName?.ToLowerInvariant();
+                    if (name is null || Array.IndexOf(names, name) < 0)
+                        continue;
+
+                    return block.GetFloat(def.Id, 0, 0);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private MaxSceneMeshSnapshotData ExtractMesh(IINode node, IObject sceneObject, string meshId)
+    {
+        // Shape (spline) objects: the TriObject conversion yields a FILLED planar disc, but Max
+        // renders the shape's "Enable In Renderer" tube — rebuild that thread from the shape's
+        // polylines (Maxine's rig circles are 0.1-unit hairlines in the native render, not solid
+        // discs floating around her waist).
+        if (sceneObject is IShapeObject shapeObject)
+        {
+            var shapeMesh = TryExtractShapeRenderMesh(node, shapeObject, sceneObject, meshId);
+            if (shapeMesh != null)
+                return shapeMesh;
+        }
+
+        IMesh? mesh;
+        {
+            var convertedObject = sceneObject;
+
+            if (convertedObject.CanConvertToType(m_global.TriObjectClassID) == 1)
+                convertedObject = convertedObject.ConvertToType(m_coreInterface.Time, m_global.TriObjectClassID);
+
+            if (convertedObject is not ITriObject triObject)
+            {
+                return new MaxSceneMeshSnapshotData
+                {
+                    Id = meshId,
+                    Name = $"{node.Name}Mesh"
+                };
+            }
+
+            mesh = triObject.Mesh;
+        }
+
         var meshData = new MaxSceneMeshSnapshotData
         {
             Id = meshId,
@@ -588,6 +808,15 @@ internal sealed class MaxSceneSnapshotCollector
                 continue;
 
             var texmap = material.GetSubTexmap(i);
+
+            // A "Normal Bump" texmap in the bump channel carries true normal VECTORS, not heights.
+            if (slotKind == DccTextureSlotKind.Bump
+                && texmap?.ClassName(false)?.Contains("normal", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                slotKind = DccTextureSlotKind.Normal;
+                if (assignedSlots.Contains(slotKind.Value))
+                    continue;
+            }
             var bitmap = texmap as IBitmapTex
                          ?? (texmap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
 
@@ -673,8 +902,14 @@ internal sealed class MaxSceneSnapshotCollector
         if (name.Contains("base color") || name.Contains("base colour") || name.Contains("diffuse") || name.Contains("albedo"))
             return DccTextureSlotKind.BaseColor;
 
-        if (name.Contains("normal") || name.Contains("bump"))
+        // A Max "Bump" slot carries a grayscale HEIGHT map (the generator perturbs normals from
+        // heights); only slots explicitly named "normal" hold true normal-vector maps. Feeding a
+        // height map into a normal-map node carves black craters (hardwood's paint-swatch board).
+        if (name.Contains("normal"))
             return DccTextureSlotKind.Normal;
+
+        if (name.Contains("bump"))
+            return DccTextureSlotKind.Bump;
 
         if (name.Contains("roughness"))
             return DccTextureSlotKind.Roughness;
@@ -870,6 +1105,12 @@ internal sealed class MaxSceneSnapshotCollector
         var time = m_coreInterface.Time;
         var color = lightObject.GetRGBColor(time);
         var hotspotDegrees = RadiansToDegrees(lightObject.GetHotspot(time));
+        // Max spots have a hard HOTSPOT cone inside a soft FALLOFF cone; Blender's spot_size is
+        // the OUTER cone with spot_blend as the soft fraction. Export the falloff as the cone and
+        // the relative difference as the blend (TeaPotBounce's pool of light fades at the edges).
+        var falloffDegrees = RadiansToDegrees(lightObject.GetFallsize(time));
+        var spotConeDegrees = Math.Max(hotspotDegrees, falloffDegrees);
+        var spotBlend = spotConeDegrees > 0.1d ? Math.Clamp(1d - hotspotDegrees / spotConeDegrees, 0d, 1d) : 0d;
 
         var isArea = TryResolveAreaLight(lightObject, time, out var areaWidth, out var areaHeight);
         var kind = isArea ? DccLightKind.Area : ResolveLightKind(node, lightObject, hotspotDegrees);
@@ -886,7 +1127,8 @@ internal sealed class MaxSceneSnapshotCollector
             // so the power calibration (which assumes a ~1 multiplier) does not blow out the render.
             IsPhotometric = lightObject is ILightscapeLight,
             Range = Math.Max(lightObject.GetTDist(time), 0.01d),
-            SpotAngleDegrees = ResolveSpotAngleDegrees(kind, hotspotDegrees),
+            SpotAngleDegrees = ResolveSpotAngleDegrees(kind, spotConeDegrees),
+            SpotBlend = kind == DccLightKind.Spot ? spotBlend : 0d,
             CastShadows = ReadCastShadows(lightObject),
             AreaWidth = isArea ? areaWidth : 1d,
             AreaHeight = isArea ? areaHeight : 1d
@@ -2225,7 +2467,7 @@ internal sealed class MaxSceneSnapshotCollector
         if (snapshot.Kind == DccLightKind.Spot)
         {
             snapshot.SpotAngleKeyframes = SampleScalarChannel(frameStart, frameEnd, ticksPerFrame,
-                time => ResolveSpotAngleDegrees(DccLightKind.Spot, RadiansToDegrees(lightObject.GetHotspot(time))));
+                time => ResolveSpotAngleDegrees(DccLightKind.Spot, Math.Max(RadiansToDegrees(lightObject.GetHotspot(time)), RadiansToDegrees(lightObject.GetFallsize(time)))));
         }
     }
 
