@@ -30,8 +30,8 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
             SceneFilePath = coreInterface.CurFilePath ?? string.Empty,
             SourceApplicationLabel = "3ds Max 2027",
             SourceApplicationVersion = "2027",
-            FrameStart = ResolveFrameStart(coreInterface),
-            FrameEnd = ResolveFrameEnd(coreInterface),
+            FrameStart = ResolveFrameStart(global, coreInterface),
+            FrameEnd = ResolveFrameEnd(global, coreInterface),
             FrameRate = ResolveFrameRate(global),
             RenderWidth = coreInterface.RendWidth,
             RenderHeight = coreInterface.RendHeight,
@@ -56,21 +56,21 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         return "3ds Max Scene";
     }
 
-    private static int ResolveFrameStart(IInterface coreInterface)
+    private static int ResolveFrameStart(IGlobal global, IInterface coreInterface)
     {
-        return ResolveFrameBoundary(coreInterface, "Start", 1);
+        return ResolveFrameBoundary(global, coreInterface, "Start", 1);
     }
 
     private static int ResolveFrameRate(IGlobal global)
     {
-        // Max's frame rate is the global GetFrameRate(); the typed managed surface does not expose
-        // it, so resolve it reflectively (the same pattern this service uses for other gaps) and
-        // fall back to 30 — Max's default — never Blender's 24, which would mistime video output.
+        // IGlobal exposes the scene frame rate as a typed property. Reflection for a GetFrameRate
+        // METHOD never matched it, so every export silently pinned to the 30 fps fallback — a 25 fps
+        // scene got its whole timeline resampled by 30/25 and stills stopped matching Max frames.
         try
         {
-            var frameRate = global.GetType().GetMethod("GetFrameRate", BindingFlags.Instance | BindingFlags.Public, Type.EmptyTypes)?.Invoke(global, null);
-            if (frameRate is int value && value > 0)
-                return value;
+            var frameRate = global.FrameRate;
+            if (frameRate > 0)
+                return frameRate;
         }
         catch
         {
@@ -79,10 +79,10 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         return 30;
     }
 
-    private static int ResolveFrameEnd(IInterface coreInterface)
+    private static int ResolveFrameEnd(IGlobal global, IInterface coreInterface)
     {
-        var frameStart = ResolveFrameStart(coreInterface);
-        return ResolveFrameBoundary(coreInterface, "End", frameStart);
+        var frameStart = ResolveFrameStart(global, coreInterface);
+        return ResolveFrameBoundary(global, coreInterface, "End", frameStart);
     }
 
     private static IINode? ResolveRenderCameraNode(IInterface coreInterface)
@@ -225,7 +225,7 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         return global.Point3.Create(vector.X / length, vector.Y / length, vector.Z / length);
     }
 
-    private static int ResolveFrameBoundary(IInterface coreInterface, string propertyName, int onError)
+    private static int ResolveFrameBoundary(IGlobal global, IInterface coreInterface, string propertyName, int onError)
     {
         try
         {
@@ -236,13 +236,16 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
             if (boundaryValue is null)
                 return onError;
 
-            var ticksPerFrame = ResolveTicksPerFrame(coreInterface);
+            var ticksPerFrame = ResolveTicksPerFrame(global);
             var ticks = Convert.ToInt32(boundaryValue);
 
             if (ticksPerFrame <= 0)
                 return onError;
 
-            return (ticks / ticksPerFrame) + 1;
+            // Keep Max's own frame numbering (frame = ticks / tpf, no shift): a still requested at
+            // frame N must sample the same instant Max renders at frame N, or side-by-side
+            // comparisons drift by a frame.
+            return ticks / ticksPerFrame;
         }
         catch
         {
@@ -250,29 +253,21 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         }
     }
 
-    private static int ResolveTicksPerFrame(IInterface coreInterface)
+    private static int ResolveTicksPerFrame(IGlobal global)
     {
+        // Typed property, same story as FrameRate — the old reflective GetTicksPerFrame lookup
+        // always missed and returned the 30 fps constant (160), shifting every sampled timeline.
         try
         {
-            var interfaceType = coreInterface.GetType();
-            var directMethod = interfaceType.GetMethod("GetTicksPerFrame", BindingFlags.Instance | BindingFlags.Public);
-
-            if (directMethod?.Invoke(coreInterface, null) is int ticksPerFrame)
+            var ticksPerFrame = global.TicksPerFrame;
+            if (ticksPerFrame > 0)
                 return ticksPerFrame;
-
-            if (directMethod?.Invoke(coreInterface, null) is short ticksPerFrameShort)
-                return ticksPerFrameShort;
-
-            var staticMethod = interfaceType.Assembly.GetType("Autodesk.Max.GlobalInterface")?.GetMethod("GetTicksPerFrame", BindingFlags.Static | BindingFlags.Public);
-
-            if (staticMethod?.Invoke(null, null) is int staticTicksPerFrame)
-                return staticTicksPerFrame;
         }
         catch
         {
         }
 
-        return 160;
+        return 4800 / Math.Max(ResolveFrameRate(global), 1);
     }
 
     #endregion

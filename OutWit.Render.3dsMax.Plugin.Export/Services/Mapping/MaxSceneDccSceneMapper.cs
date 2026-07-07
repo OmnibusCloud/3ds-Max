@@ -255,6 +255,8 @@ internal static class MaxSceneDccSceneMapper
                     // Scanline has no GI: a self-illuminated surface glows but never lights the
                     // scene (Lighting-Vertex's boxes flooded the interior through Cycles GI).
                     EmissionCameraOnly = summary.UsesScanlineRenderer && me.EmissionStrength > 0d,
+                    BaseColorFromVertexColors = me.BaseColorFromVertexColors,
+                    EmissionFromVertexColors = me.EmissionFromVertexColors,
                     TextureSlots =
                     [
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData
@@ -278,6 +280,10 @@ internal static class MaxSceneDccSceneMapper
             ]
         };
 
+        // Max renders material-less objects in their node wirecolor; without this they export
+        // default-white (robby's gold and purple teapots). One plain material per distinct colour.
+        ApplyWireColorMaterials(scene, summary);
+
         // Aim the render camera at the scene so the subject is actually in frame. Max camera
         // orientation does not survive the round trip reliably, so we recompute framing from the
         // geometry bounds rather than trust the captured quaternion.
@@ -288,6 +294,42 @@ internal static class MaxSceneDccSceneMapper
         MaxSceneSkyDomeClassifier.Apply(scene);
 
         return scene;
+    }
+
+    private static void ApplyWireColorMaterials(DccSceneData scene, MaxSceneSummaryData summary)
+    {
+        // Appending at the END keeps existing scene-material positions stable — multi-material
+        // meshes index the scene list by position.
+        var wireMaterialIdsByColor = new Dictionary<string, string>(StringComparer.Ordinal);
+        var sceneNodesById = scene.Nodes.ToDictionary(node => node.Id, StringComparer.Ordinal);
+
+        foreach (var nodeSnapshot in summary.Nodes)
+        {
+            if (nodeSnapshot.WireColor is null || nodeSnapshot.Kind != DccNodeKind.Mesh)
+                continue;
+
+            if (!sceneNodesById.TryGetValue(nodeSnapshot.Id, out var node) || node.MaterialBindingId is not null)
+                continue;
+
+            var wireColor = nodeSnapshot.WireColor;
+            var colorKey = $"{(int)Math.Round(wireColor.R * 255d)}_{(int)Math.Round(wireColor.G * 255d)}_{(int)Math.Round(wireColor.B * 255d)}";
+            if (!wireMaterialIdsByColor.TryGetValue(colorKey, out var materialId))
+            {
+                materialId = $"material:wirecolor_{colorKey}";
+                scene.Materials.Add(new DccMaterialData
+                {
+                    Id = materialId,
+                    Name = $"Wirecolor {colorKey}",
+                    Kind = DccMaterialKind.PrincipledSurface,
+                    BaseColor = new DccColorData { R = wireColor.R, G = wireColor.G, B = wireColor.B, A = 1d },
+                    // Matches Max's default Blinn response (glossiness 25) the wirecolor preview uses.
+                    Roughness = 0.75d
+                });
+                wireMaterialIdsByColor[colorKey] = materialId;
+            }
+
+            node.MaterialBindingId = materialId;
+        }
     }
 
     private static (double NearClip, double FarClip) ResolveCameraClipPlanes(

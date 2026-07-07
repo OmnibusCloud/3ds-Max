@@ -32,6 +32,12 @@ public sealed class MaxSceneMaterialSnapshotData
 
     public double EmissionStrength { get; set; }
 
+    // The artist wired a Vertex Color texmap into the diffuse / self-illumination channel: the
+    // colours travel as mesh colour attributes, these flags tell the generator to bind them.
+    public bool BaseColorFromVertexColors { get; set; }
+
+    public bool EmissionFromVertexColors { get; set; }
+
     public List<MaxSceneTextureSlotSnapshotData> TextureSlots { get; set; } = [];
 
     #endregion

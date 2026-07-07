@@ -30,5 +30,9 @@ public sealed class MaxSceneNodeSnapshotData
 
     public bool Renderable { get; set; } = true;
 
+    // Node wire colour, captured for mesh nodes WITHOUT a material: Max renders those in their
+    // wirecolor, so the mapper synthesizes a matching plain material (robby's gold/purple teapots).
+    public MaxSceneColorSnapshotData? WireColor { get; set; }
+
     #endregion
 }

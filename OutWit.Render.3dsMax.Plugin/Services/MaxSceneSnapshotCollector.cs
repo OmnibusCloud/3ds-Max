@@ -293,7 +293,12 @@ internal sealed class MaxSceneSnapshotCollector
                         // Geometry" off), but the generator maps Visible to hide_viewport only —
                         // fold hidden into Renderable so hidden rig helpers (Maxine's muscle
                         // meshes) stop appearing in our renders.
-                        Renderable = childNode.Renderable && !childNode.IsNodeHidden(false)
+                        Renderable = childNode.Renderable && !childNode.IsNodeHidden(false),
+                        // Max renders material-less objects in their wirecolor (robby's gold and
+                        // purple teapots); capture it so the mapper can synthesize the material.
+                        WireColor = materialBindingId is null && meshSnapshot.MaterialIndices.Count == 0
+                            ? TryReadWireColor(childNode)
+                            : null
                     });
                     m_summary.Meshes.Add(meshSnapshot);
                 }
@@ -817,11 +822,28 @@ internal sealed class MaxSceneSnapshotCollector
 
         for (var i = 0; i < material.NumSubTexmaps; i++)
         {
-            var slotKind = ClassifyTextureSlot(material.GetSubTexmapSlotName(i, false));
+            var slotName = material.GetSubTexmapSlotName(i, false);
+            var slotKind = ClassifyTextureSlot(slotName);
+            var texmap = material.GetSubTexmap(i);
+
+            // A Vertex Color texmap's data already travels as mesh colour attributes; record WHERE
+            // the artist wired it (diffuse → base colour, self-illumination → emission) so the
+            // generator binds a Color Attribute node — lighting_vertex carries its entire baked
+            // lighting this way. Checked before the slot-kind gate: self-illum slots classify to
+            // no slot kind but still matter here.
+            if (texmap is not null && IsVertexColorTexmap(texmap))
+            {
+                if (slotKind == DccTextureSlotKind.BaseColor)
+                    materialSnapshot.BaseColorFromVertexColors = true;
+                else if (slotName?.Contains("illum", StringComparison.OrdinalIgnoreCase) == true
+                         || slotName?.Contains("emission", StringComparison.OrdinalIgnoreCase) == true)
+                    materialSnapshot.EmissionFromVertexColors = true;
+
+                continue;
+            }
+
             if (slotKind is null || assignedSlots.Contains(slotKind.Value))
                 continue;
-
-            var texmap = material.GetSubTexmap(i);
 
             // A "Normal Bump" texmap in the bump channel carries true normal VECTORS, not heights.
             if (slotKind == DccTextureSlotKind.Bump
@@ -836,11 +858,7 @@ internal sealed class MaxSceneSnapshotCollector
 
             // Procedural maps (Noise, Gradient, Mix, Smoke, Checker…) carry no file — bake the
             // texmap to a PNG so the artist's pattern survives instead of silently dropping it.
-            // Vertex-colour maps are exempt (the colours already travel as mesh colour attributes;
-            // a bake collapses them to a meaningless flat tint — lighting_vertex boxes turned
-            // yellow).
-            if ((bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)) && texmap is not null
-                && !IsVertexColorTexmap(texmap))
+            if ((bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)) && texmap is not null)
             {
                 // A dark opacity bake would hide the object outright — require a bright-enough map.
                 var minimumMeanLuminance = slotKind.Value == DccTextureSlotKind.Opacity ? 0.2d : 0d;
@@ -1474,6 +1492,22 @@ internal sealed class MaxSceneSnapshotCollector
                 }
             }
 
+            // Physical Material expresses "metal" two ways: the metalness parameter (read above),
+            // or a TINTED reflection colour — refl_color defaults to white, and an artist matching
+            // it to the base colour is asking for coloured reflections, the defining trait of a
+            // metal (robby's "Copper Bot": metalness 0, refl_color = base copper). Reflectivity
+            // alone is useless as a signal (its default is 1.0 — blind mapping would chrome half
+            // the corpus), so only a chromatic refl_color promotes it into Metallic.
+            if (snapshot.Metallic < 0.01d)
+            {
+                var physicalReflectColor = TryReadParamBlockColor(material, time, "refl_color");
+                if (physicalReflectColor is not null && IsChromatic(physicalReflectColor))
+                {
+                    var reflectivity = TryReadParamBlockFloat(material, time, "reflectivity") ?? 1d;
+                    snapshot.Metallic = Math.Clamp(reflectivity, 0d, 1d);
+                }
+            }
+
             // Self-illuminated materials (sky domes, glowing signs) render full-bright in Max;
             // carry that as emission so e.g. the dragon's cloud dome is lit from within instead of
             // rendering as a dark unlit interior.
@@ -1607,6 +1641,36 @@ internal sealed class MaxSceneSnapshotCollector
         {
             return null;
         }
+    }
+
+    // Node wirecolor via the typed IINode property; null on any facade hiccup so the mapper's
+    // default-white path stays intact.
+    private static MaxSceneColorSnapshotData? TryReadWireColor(IINode node)
+    {
+        try
+        {
+            var color = node.WireColor;
+            return new MaxSceneColorSnapshotData
+            {
+                R = color.R / 255d,
+                G = color.G / 255d,
+                B = color.B / 255d,
+                A = 1d
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // A colour whose channels meaningfully diverge (tinted, not a grey). Used to tell an authored
+    // metal tint from Physical Material's neutral defaults.
+    private static bool IsChromatic(MaxSceneColorSnapshotData color)
+    {
+        var max = Math.Max(color.R, Math.Max(color.G, color.B));
+        var min = Math.Min(color.R, Math.Min(color.G, color.B));
+        return max - min > 0.08d;
     }
 
     // Class name check for vertex-colour maps ("Vertex Color" in stock Max): their data already
