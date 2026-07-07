@@ -410,9 +410,11 @@ internal sealed class MaxSceneSnapshotCollector
             };
 
             // "Enable In Renderer" off → Max never renders the shape; an empty mesh feeds the
-            // existing empty-mesh skip. The flag is a BOOL param — read it as an int (GetFloat
-            // returns 0 for bool params, which silently skipped every renderable spline).
-            if ((TryReadObjectParamBlockInt(sceneObject, "render_renderable", "renderable") ?? 0) == 0)
+            // existing empty-mesh skip. The typed ShapeObject flag is authoritative; the pb2 param
+            // scan is a fallback (the rendering-rollout params hide behind non-obvious IntNames).
+            var shapeRenderable = TryReadShapeRenderableFlag(shapeObject)
+                                  ?? ((TryReadObjectParamBlockInt(sceneObject, "render_renderable", "renderable") ?? 0) != 0);
+            if (!shapeRenderable)
                 return meshData;
 
             var thickness = TryReadObjectParamBlockFloat(sceneObject, "render_thickness", "thickness") ?? 0.1d;
@@ -544,6 +546,18 @@ internal sealed class MaxSceneSnapshotCollector
     {
         var length = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y + vector.Z * vector.Z);
         return length <= double.Epsilon ? (0d, 0d, 0d) : (vector.X / length, vector.Y / length, vector.Z / length);
+    }
+
+    private static bool? TryReadShapeRenderableFlag(IShapeObject shapeObject)
+    {
+        try
+        {
+            return shapeObject.Renderable;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int? TryReadObjectParamBlockInt(IObject sceneObject, params string[] names)
