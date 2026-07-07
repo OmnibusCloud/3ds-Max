@@ -284,6 +284,12 @@ internal static class MaxSceneDccSceneMapper
         // default-white (robby's gold and purple teapots). One plain material per distinct colour.
         ApplyWireColorMaterials(scene, summary);
 
+        // Montage cuts arrive as adjacent world samples far apart; linear interpolation sweeps the
+        // camera THROUGH the scene between them and motion blur integrates the sweep (troll's
+        // one-frame armor close-up smeared into a wash). Hold such keys with CONSTANT
+        // interpolation — the cut lands instantly, exactly like Max's stepped keys render.
+        MarkTeleportKeyframesConstant(scene, sceneBounds);
+
         // Aim the render camera at the scene so the subject is actually in frame. Max camera
         // orientation does not survive the round trip reliably, so we recompute framing from the
         // geometry bounds rather than trust the captured quaternion.
@@ -294,6 +300,42 @@ internal static class MaxSceneDccSceneMapper
         MaxSceneSkyDomeClassifier.Apply(scene);
 
         return scene;
+    }
+
+    private static void MarkTeleportKeyframesConstant(DccSceneData scene, MaxSceneBounds? sceneBounds)
+    {
+        // A quarter of the scene radius in a single frame is far beyond any real motion; montage
+        // cuts jump whole shot distances. The floor guards tiny scenes against false positives.
+        var translationThreshold = Math.Max((sceneBounds?.Radius ?? 0d) * 0.25d, 50d);
+        const double rotationCutDot = 0.70710678118654752d; // > 90 degrees between adjacent keys
+
+        foreach (var node in scene.Nodes)
+        {
+            var keyframes = node.TransformKeyframes;
+            for (var i = 0; i + 1 < keyframes.Count; i++)
+            {
+                var current = keyframes[i].Transform;
+                var next = keyframes[i + 1].Transform;
+
+                var dx = next.Translation.X - current.Translation.X;
+                var dy = next.Translation.Y - current.Translation.Y;
+                var dz = next.Translation.Z - current.Translation.Z;
+                var translationJump = Math.Sqrt(dx * dx + dy * dy + dz * dz) > translationThreshold;
+
+                var rotationDot = Math.Abs(
+                    current.Rotation.X * next.Rotation.X
+                    + current.Rotation.Y * next.Rotation.Y
+                    + current.Rotation.Z * next.Rotation.Z
+                    + current.Rotation.W * next.Rotation.W);
+                var currentLengthSquared = current.Rotation.X * current.Rotation.X + current.Rotation.Y * current.Rotation.Y + current.Rotation.Z * current.Rotation.Z + current.Rotation.W * current.Rotation.W;
+                var nextLengthSquared = next.Rotation.X * next.Rotation.X + next.Rotation.Y * next.Rotation.Y + next.Rotation.Z * next.Rotation.Z + next.Rotation.W * next.Rotation.W;
+                var lengthProduct = Math.Sqrt(currentLengthSquared * nextLengthSquared);
+                var rotationJump = lengthProduct > 1e-6d && rotationDot / lengthProduct < rotationCutDot;
+
+                if (translationJump || rotationJump)
+                    keyframes[i].InterpolationMode = DccKeyframeInterpolationMode.Constant;
+            }
+        }
     }
 
     private static void ApplyWireColorMaterials(DccSceneData scene, MaxSceneSummaryData summary)

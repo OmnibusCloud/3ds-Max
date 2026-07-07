@@ -25,6 +25,47 @@ public sealed class MaxSceneDccSceneMapperContractTests
 
     #endregion
 
+    #region Teleport Keyframe Tests
+
+    [Test]
+    public void TeleportKeyframesAreHeldConstantTest()
+    {
+        // Montage cuts arrive as adjacent samples far apart; the pre-cut key must hold CONSTANT
+        // so linear interpolation (and motion blur over it) never sweeps through the scene.
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        var node = snapshot.Nodes.First(me => me.Kind == DccNodeKind.Mesh);
+        node.TransformKeyframes =
+        [
+            CreateTranslationKeyframe(1, 0d),
+            CreateTranslationKeyframe(2, 500d),
+            CreateTranslationKeyframe(3, 501d)
+        ];
+
+        var mapped = MapScene(snapshot).Nodes.Single(me => me.Id == node.Id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mapped.TransformKeyframes[0].InterpolationMode, Is.EqualTo(DccKeyframeInterpolationMode.Constant));
+            Assert.That(mapped.TransformKeyframes[1].InterpolationMode, Is.EqualTo(DccKeyframeInterpolationMode.Linear));
+        });
+    }
+
+    private static MaxSceneTransformKeyframeSnapshotData CreateTranslationKeyframe(int frame, double x)
+    {
+        return new MaxSceneTransformKeyframeSnapshotData
+        {
+            Frame = frame,
+            Transform = new MaxSceneTransformSnapshotData
+            {
+                Translation = new MaxSceneVector3SnapshotData { X = x, Y = 0d, Z = 0d },
+                Rotation = new MaxSceneQuaternionSnapshotData { X = 0d, Y = 0d, Z = 0d, W = 1d },
+                Scale = new MaxSceneVector3SnapshotData { X = 1d, Y = 1d, Z = 1d }
+            }
+        };
+    }
+
+    #endregion
+
     #region Area Light Tests
 
     [Test]
