@@ -1602,13 +1602,15 @@ internal sealed class MaxSceneSnapshotCollector
             snapshot.Transmission = transparency;
             snapshot.Opacity = 1d;
 
-            // RaytraceMaterial composites additively: pixel = diffuse shading + transparency
-            // COLOUR × background — a colour-valued filter, not a scalar opacity. GetXParency
-            // flattens that colour to its mean and loses the per-material difference (A08's
-            // three cups all read 0.167 while their authored looks range from dark translucent
-            // to nearly opaque). Squeeze the additive model into Principled terms: the brighter
-            // the diffuse, the less of the transmission survives visually (the add saturates),
-            // and the visible tint is the diffuse plus the surviving filter colour.
+            // RaytraceMaterial's transparency is a colour-valued FILTER weighting the blend:
+            // pixel = diffuse·(1−T) + T⊙background. GetXParency flattens that colour to its
+            // mean and loses the per-material difference (A08's three cups all read 0.167
+            // while their authored looks range from dark translucent to nearly opaque; A06's
+            // near-white filter over a grey diffuse is true glass that reads black against its
+            // dark backdrop). Principled has one transmission scalar and one albedo, so carry
+            // the dominant filter channel as the transmission weight — the filter COLOUR then
+            // tints the refraction via the base colour, which blends the diffuse remainder:
+            // Base = diffuse·(1−t) + filter.
             // No class-name gate: the "Transparecy" property (the SDK's own typo) exists only on
             // RaytraceMaterial, so the read itself is the detector — it returns null elsewhere.
             var raytraceTransparencyApplied = false;
@@ -1617,13 +1619,12 @@ internal sealed class MaxSceneSnapshotCollector
                 if (transparencyColor is not null)
                 {
                     var filterStrength = Math.Clamp(Math.Max(transparencyColor.R, Math.Max(transparencyColor.G, transparencyColor.B)), 0d, 1d);
-                    var diffuseStrength = Math.Clamp(Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)), 0d, 1d);
-                    snapshot.Transmission = Math.Clamp(filterStrength * (1d - diffuseStrength), 0d, 1d);
+                    snapshot.Transmission = filterStrength;
                     snapshot.BaseColor = new MaxSceneColorSnapshotData
                     {
-                        R = Math.Clamp(diffuse.R + transparencyColor.R * (1d - diffuseStrength), 0d, 1d),
-                        G = Math.Clamp(diffuse.G + transparencyColor.G * (1d - diffuseStrength), 0d, 1d),
-                        B = Math.Clamp(diffuse.B + transparencyColor.B * (1d - diffuseStrength), 0d, 1d),
+                        R = Math.Clamp(diffuse.R * (1d - filterStrength) + transparencyColor.R, 0d, 1d),
+                        G = Math.Clamp(diffuse.G * (1d - filterStrength) + transparencyColor.G, 0d, 1d),
+                        B = Math.Clamp(diffuse.B * (1d - filterStrength) + transparencyColor.B, 0d, 1d),
                         A = 1d
                     };
                     raytraceTransparencyApplied = true;
@@ -1709,6 +1710,13 @@ internal sealed class MaxSceneSnapshotCollector
                 var specularLevel = material.GetShinStr(time, false);
                 snapshot.Specular = Math.Clamp(specularLevel, 0d, 2d);
             }
+
+            // Scanline's raytrace transparency is a sharp filter — it never frosts. The legacy
+            // glossiness→roughness mapping above would blur the refraction into milk (A06's
+            // clear cup rendered frosted), so transmissive raytrace materials keep a polished
+            // surface.
+            if (raytraceTransparencyApplied && snapshot.Transmission > 0.3d)
+                snapshot.Roughness = Math.Min(snapshot.Roughness, 0.05d);
 
             snapshot.Metallic = ReadMetalness(material, time);
 
