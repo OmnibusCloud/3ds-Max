@@ -258,6 +258,7 @@ internal static class MaxSceneDccSceneMapper
                     Metallic = me.Metallic,
                     Roughness = me.Roughness,
                     NormalStrength = me.NormalStrength,
+                    Specular = me.Specular,
                     Transmission = me.Transmission,
                     Ior = me.Ior,
                     DisplacementScale = me.DisplacementScale,

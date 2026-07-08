@@ -1495,6 +1495,13 @@ internal sealed class MaxSceneSnapshotCollector
             {
                 var shininess = material.GetShininess(time, false);
                 snapshot.Roughness = Math.Clamp(1d - shininess, 0d, 1d);
+
+                // Blinn "Specular Level" scales the highlight strength (100% = nominal, can go
+                // above): the ape's eye whites are largely a 150% specular blowout in Scanline,
+                // and the legacy getter returns it as a fraction. Only meaningful on the legacy
+                // (non-PBR) branch — PBR materials express their response via roughness.
+                var specularLevel = material.GetShinStr(time, false);
+                snapshot.Specular = Math.Clamp(specularLevel, 0d, 2d);
             }
 
             snapshot.Metallic = ReadMetalness(material, time);

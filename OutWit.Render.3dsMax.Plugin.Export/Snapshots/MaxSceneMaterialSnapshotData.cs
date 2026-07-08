@@ -18,6 +18,9 @@ public sealed class MaxSceneMaterialSnapshotData
 
     public double NormalStrength { get; set; } = 1d;
 
+    // Specular intensity scale (Blinn Specular Level 100% = 1); 0 kills the highlight.
+    public double Specular { get; set; } = 1d;
+
     public double Transmission { get; set; }
 
     public double Ior { get; set; } = 1.45d;
