@@ -306,9 +306,15 @@ public sealed class MaxSceneDccSceneMapperContractTests
         var scene = MapScene(snapshot);
 
         Assert.That(scene.World, Is.Not.Null);
-        Assert.That(scene.World!.BackgroundColor.R, Is.EqualTo(0.2d));
-        Assert.That(scene.World.BackgroundColor.G, Is.EqualTo(0.3d));
-        Assert.That(scene.World.BackgroundColor.B, Is.EqualTo(0.4d));
+        // Max swatches are display (sRGB) values; the mapper linearizes them for the renderer.
+        Assert.That(scene.World!.BackgroundColor.R, Is.EqualTo(SrgbToLinear(0.2d)).Within(1e-9));
+        Assert.That(scene.World.BackgroundColor.G, Is.EqualTo(SrgbToLinear(0.3d)).Within(1e-9));
+        Assert.That(scene.World.BackgroundColor.B, Is.EqualTo(SrgbToLinear(0.4d)).Within(1e-9));
+    }
+
+    private static double SrgbToLinear(double value)
+    {
+        return value <= 0.04045d ? value / 12.92d : Math.Pow((value + 0.055d) / 1.055d, 2.4d);
     }
 
     [Test]

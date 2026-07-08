@@ -171,7 +171,7 @@ internal static class MaxSceneDccSceneMapper
                     TriangleIndices = [.. me.TriangleIndices],
                     MaterialIndices = [.. me.MaterialIndices],
                     SubdivisionLevels = me.SubdivisionLevels,
-                    Colors = [.. me.Colors.Select(color => new DccColorData { R = color.R, G = color.G, B = color.B, A = color.A })],
+                    Colors = [.. me.Colors.Select(color => MapDisplayColor(color.R, color.G, color.B, color.A))],
                     DeformationFrames =
                     [
                         .. me.DeformationFrames.Select(frame => new DccMeshDeformationFrameData
@@ -220,7 +220,7 @@ internal static class MaxSceneDccSceneMapper
                         Id = me.Id,
                         Name = me.Name,
                         Kind = me.Kind,
-                        Color = new DccColorData { R = me.Color.R, G = me.Color.G, B = me.Color.B, A = me.Color.A },
+                        Color = MapDisplayColor(me.Color.R, me.Color.G, me.Color.B, me.Color.A),
                         ColorKeyframes = MapColorKeyframes(me.ColorKeyframes),
                         Intensity = me.NoDecay
                             ? NO_DECAY_LIGHT_STRENGTH * normalizedIntensity
@@ -253,7 +253,7 @@ internal static class MaxSceneDccSceneMapper
                     // texture with a UI swatch (unfinished wood ships a 0.49 grey swatch).
                     BaseColor = me.TextureSlots.Any(slot => slot.Slot == DccTextureSlotKind.BaseColor)
                         ? new DccColorData { R = 1d, G = 1d, B = 1d, A = 1d }
-                        : new DccColorData { R = me.BaseColor.R, G = me.BaseColor.G, B = me.BaseColor.B, A = me.BaseColor.A },
+                        : MapDisplayColor(me.BaseColor.R, me.BaseColor.G, me.BaseColor.B, me.BaseColor.A),
                     Opacity = me.Opacity,
                     Metallic = me.Metallic,
                     Roughness = me.Roughness,
@@ -262,7 +262,7 @@ internal static class MaxSceneDccSceneMapper
                     Ior = me.Ior,
                     DisplacementScale = me.DisplacementScale,
                     BackfaceCull = me.BackfaceCull,
-                    EmissionColor = new DccColorData { R = me.EmissionColor.R, G = me.EmissionColor.G, B = me.EmissionColor.B, A = me.EmissionColor.A },
+                    EmissionColor = MapDisplayColor(me.EmissionColor.R, me.EmissionColor.G, me.EmissionColor.B, me.EmissionColor.A),
                     EmissionStrength = me.EmissionStrength,
                     // Scanline has no GI: a self-illuminated surface glows but never lights the
                     // scene (Lighting-Vertex's boxes flooded the interior through Cycles GI).
@@ -319,6 +319,31 @@ internal static class MaxSceneDccSceneMapper
         MaxSceneSkyDomeClassifier.Apply(scene);
 
         return scene;
+    }
+
+    // 3ds Max colour swatches, vertex colours and wirecolors are DISPLAY (sRGB) values — the
+    // default gamma-2.2 pipeline linearizes them before shading and re-encodes for display.
+    // Cycles shades in linear, so shipping the swatch raw brightens every midtone (a 0.55 swatch
+    // displays as 0.55 in Max but as 0.76 through our pipeline — the systematic "our renders are
+    // lighter"). Image textures are untouched: Blender linearizes those itself via their sRGB
+    // colour-space tag.
+    private static double SrgbToLinear(double value)
+    {
+        if (value <= 0.04045d)
+            return value / 12.92d;
+
+        return value >= 1d ? value : Math.Pow((value + 0.055d) / 1.055d, 2.4d);
+    }
+
+    private static DccColorData MapDisplayColor(double r, double g, double b, double a = 1d)
+    {
+        return new DccColorData
+        {
+            R = SrgbToLinear(r),
+            G = SrgbToLinear(g),
+            B = SrgbToLinear(b),
+            A = a
+        };
     }
 
     private static void ClearBackfaceCullForClosedMeshes(DccSceneData scene, MaxSceneBounds? sceneBounds)
@@ -487,7 +512,7 @@ internal static class MaxSceneDccSceneMapper
                     Id = materialId,
                     Name = $"Wirecolor {colorKey}",
                     Kind = DccMaterialKind.PrincipledSurface,
-                    BaseColor = new DccColorData { R = wireColor.R, G = wireColor.G, B = wireColor.B, A = 1d },
+                    BaseColor = MapDisplayColor(wireColor.R, wireColor.G, wireColor.B),
                     // Matches Max's default Blinn response (glossiness 25) the wirecolor preview uses.
                     Roughness = 0.75d
                 });
@@ -613,7 +638,7 @@ internal static class MaxSceneDccSceneMapper
             {
                 BackgroundColor = summary.EnvironmentColor is null
                     ? new DccColorData { R = 0d, G = 0d, B = 0d, A = 1d }
-                    : new DccColorData { R = summary.EnvironmentColor.R, G = summary.EnvironmentColor.G, B = summary.EnvironmentColor.B, A = summary.EnvironmentColor.A },
+                    : MapDisplayColor(summary.EnvironmentColor.R, summary.EnvironmentColor.G, summary.EnvironmentColor.B, summary.EnvironmentColor.A),
                 Strength = ResolveEnvironmentStrength(summary),
                 EnvironmentImageId = summary.EnvironmentImageId,
                 EnvironmentRotationDegrees = summary.EnvironmentRotationDegrees
@@ -627,13 +652,7 @@ internal static class MaxSceneDccSceneMapper
 
         return new DccWorldData
         {
-            BackgroundColor = new DccColorData
-            {
-                R = summary.EnvironmentColor.R,
-                G = summary.EnvironmentColor.G,
-                B = summary.EnvironmentColor.B,
-                A = summary.EnvironmentColor.A
-            },
+            BackgroundColor = MapDisplayColor(summary.EnvironmentColor.R, summary.EnvironmentColor.G, summary.EnvironmentColor.B, summary.EnvironmentColor.A),
             Strength = 1d
         };
     }
@@ -827,7 +846,7 @@ internal static class MaxSceneDccSceneMapper
         return [.. keyframes.Select(kf => new DccColorKeyframeData
         {
             Frame = kf.Frame,
-            Color = new DccColorData { R = kf.Color.R, G = kf.Color.G, B = kf.Color.B, A = kf.Color.A },
+            Color = MapDisplayColor(kf.Color.R, kf.Color.G, kf.Color.B, kf.Color.A),
             InterpolationMode = DccKeyframeInterpolationMode.Linear
         })];
     }
