@@ -80,6 +80,9 @@ public sealed class MaxSceneSummaryService
             EnvironmentImageId = snapshot.EnvironmentImageId,
             EnvironmentRotationDegrees = snapshot.EnvironmentRotationDegrees,
             MotionBlur = snapshot.MotionBlur,
+            ImageMotionBlurObjectCount = snapshot.ImageMotionBlurObjectCount,
+            ObjectMotionBlurObjectCount = snapshot.ObjectMotionBlurObjectCount,
+            ExposureControlEv = snapshot.ExposureControlEv,
             MotionBlurShutter = snapshot.MotionBlurShutter,
             UsesScanlineRenderer = snapshot.UsesScanlineRenderer
         };

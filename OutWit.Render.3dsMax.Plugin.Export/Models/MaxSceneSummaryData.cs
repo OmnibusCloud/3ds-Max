@@ -94,6 +94,12 @@ public sealed class MaxSceneSummaryData
     // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
     public bool MotionBlur { get; set; }
 
+    public int ImageMotionBlurObjectCount { get; set; }
+
+    public int ObjectMotionBlurObjectCount { get; set; }
+
+    public double? ExposureControlEv { get; set; }
+
     // Motion-blur shutter (fraction of a frame). Only applied when MotionBlur is true.
     public double MotionBlurShutter { get; set; } = 0.5d;
 

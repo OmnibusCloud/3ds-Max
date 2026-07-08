@@ -89,6 +89,16 @@ public sealed class MaxSceneSnapshotData
     // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
     public bool MotionBlur { get; set; }
 
+    // Counters by 3ds Max blur kind: IMAGE blur (post smear over a sharp frame) vs OBJECT blur
+    // (shutter-integrated). The mapper picks vector-blur emulation when image blur dominates.
+    public int ImageMotionBlurObjectCount { get; set; }
+
+    public int ObjectMotionBlurObjectCount { get; set; }
+
+    // Global EV of the scene's Physical Exposure Control, when present (artist-facing darkening
+    // knob; EV 6 is the neutral default).
+    public double? ExposureControlEv { get; set; }
+
     // Motion-blur shutter (fraction of a frame). Only applied when MotionBlur is true.
     public double MotionBlurShutter { get; set; } = 0.5d;
 

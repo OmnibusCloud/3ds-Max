@@ -117,7 +117,19 @@ internal static class MaxSceneDccSceneMapper
                 TargetEngine = RenderEngine.Cycles,
                 ViewTransform = summary.UsesScanlineRenderer ? SCANLINE_VIEW_TRANSFORM : DEFAULT_VIEW_TRANSFORM,
                 MotionBlur = summary.MotionBlur,
-                MotionBlurShutter = summary.MotionBlurShutter > 0d ? summary.MotionBlurShutter : 0.5d
+                MotionBlurShutter = summary.MotionBlurShutter > 0d ? summary.MotionBlurShutter : 0.5d,
+                // Scanline lights with direct light only — the generator suppresses diffuse
+                // bounces so enclosed scenes stop brightening from indirect light Max never had.
+                NoGlobalIllumination = summary.UsesScanlineRenderer,
+                // Image blur (post smear over a sharp frame) dominates → vector-blur emulation.
+                ImageMotionBlur = summary.MotionBlur
+                                  && summary.ImageMotionBlurObjectCount > 0
+                                  && summary.ImageMotionBlurObjectCount >= summary.ObjectMotionBlurObjectCount,
+                // Physical Exposure Control: EV 6 is Max's neutral default; each stop above
+                // darkens. This is the artist-facing knob for tuning our render's brightness.
+                Exposure = summary.ExposureControlEv is double exposureValue
+                    ? Math.Clamp(6d - exposureValue, -10d, 10d)
+                    : 0d
             },
             World = ResolveWorld(summary),
             Nodes =

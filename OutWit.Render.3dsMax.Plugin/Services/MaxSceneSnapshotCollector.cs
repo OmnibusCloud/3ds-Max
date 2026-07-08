@@ -1466,6 +1466,16 @@ internal sealed class MaxSceneSnapshotCollector
                 }
             }
 
+            // Transmissive materials carry an authored index of refraction (Raytrace glass names
+            // it in the UI; A06's material is literally called "IOR equal 1.6" while we shipped
+            // the contract default).
+            if (snapshot.Transmission > 0.01d)
+            {
+                var authoredIor = TryReadParamBlockFloat(material, time, "ior", "trans_ior", "index_of_refraction", "refraction_index", "specular_ior");
+                if (authoredIor is >= 1.0d and <= 3.0d)
+                    snapshot.Ior = authoredIor.Value;
+            }
+
             // PBR materials expose roughness directly; legacy materials only carry glossiness
             // (0..1, higher = sharper highlight), which maps inversely to Blender roughness.
             var paramRoughness = TryReadParamBlockFloat(material, time, "roughness", "specular_roughness");
@@ -1513,7 +1523,10 @@ internal sealed class MaxSceneSnapshotCollector
                 {
                 }
             }
-            if (reflection is not null)
+            // Never metallize a transmissive material: Metallic 1 on the Principled BSDF disables
+            // transmission outright, so A06's black raytrace glass rendered as smoky rough metal.
+            // Its strong reflection is already carried by the glass fresnel.
+            if (reflection is not null && snapshot.Transmission <= 0.1d)
             {
                 var reflectionFraction = reflection.Value > 1.001d ? reflection.Value / 100d : reflection.Value;
                 if (reflectionFraction > 0.5d)
@@ -2411,8 +2424,9 @@ internal sealed class MaxSceneSnapshotCollector
     private void DetectMotionBlur(IINode node)
     {
         // Any renderable node with 3ds Max object/image motion blur enabled flips the scene-level
-        // motion-blur flag; Blender's render-side motion blur is a single switch, so one enabled node
-        // is enough. The shutter stays at the neutral default (0.5).
+        // motion-blur flag. The blur KIND (image post-smear vs object shutter blur) is counted
+        // once per export in MaxHostApplicationService via MAXScript — the facade's per-node
+        // MotBlur accessor is unreliable.
         if (m_summary.MotionBlur)
             return;
 

@@ -40,8 +40,10 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
             ActiveViewportType = activeView?.ViewType.ToString() ?? string.Empty,
             ActiveViewportIsPerspective = activeView?.IsPerspView == true,
             ActiveViewportVerticalFovDegrees = NormalizeViewportFovDegrees(activeView?.Fov),
-            ActiveViewportTransform = ResolveActiveViewportTransform(global, activeView)
+            ActiveViewportTransform = ResolveActiveViewportTransform(global, activeView),
+            ExposureControlEv = TryReadExposureControlEv(global)
         };
+        (snapshot.ImageMotionBlurObjectCount, snapshot.ObjectMotionBlurObjectCount) = CountMotionBlurKinds(global);
 
         var collector = new MaxSceneSnapshotCollector(global, coreInterface, snapshot);
         collector.Collect(rootNode);
@@ -54,6 +56,66 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
             return Path.GetFileNameWithoutExtension(coreInterface.CurFileName);
 
         return "3ds Max Scene";
+    }
+
+    private static (int ImageCount, int ObjectCount) CountMotionBlurKinds(IGlobal global)
+    {
+        // 3ds Max image motion blur is a post smear over a sharp frame, object blur is a real
+        // shutter integration — the generator emulates them differently. The facade's per-node
+        // MotBlur accessor is unreliable, so count both kinds once via MAXScript
+        // (encoded image*10000 + object in a single float return).
+        try
+        {
+            var result = global.FPValue.Create();
+            const string script =
+                "(local i = 0; local o = 0; for obj in objects do (try (if obj.motionBlurOn then (if obj.motionBlur == #image then i += 1 else if obj.motionBlur == #object then o += 1)) catch ()); (i * 10000 + o) as float)";
+            if (!global.ExecuteMAXScriptScript(script, Autodesk.Max.MAXScript.ScriptSource.NonEmbedded, true, result, false))
+                return (0, 0);
+
+            var encoded = result.Type switch
+            {
+                ParamType2.Float => (double)result.F,
+                ParamType2.Double => result.Dbl,
+                ParamType2.Int => result.I,
+                _ => 0d
+            };
+
+            var total = (int)Math.Round(encoded);
+            return (total / 10000, total % 10000);
+        }
+        catch
+        {
+            return (0, 0);
+        }
+    }
+
+    private static double? TryReadExposureControlEv(IGlobal global)
+    {
+        // The active Exposure Control hangs off a native-only static interface, so evaluate it
+        // via MAXScript. This is the artist-facing knob for darkening our renders from inside
+        // Max: raise the Physical Exposure Control's global EV and the exported exposure follows.
+        try
+        {
+            var result = global.FPValue.Create();
+            const string script =
+                "(try (if sceneexposurecontrol.exposureControl != undefined and (isProperty sceneexposurecontrol.exposureControl #ev) then (sceneexposurecontrol.exposureControl.ev as float) else -10000.0) catch (-10000.0))";
+            if (!global.ExecuteMAXScriptScript(script, Autodesk.Max.MAXScript.ScriptSource.NonEmbedded, true, result, false))
+                return null;
+
+            double value = result.Type switch
+            {
+                ParamType2.Float => result.F,
+                ParamType2.Double => result.Dbl,
+                ParamType2.Int => result.I,
+                _ => -10000d
+            };
+
+            return value <= -9999d ? null : value;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int ResolveFrameStart(IGlobal global, IInterface coreInterface)
