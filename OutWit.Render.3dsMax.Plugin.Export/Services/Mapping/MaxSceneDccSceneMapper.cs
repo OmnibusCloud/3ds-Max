@@ -275,7 +275,9 @@ internal static class MaxSceneDccSceneMapper
                         .. me.TextureSlots.Select(slot => new DccTextureSlotData
                         {
                             Slot = slot.Slot,
-                            ImageAssetId = slot.ImageAssetId
+                            ImageAssetId = slot.ImageAssetId,
+                            UvScaleX = slot.UvScaleX,
+                            UvScaleY = slot.UvScaleY
                         })
                     ]
                 })

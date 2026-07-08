@@ -194,6 +194,86 @@ internal sealed class MaxSceneSnapshotCollector
         return (width, (ushort)Math.Clamp(height, 64, 2048));
     }
 
+    // Authored map tiling lives on the bitmap's UVGen (Coordinates rollout), separate from the
+    // mesh UVs — Butterfly's bark tiles 10×10 there and rendered stretched 10× without it.
+    // Only direct bitmaps read it: baked procedurals already carry their coordinate transform
+    // in the baked pixels. Offsets and rotation stay untransferred for now — their 3ds Max
+    // pivot semantics are centre-anchored (unlike the generator's origin-anchored Mapping
+    // node) and no corpus scene authors them; tiling of a tileable map is phase-invariant.
+    // RaytraceMaterial predates ParamBlock2, so its authored values are invisible to the
+    // paramblock readers (A08's cups exported the GetXParency mean and the default IOR while
+    // the UI says transparency (128,0,0) / IOR 1.6). Evaluate the MAXScript property against
+    // the material's anim handle instead. Note the SDK's own spelling: the transparency
+    // colour property is literally named "Transparecy".
+    private MaxSceneColorSnapshotData? TryReadRaytraceTransparencyColor(IMtl material)
+    {
+        var r = TryEvaluateMaterialScriptDouble(material, "Transparecy.r");
+        var g = TryEvaluateMaterialScriptDouble(material, "Transparecy.g");
+        var b = TryEvaluateMaterialScriptDouble(material, "Transparecy.b");
+        if (r is null || g is null || b is null || r < 0d || g < 0d || b < 0d)
+            return null;
+
+        return new MaxSceneColorSnapshotData
+        {
+            R = Math.Clamp(r.Value / 255d, 0d, 1d),
+            G = Math.Clamp(g.Value / 255d, 0d, 1d),
+            B = Math.Clamp(b.Value / 255d, 0d, 1d),
+            A = 1d
+        };
+    }
+
+    // Evaluates "<material>.<propertyPath>" via MAXScript, addressing the material by its anim
+    // handle. Returns null when the property is missing or the evaluation fails (-100000 marker).
+    private double? TryEvaluateMaterialScriptDouble(IMtl material, string propertyPath)
+    {
+        try
+        {
+            var handle = m_global.Animatable.GetHandleByAnim(material);
+            var script = $"(try (((getAnimByHandle {handle.ToUInt64()}).{propertyPath}) as float) catch (-100000.0))";
+            var result = m_global.FPValue.Create();
+            if (!m_global.ExecuteMAXScriptScript(script, Autodesk.Max.MAXScript.ScriptSource.NonEmbedded, true, result, false))
+                return null;
+
+            double value = result.Type switch
+            {
+                ParamType2.Float => result.F,
+                ParamType2.Double => result.Dbl,
+                ParamType2.Int => result.I,
+                _ => -100000d
+            };
+
+            return value <= -99999d ? null : value;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private (double UScale, double VScale) ReadBitmapUvTiling(IBitmapTex bitmap)
+    {
+        try
+        {
+            if (bitmap.TheUVGen is not IStdUVGen uvGen)
+                return (1d, 1d);
+
+            // The contract's UvScale is TEXTURE-space: the generator's Mapping node runs in
+            // 'TEXTURE' mode (the inverse of the point transform), so Max tiling N — pattern
+            // repeated N times — maps to texture scale 1/N.
+            var time = m_coreInterface.Time;
+            var uTiling = (double)uvGen.GetUScl(time);
+            var vTiling = (double)uvGen.GetVScl(time);
+            var uScale = double.IsFinite(uTiling) && uTiling != 0d ? 1d / uTiling : 1d;
+            var vScale = double.IsFinite(vTiling) && vTiling != 0d ? 1d / vTiling : 1d;
+
+            return (uScale, vScale);
+        }
+        catch
+        {
+            return (1d, 1d);
+        }
+    }
+
     // Walks the node hierarchy. Only mesh/camera/light nodes are emitted; non-geometry parents
     // (dummies, groups, bones, point helpers) are skipped. Every emitted node carries its WORLD
     // transform (and world-sampled keyframes) with no ParentId: rebuilding Max's parent chains in
@@ -973,10 +1053,13 @@ internal sealed class MaxSceneSnapshotCollector
             if (string.IsNullOrWhiteSpace(imageAssetId))
                 continue;
 
+            var (uvScaleX, uvScaleY) = ReadBitmapUvTiling(bitmap);
             materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
             {
                 Slot = slotKind.Value,
-                ImageAssetId = imageAssetId
+                ImageAssetId = imageAssetId,
+                UvScaleX = uvScaleX,
+                UvScaleY = uvScaleY
             });
             assignedSlots.Add(slotKind.Value);
 
@@ -1050,13 +1133,15 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
-    private static IPoint3 ResolveVertexNormal(IMesh mesh, IFace face, int vertexIndex, IPoint3 faceNormal)
+    private IPoint3 ResolveVertexNormal(IMesh mesh, IFace face, int vertexIndex, IPoint3 faceNormal)
     {
         // 3ds Max stores per-vertex render normals split by smoothing group. A face with no
         // smoothing group (0) is hard → keep the face normal. A vertex that resolves to a single
-        // render normal is fully smooth → use it. A vertex split across smoothing groups (a hard
-        // edge or group boundary) keeps the hard face normal — the managed RVertex API exposes
-        // only the primary split normal, so the face normal is the safe, predictable choice there.
+        // render normal is fully smooth → use it. A vertex split across smoothing groups keeps
+        // one render normal PER group in the Ern array — pick the one whose mask matches this
+        // face, so a Tube's side stays smooth against its hard cap rim. (The old face-normal
+        // fallback faceted every rim-adjacent vertex — on a two-ring primitive that is the
+        // whole wall: A08's cups rendered as vertical bands.)
         try
         {
             var smoothingGroup = face.SmGroup;
@@ -1070,6 +1155,33 @@ internal sealed class MaxSceneSnapshotCollector
             var normalCount = (int)(renderVertex.RFlags & 0xFFFF);
             if (normalCount == 1)
                 return renderVertex.Rn.Normal;
+
+            // The facade wraps the native RNormal* array as a single IRNormal (the first entry),
+            // so walk it via the native pointer. Native layout (maxsdk mesh.h): Point3 normal
+            // (3 × float), DWORD smGroup, DWORD mtlIndex → 20-byte stride, mask at offset 12.
+            var firstEntry = renderVertex.Ern;
+            if (firstEntry == null)
+                return faceNormal;
+
+            const int stride = 20;
+            const int maskOffset = 12;
+            var basePointer = firstEntry.NativePointer;
+            for (var i = 0; i < normalCount; i++)
+            {
+                var entry = basePointer + i * stride;
+                var mask = unchecked((uint)System.Runtime.InteropServices.Marshal.ReadInt32(entry, maskOffset));
+                if ((mask & smoothingGroup) == 0)
+                    continue;
+
+                var x = BitConverter.Int32BitsToSingle(System.Runtime.InteropServices.Marshal.ReadInt32(entry, 0));
+                var y = BitConverter.Int32BitsToSingle(System.Runtime.InteropServices.Marshal.ReadInt32(entry, 4));
+                var z = BitConverter.Int32BitsToSingle(System.Runtime.InteropServices.Marshal.ReadInt32(entry, 8));
+                if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z)
+                    || (x == 0f && y == 0f && z == 0f))
+                    return faceNormal;
+
+                return m_global.Point3.Create(x, y, z);
+            }
 
             return faceNormal;
         }
@@ -1490,12 +1602,47 @@ internal sealed class MaxSceneSnapshotCollector
             snapshot.Transmission = transparency;
             snapshot.Opacity = 1d;
 
+            // RaytraceMaterial composites additively: pixel = diffuse shading + transparency
+            // COLOUR × background — a colour-valued filter, not a scalar opacity. GetXParency
+            // flattens that colour to its mean and loses the per-material difference (A08's
+            // three cups all read 0.167 while their authored looks range from dark translucent
+            // to nearly opaque). Squeeze the additive model into Principled terms: the brighter
+            // the diffuse, the less of the transmission survives visually (the add saturates),
+            // and the visible tint is the diffuse plus the surviving filter colour.
+            // No class-name gate: the "Transparecy" property (the SDK's own typo) exists only on
+            // RaytraceMaterial, so the read itself is the detector — it returns null elsewhere.
+            var raytraceTransparencyApplied = false;
+            {
+                var transparencyColor = TryReadRaytraceTransparencyColor(material);
+                if (transparencyColor is not null)
+                {
+                    var filterStrength = Math.Clamp(Math.Max(transparencyColor.R, Math.Max(transparencyColor.G, transparencyColor.B)), 0d, 1d);
+                    var diffuseStrength = Math.Clamp(Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)), 0d, 1d);
+                    snapshot.Transmission = Math.Clamp(filterStrength * (1d - diffuseStrength), 0d, 1d);
+                    snapshot.BaseColor = new MaxSceneColorSnapshotData
+                    {
+                        R = Math.Clamp(diffuse.R + transparencyColor.R * (1d - diffuseStrength), 0d, 1d),
+                        G = Math.Clamp(diffuse.G + transparencyColor.G * (1d - diffuseStrength), 0d, 1d),
+                        B = Math.Clamp(diffuse.B + transparencyColor.B * (1d - diffuseStrength), 0d, 1d),
+                        A = 1d
+                    };
+                    raytraceTransparencyApplied = true;
+
+                    var raytraceIor = TryEvaluateMaterialScriptDouble(material, "Index_of_Refraction");
+                    if (raytraceIor is >= 1.0d and <= 3.0d)
+                        snapshot.Ior = raytraceIor.Value;
+                }
+            }
+
             // 3ds Max glass shaders (e.g. Raytrace) keep their visible tint in a separate
             // transparency/filter channel and leave the diffuse near-black. A black base color on
             // a transmissive material reads as opaque black glass that absorbs all light, so when
             // a material is meaningfully transmissive but has a near-black diffuse, treat it as
-            // clear glass (white base) rather than letting it swallow the scene.
-            if (transparency > 0.1d && Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)) < 0.05d)
+            // clear glass (white base) rather than letting it swallow the scene. Skipped when the
+            // authored Raytrace transparency colour was read — the tint is exact there.
+            if (!raytraceTransparencyApplied
+                && snapshot.Transmission > 0.1d
+                && Math.Max(diffuse.R, Math.Max(diffuse.G, diffuse.B)) < 0.05d)
                 snapshot.BaseColor = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d };
 
             // PBR transmission (Arnold/Physical glass) is a parameter, not legacy transparency —
