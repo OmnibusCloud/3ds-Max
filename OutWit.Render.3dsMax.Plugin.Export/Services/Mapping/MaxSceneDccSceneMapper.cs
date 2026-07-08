@@ -290,12 +290,12 @@ internal static class MaxSceneDccSceneMapper
         // interpolation — the cut lands instantly, exactly like Max's stepped keys render.
         MarkTeleportKeyframesConstant(scene, sceneBounds);
 
-        // Backface culling only changes a Scanline render on OPEN meshes (a wall shell): on a
-        // closed mesh the front surface always covers the back, so culling is a no-op in Max —
-        // while our backfacing→transparent emulation X-RAYS nested assemblies (the ape's eyeball
-        // turned transparent at grazing angles and exposed the black iris disc inside). Keep the
-        // flag only for materials that touch at least one open mesh.
-        ClearBackfaceCullForClosedMeshes(scene);
+        // Backface culling only visibly matters in Scanline where the camera looks THROUGH
+        // backfaces of room-scale shells (inside-out interiors, wall planes). On outward solids
+        // it is a no-op, and on small nested details our backfacing→transparent emulation X-RAYS
+        // the assembly (the ape's iris cap exposed the dark socket through the white eyeball).
+        // Keep the flag only for materials that touch at least one large non-outward mesh.
+        ClearBackfaceCullForClosedMeshes(scene, sceneBounds);
 
         // Aim the render camera at the scene so the subject is actually in frame. Max camera
         // orientation does not survive the round trip reliably, so we recompute framing from the
@@ -309,9 +309,21 @@ internal static class MaxSceneDccSceneMapper
         return scene;
     }
 
-    private static void ClearBackfaceCullForClosedMeshes(DccSceneData scene)
+    private static void ClearBackfaceCullForClosedMeshes(DccSceneData scene, MaxSceneBounds? sceneBounds)
     {
-        var closedByMeshId = scene.Meshes.ToDictionary(mesh => mesh.Id, IsClosedMesh, StringComparer.Ordinal);
+        _ = sceneBounds;
+
+        // A culled detail SMALLER than the scene's typical mesh cannot carry a see-through
+        // composition (it is set dressing — an iris cap, not a wall); opaque is always the truer
+        // Scanline read for it. The median is stable against both giant backdrops and the
+        // outlier-trimmed hero bounds.
+        var radii = scene.Meshes.Select(MeshLocalRadius).OrderBy(radius => radius).ToList();
+        var smallDetailRadius = radii.Count > 0 ? radii[radii.Count / 2] : 0d;
+
+        var closedByMeshId = scene.Meshes.ToDictionary(
+            mesh => mesh.Id,
+            mesh => IsClosedMesh(mesh) || MeshLocalRadius(mesh) < smallDetailRadius,
+            StringComparer.Ordinal);
         var materialTouchesOpenMesh = new HashSet<string>(StringComparer.Ordinal);
         var meshesById = scene.Meshes.ToDictionary(mesh => mesh.Id, StringComparer.Ordinal);
 
@@ -342,83 +354,64 @@ internal static class MaxSceneDccSceneMapper
         }
     }
 
-    // Watertight AND outward-facing test on the per-corner (unwelded) payload mesh. Closedness
-    // alone is not enough: interiors are routinely authored as INSIDE-OUT closed boxes (normals
-    // pointing into the room) — there Scanline's culling very much matters (the camera outside
-    // sees through the near wall), so the flag must survive. Only a solid whose normals point
-    // consistently away from its own centroid renders identically with and without culling.
-    private static bool IsClosedMesh(DccMeshData mesh)
+    private static double MeshLocalRadius(DccMeshData mesh)
     {
-        if (mesh.TriangleIndices.Count < 12)
-            return false;
-
-        if (mesh.Normals.Count == mesh.Positions.Count)
+        var radiusSquared = 0d;
+        foreach (var position in mesh.Positions)
         {
-            double cx = 0d, cy = 0d, cz = 0d;
-            foreach (var position in mesh.Positions)
-            {
-                cx += position.X;
-                cy += position.Y;
-                cz += position.Z;
-            }
-
-            cx /= mesh.Positions.Count;
-            cy /= mesh.Positions.Count;
-            cz /= mesh.Positions.Count;
-
-            var outwardCount = 0;
-            for (var i = 0; i < mesh.Positions.Count; i++)
-            {
-                var position = mesh.Positions[i];
-                var normal = mesh.Normals[i];
-                if (normal.X * (position.X - cx) + normal.Y * (position.Y - cy) + normal.Z * (position.Z - cz) > 0d)
-                    outwardCount++;
-            }
-
-            if (outwardCount < mesh.Positions.Count * 0.8d)
-                return false;
+            var candidate = position.X * position.X + position.Y * position.Y + position.Z * position.Z;
+            if (candidate > radiusSquared)
+                radiusSquared = candidate;
         }
 
-        var clusterIdsByPosition = new Dictionary<(long X, long Y, long Z), int>();
-        var clusterIdsByVertex = new int[mesh.Positions.Count];
+        return Math.Sqrt(radiusSquared);
+    }
+
+    // Outward-solid test on the per-corner payload mesh. Culling-as-transparency is only worth
+    // emulating where the camera genuinely looks THROUGH backfaces: inside-out rooms (normals
+    // into the interior) and directional wall shells (normals perpendicular-ish to the centroid
+    // direction). On a mesh whose normals point consistently AWAY from its centroid — solids and
+    // convex caps alike — Scanline culling never reveals anything behind the front surface, while
+    // our transparent-backface emulation X-rays it (the ape's iris cap rim exposed the black
+    // socket THROUGH the white eyeball). Those render truest fully opaque.
+    private static bool IsClosedMesh(DccMeshData mesh)
+    {
+        if (mesh.Normals.Count != mesh.Positions.Count || mesh.Positions.Count == 0)
+            return false;
+
+        double cx = 0d, cy = 0d, cz = 0d;
+        foreach (var position in mesh.Positions)
+        {
+            cx += position.X;
+            cy += position.Y;
+            cz += position.Z;
+        }
+
+        cx /= mesh.Positions.Count;
+        cy /= mesh.Positions.Count;
+        cz /= mesh.Positions.Count;
+
+        var outwardCount = 0;
         for (var i = 0; i < mesh.Positions.Count; i++)
         {
             var position = mesh.Positions[i];
-            var key = ((long)Math.Round(position.X * 10000d), (long)Math.Round(position.Y * 10000d), (long)Math.Round(position.Z * 10000d));
-            if (!clusterIdsByPosition.TryGetValue(key, out var clusterId))
-            {
-                clusterId = clusterIdsByPosition.Count;
-                clusterIdsByPosition[key] = clusterId;
-            }
+            var normal = mesh.Normals[i];
+            var dx = position.X - cx;
+            var dy = position.Y - cy;
+            var dz = position.Z - cz;
+            var radialLength = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            var normalLength = Math.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
+            if (radialLength < 1e-9d || normalLength < 1e-9d)
+                continue;
 
-            clusterIdsByVertex[i] = clusterId;
+            // Normalized so a wall plane (normal perpendicular to the centroid direction) scores
+            // near zero instead of drifting positive with mesh size.
+            var alignment = (normal.X * dx + normal.Y * dy + normal.Z * dz) / (radialLength * normalLength);
+            if (alignment > 0.2d)
+                outwardCount++;
         }
 
-        var edgeCounts = new Dictionary<(int A, int B), int>();
-        for (var i = 0; i + 2 < mesh.TriangleIndices.Count; i += 3)
-        {
-            for (var corner = 0; corner < 3; corner++)
-            {
-                var a = clusterIdsByVertex[mesh.TriangleIndices[i + corner]];
-                var b = clusterIdsByVertex[mesh.TriangleIndices[i + (corner + 1) % 3]];
-                if (a == b)
-                    continue; // degenerate edge collapsed by clustering
-
-                var edge = a < b ? (a, b) : (b, a);
-                edgeCounts[edge] = edgeCounts.TryGetValue(edge, out var count) ? count + 1 : 1;
-            }
-        }
-
-        if (edgeCounts.Count == 0)
-            return false;
-
-        foreach (var count in edgeCounts.Values)
-        {
-            if (count != 2)
-                return false;
-        }
-
-        return true;
+        return outwardCount >= mesh.Positions.Count * 0.8d;
     }
 
     private static void MarkTeleportKeyframesConstant(DccSceneData scene, MaxSceneBounds? sceneBounds)

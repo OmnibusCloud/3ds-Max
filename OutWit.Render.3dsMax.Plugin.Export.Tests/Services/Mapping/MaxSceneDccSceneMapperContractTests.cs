@@ -57,6 +57,56 @@ public sealed class MaxSceneDccSceneMapperContractTests
     }
 
     [Test]
+    public void BackfaceCullIsClearedForSmallDetailMeshesTest()
+    {
+        // A culled cap smaller than the scene's typical mesh (the ape's iris) can never carry a
+        // see-through composition — opaque is the truer Scanline read, while the transparent
+        // emulation X-rays the assembly.
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Materials[0].BackfaceCull = true;
+        // Small OPEN wall-like cap: perpendicular normals, well below the median mesh radius.
+        ReplaceMeshGeometry(snapshot, closed: false, outwardNormals: true, scale: 0.001d);
+        AddLargeCompanionMesh(snapshot, "mesh:big1");
+        AddLargeCompanionMesh(snapshot, "mesh:big2");
+
+        var scene = MapScene(snapshot);
+
+        Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.False);
+    }
+
+    private static void AddLargeCompanionMesh(MaxSceneSnapshotData snapshot, string id)
+    {
+        var corners = new[]
+        {
+            new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 0d },
+            new MaxSceneVector3SnapshotData { X = 100d, Y = 0d, Z = 0d },
+            new MaxSceneVector3SnapshotData { X = 0d, Y = 100d, Z = 0d }
+        };
+        snapshot.Meshes.Add(new MaxSceneMeshSnapshotData
+        {
+            Id = id,
+            Name = id,
+            Positions = [.. corners],
+            Normals = [.. corners.Select(_ => new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 1d })],
+            Uv0 = [.. corners.Select(_ => new MaxSceneVector2SnapshotData { X = 0d, Y = 0d })],
+            TriangleIndices = [0, 1, 2]
+        });
+        snapshot.Nodes.Add(new MaxSceneNodeSnapshotData
+        {
+            Id = $"node:{id}",
+            Name = id,
+            Kind = DccNodeKind.Mesh,
+            MeshId = id,
+            LocalTransform = new MaxSceneTransformSnapshotData
+            {
+                Translation = new MaxSceneVector3SnapshotData(),
+                Rotation = new MaxSceneQuaternionSnapshotData { W = 1d },
+                Scale = new MaxSceneVector3SnapshotData { X = 1d, Y = 1d, Z = 1d }
+            }
+        });
+    }
+
+    [Test]
     public void BackfaceCullSurvivesForInsideOutClosedMeshesTest()
     {
         // Interiors are routinely authored as inside-out closed boxes (normals pointing into the
@@ -72,13 +122,13 @@ public sealed class MaxSceneDccSceneMapperContractTests
         Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.True);
     }
 
-    private static void ReplaceMeshGeometry(MaxSceneSnapshotData snapshot, bool closed, bool outwardNormals)
+    private static void ReplaceMeshGeometry(MaxSceneSnapshotData snapshot, bool closed, bool outwardNormals, double scale = 1d)
     {
         var mesh = snapshot.Meshes[0];
         var a = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 0d };
-        var b = new MaxSceneVector3SnapshotData { X = 10d, Y = 0d, Z = 0d };
-        var c = new MaxSceneVector3SnapshotData { X = 0d, Y = 10d, Z = 0d };
-        var d = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 10d };
+        var b = new MaxSceneVector3SnapshotData { X = 10d * scale, Y = 0d, Z = 0d };
+        var c = new MaxSceneVector3SnapshotData { X = 0d, Y = 10d * scale, Z = 0d };
+        var d = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 10d * scale };
 
         // Per-corner (unwelded) layout, like the collector emits.
         var corners = closed
@@ -91,12 +141,16 @@ public sealed class MaxSceneDccSceneMapperContractTests
         var sign = outwardNormals ? 1d : -1d;
 
         mesh.Positions = [.. corners.Select(me => new MaxSceneVector3SnapshotData { X = me.X, Y = me.Y, Z = me.Z })];
-        mesh.Normals = [.. corners.Select(me => new MaxSceneVector3SnapshotData
-        {
-            X = sign * (me.X - centroidX),
-            Y = sign * (me.Y - centroidY),
-            Z = sign * (me.Z - centroidZ)
-        })];
+        // A wall shell carries normals perpendicular to the centroid direction (a flat plane's
+        // normal never points away from its own centroid); a solid's normals point radially out.
+        mesh.Normals = closed
+            ? [.. corners.Select(me => new MaxSceneVector3SnapshotData
+            {
+                X = sign * (me.X - centroidX),
+                Y = sign * (me.Y - centroidY),
+                Z = sign * (me.Z - centroidZ)
+            })]
+            : [.. corners.Select(_ => new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 1d })];
         mesh.Uv0 = [.. corners.Select(_ => new MaxSceneVector2SnapshotData { X = 0d, Y = 0d })];
         mesh.TriangleIndices = [.. Enumerable.Range(0, corners.Length)];
         mesh.MaterialIndices = [];
