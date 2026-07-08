@@ -110,29 +110,88 @@ internal sealed class MaxSceneSnapshotCollector
             if (environmentMap is null)
                 return;
 
+            var isScreenMapped = ReadEnvironmentIsScreenMapped();
+
             var bitmap = environmentMap as IBitmapTex
                          ?? (environmentMap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
 
             if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
             {
-                // Procedural environment (Gradient sky etc.) — bake it as an equirectangular image
-                // so the backdrop keeps its authored look instead of collapsing to a flat colour.
+                // Procedural environment (Gradient sky etc.) — bake it as an image so the backdrop
+                // keeps its authored look instead of collapsing to a flat colour. Screen-mapped
+                // environments are 2D backdrops stretched across the render window, so bake those
+                // at the render aspect; everything else bakes as a 2:1 equirect panorama.
                 // Near-uniform bakes are allowed here: a flat-ish sky is still the authored
                 // backdrop (A06's Noise environment reads as an even grey).
-                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", 1024, 512, allowNearUniform: true);
+                var (bakeWidth, bakeHeight) = isScreenMapped ? ResolveBackdropBakeSize() : ((ushort)1024, (ushort)512);
+                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", bakeWidth, bakeHeight, allowNearUniform: true);
                 if (!string.IsNullOrWhiteSpace(bakedId))
+                {
                     m_summary.EnvironmentImageId = bakedId;
+                    m_summary.EnvironmentIsScreenMapped = isScreenMapped;
+                }
                 return;
             }
 
             var imageAssetId = GetOrCreateImageAsset(bitmap);
             if (!string.IsNullOrWhiteSpace(imageAssetId))
+            {
                 m_summary.EnvironmentImageId = imageAssetId;
+                m_summary.EnvironmentIsScreenMapped = isScreenMapped;
+            }
         }
         catch
         {
             // Leave EnvironmentImageId null on failure — the scene renders with the colour world.
         }
+    }
+
+    // A 3ds Max environment map with Environ/Screen coordinates is a 2D backdrop stretched across
+    // the render window, not a panorama. The mapping kind lives on the map's UVGen, which the
+    // facade does not surface — walk the environment map tree via MAXScript and report whether
+    // any UVGen says Environ (mappingType 1) + Screen (mapping 3). Procedural roots (A06's Noise
+    // has 3D XYZGen coords) delegate the projection to their submaps, hence the tree walk.
+    private bool ReadEnvironmentIsScreenMapped()
+    {
+        try
+        {
+            var result = m_global.FPValue.Create();
+            const string script =
+                "(local found = 0; local stack = #(); if environmentMap != undefined do append stack environmentMap; local guard = 0; " +
+                "while stack.count > 0 and found == 0 and guard < 64 do (guard += 1; local m = stack[stack.count]; deleteItem stack stack.count; " +
+                "if m != undefined do (try (if m.coords.mappingType == 1 and m.coords.mapping == 3 then found = 1) catch (); " +
+                "local n = 0; try (n = getNumSubTexmaps m) catch (); for i = 1 to n do (try (append stack (getSubTexmap m i)) catch ()))); found as float)";
+            if (!m_global.ExecuteMAXScriptScript(script, Autodesk.Max.MAXScript.ScriptSource.NonEmbedded, true, result, false))
+                return false;
+
+            var value = result.Type switch
+            {
+                ParamType2.Float => (double)result.F,
+                ParamType2.Double => result.Dbl,
+                ParamType2.Int => result.I,
+                _ => 0d
+            };
+
+            return value >= 0.5d;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Screen backdrops bake at the render aspect so the picture lands on the window exactly as
+    // the source renderer stretches it (a 2:1 equirect bake of a 4:3 backdrop would squash it).
+    private (ushort Width, ushort Height) ResolveBackdropBakeSize()
+    {
+        const ushort width = 1024;
+        var renderWidth = m_coreInterface.RendWidth;
+        var renderHeight = m_coreInterface.RendHeight;
+        if (renderWidth <= 0 || renderHeight <= 0)
+            return (width, 768);
+
+        var height = (int)Math.Round(width * (double)renderHeight / renderWidth / 2d) * 2;
+        return (width, (ushort)Math.Clamp(height, 64, 2048));
     }
 
     // Walks the node hierarchy. Only mesh/camera/light nodes are emitted; non-geometry parents

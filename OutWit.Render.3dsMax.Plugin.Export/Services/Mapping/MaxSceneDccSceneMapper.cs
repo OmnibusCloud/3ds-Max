@@ -642,7 +642,8 @@ internal static class MaxSceneDccSceneMapper
                     : MapDisplayColor(summary.EnvironmentColor.R, summary.EnvironmentColor.G, summary.EnvironmentColor.B, summary.EnvironmentColor.A),
                 Strength = ResolveEnvironmentStrength(summary),
                 EnvironmentImageId = summary.EnvironmentImageId,
-                EnvironmentRotationDegrees = summary.EnvironmentRotationDegrees
+                EnvironmentRotationDegrees = summary.EnvironmentRotationDegrees,
+                EnvironmentIsScreenMapped = summary.EnvironmentIsScreenMapped
             };
         }
 

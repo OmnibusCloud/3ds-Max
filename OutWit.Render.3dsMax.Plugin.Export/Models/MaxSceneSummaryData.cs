@@ -91,6 +91,10 @@ public sealed class MaxSceneSummaryData
     // Z-axis rotation (degrees) for the environment image. Ignored when EnvironmentImageId is unset.
     public double EnvironmentRotationDegrees { get; set; }
 
+    // True when the environment map uses Environ/Screen coordinates — a 2D backdrop stretched
+    // across the render window rather than a panorama. Ignored when EnvironmentImageId is unset.
+    public bool EnvironmentIsScreenMapped { get; set; }
+
     // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
     public bool MotionBlur { get; set; }
 
