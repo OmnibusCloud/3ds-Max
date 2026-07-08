@@ -35,7 +35,7 @@ public sealed class MaxSceneDccSceneMapperContractTests
         // see-through and exposed the black iris disc). A closed tetrahedron must lose the flag.
         var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
         snapshot.Materials[0].BackfaceCull = true;
-        ReplaceMeshGeometry(snapshot, closed: true);
+        ReplaceMeshGeometry(snapshot, closed: true, outwardNormals: true);
 
         var scene = MapScene(snapshot);
 
@@ -49,14 +49,30 @@ public sealed class MaxSceneDccSceneMapperContractTests
         // camera must keep seeing through its backfaces.
         var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
         snapshot.Materials[0].BackfaceCull = true;
-        ReplaceMeshGeometry(snapshot, closed: false);
+        ReplaceMeshGeometry(snapshot, closed: false, outwardNormals: true);
 
         var scene = MapScene(snapshot);
 
         Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.True);
     }
 
-    private static void ReplaceMeshGeometry(MaxSceneSnapshotData snapshot, bool closed)
+    [Test]
+    public void BackfaceCullSurvivesForInsideOutClosedMeshesTest()
+    {
+        // Interiors are routinely authored as inside-out closed boxes (normals pointing into the
+        // room): there culling matters — the camera outside must keep seeing through the near
+        // wall (Lighting-Vertex rendered a blank wall when the flag was cleared by closedness
+        // alone).
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        snapshot.Materials[0].BackfaceCull = true;
+        ReplaceMeshGeometry(snapshot, closed: true, outwardNormals: false);
+
+        var scene = MapScene(snapshot);
+
+        Assert.That(scene.Materials.First(me => me.Id == snapshot.Materials[0].Id).BackfaceCull, Is.True);
+    }
+
+    private static void ReplaceMeshGeometry(MaxSceneSnapshotData snapshot, bool closed, bool outwardNormals)
     {
         var mesh = snapshot.Meshes[0];
         var a = new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 0d };
@@ -69,8 +85,18 @@ public sealed class MaxSceneDccSceneMapperContractTests
             ? new[] { a, b, c, a, b, d, a, c, d, b, c, d }
             : new[] { a, b, c };
 
+        var centroidX = corners.Average(me => me.X);
+        var centroidY = corners.Average(me => me.Y);
+        var centroidZ = corners.Average(me => me.Z);
+        var sign = outwardNormals ? 1d : -1d;
+
         mesh.Positions = [.. corners.Select(me => new MaxSceneVector3SnapshotData { X = me.X, Y = me.Y, Z = me.Z })];
-        mesh.Normals = [.. corners.Select(_ => new MaxSceneVector3SnapshotData { X = 0d, Y = 0d, Z = 1d })];
+        mesh.Normals = [.. corners.Select(me => new MaxSceneVector3SnapshotData
+        {
+            X = sign * (me.X - centroidX),
+            Y = sign * (me.Y - centroidY),
+            Z = sign * (me.Z - centroidZ)
+        })];
         mesh.Uv0 = [.. corners.Select(_ => new MaxSceneVector2SnapshotData { X = 0d, Y = 0d })];
         mesh.TriangleIndices = [.. Enumerable.Range(0, corners.Length)];
         mesh.MaterialIndices = [];

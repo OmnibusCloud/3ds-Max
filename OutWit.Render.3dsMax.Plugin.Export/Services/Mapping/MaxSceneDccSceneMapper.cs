@@ -342,12 +342,42 @@ internal static class MaxSceneDccSceneMapper
         }
     }
 
-    // Watertight test on the per-corner (unwelded) payload mesh: cluster vertices by position,
-    // then every undirected edge must be shared by exactly two triangles.
+    // Watertight AND outward-facing test on the per-corner (unwelded) payload mesh. Closedness
+    // alone is not enough: interiors are routinely authored as INSIDE-OUT closed boxes (normals
+    // pointing into the room) — there Scanline's culling very much matters (the camera outside
+    // sees through the near wall), so the flag must survive. Only a solid whose normals point
+    // consistently away from its own centroid renders identically with and without culling.
     private static bool IsClosedMesh(DccMeshData mesh)
     {
         if (mesh.TriangleIndices.Count < 12)
             return false;
+
+        if (mesh.Normals.Count == mesh.Positions.Count)
+        {
+            double cx = 0d, cy = 0d, cz = 0d;
+            foreach (var position in mesh.Positions)
+            {
+                cx += position.X;
+                cy += position.Y;
+                cz += position.Z;
+            }
+
+            cx /= mesh.Positions.Count;
+            cy /= mesh.Positions.Count;
+            cz /= mesh.Positions.Count;
+
+            var outwardCount = 0;
+            for (var i = 0; i < mesh.Positions.Count; i++)
+            {
+                var position = mesh.Positions[i];
+                var normal = mesh.Normals[i];
+                if (normal.X * (position.X - cx) + normal.Y * (position.Y - cy) + normal.Z * (position.Z - cz) > 0d)
+                    outwardCount++;
+            }
+
+            if (outwardCount < mesh.Positions.Count * 0.8d)
+                return false;
+        }
 
         var clusterIdsByPosition = new Dictionary<(long X, long Y, long Z), int>();
         var clusterIdsByVertex = new int[mesh.Positions.Count];
