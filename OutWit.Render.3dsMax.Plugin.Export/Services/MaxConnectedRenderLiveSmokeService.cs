@@ -18,7 +18,7 @@ public sealed class MaxConnectedRenderLiveSmokeService
 {
     #region Constants
 
-    private const string RENDER_DCC_SCENE_STILL_SCRIPT = "RenderDccSceneStill";
+    private const string RENDER_DCC_SCENE_STILL_SCRIPT = "RenderDccSceneStillPacked";
 
     #endregion
 
@@ -110,7 +110,7 @@ public sealed class MaxConnectedRenderLiveSmokeService
             var frame = ResolveFrame(validation.Scene);
             var options = CreateRenderOptions(validation.Scene);
             AppendTrace(traceLogPath, $"Submitting script '{RENDER_DCC_SCENE_STILL_SCRIPT}' for frame {frame} with {options.ResolutionX}x{options.ResolutionY} and {options.Samples} samples.");
-            var handle = await client.Scripts.RunAsync(RENDER_DCC_SCENE_STILL_SCRIPT, validation.Scene, frame, options, cancellationToken);
+            var handle = await client.Scripts.RunAsync(RENDER_DCC_SCENE_STILL_SCRIPT, MaxScenePayloadPacker.Pack(validation.Scene), frame, options, cancellationToken);
             AppendTrace(traceLogPath, $"Submitted OmnibusCloud job '{handle.JobId}'. Waiting for completion.");
             var waitResult = await handle.WaitAsync<Guid>(pollInterval: TimeSpan.FromSeconds(2), ct: cancellationToken);
             AppendTrace(traceLogPath, $"OmnibusCloud job '{handle.JobId}' finished with status '{waitResult.Status}' and progress {waitResult.OverallProgress:0.###}.");

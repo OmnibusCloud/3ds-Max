@@ -251,18 +251,22 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
     {
         var options = CreateRenderOptions(request, scene);
 
+        // The scene travels as a gzipped MemoryPack payload (6-10x smaller than the inline
+        // DccScene parameter); the *Packed scripts expand it server-side before the build.
+        var packedScene = MaxScenePayloadPacker.Pack(scene);
+
         var (scriptName, parameters) = request.RenderMode switch
         {
-            "RenderStillTiled" => ("RenderDccSceneStillTiled",
-                JobParametersSnapshot.Create(scene, request.FrameStart, DEFAULT_TILES_X, DEFAULT_TILES_Y, options, CreateTileOptions())),
-            "RenderFrames" => ("RenderDccSceneFrames",
-                JobParametersSnapshot.Create(scene, request.FrameStart, request.FrameEnd, options)),
-            "RenderVideo" => ("RenderDccSceneVideo",
-                JobParametersSnapshot.Create(scene, request.FrameStart, request.FrameEnd, options, CreateVideoOptions(scene))),
-            "ExportBlend" => ("RenderDccSceneExportBlend",
-                JobParametersSnapshot.Create(scene)),
-            _ => ("RenderDccSceneStill",
-                JobParametersSnapshot.Create(scene, request.FrameStart, options))
+            "RenderStillTiled" => ("RenderDccSceneStillTiledPacked",
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, DEFAULT_TILES_X, DEFAULT_TILES_Y, options, CreateTileOptions())),
+            "RenderFrames" => ("RenderDccSceneFramesPacked",
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, request.FrameEnd, options)),
+            "RenderVideo" => ("RenderDccSceneVideoPacked",
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, request.FrameEnd, options, CreateVideoOptions(scene))),
+            "ExportBlend" => ("RenderDccSceneExportBlendPacked",
+                JobParametersSnapshot.Create(packedScene)),
+            _ => ("RenderDccSceneStillPacked",
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, options))
         };
 
         return new WitJobSubmission
