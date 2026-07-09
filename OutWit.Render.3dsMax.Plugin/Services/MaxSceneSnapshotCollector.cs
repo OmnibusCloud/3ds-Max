@@ -207,9 +207,15 @@ internal sealed class MaxSceneSnapshotCollector
     // colour property is literally named "Transparecy".
     private MaxSceneColorSnapshotData? TryReadRaytraceTransparencyColor(IMtl material)
     {
-        var r = TryEvaluateMaterialScriptDouble(material, "Transparecy.r");
-        var g = TryEvaluateMaterialScriptDouble(material, "Transparecy.g");
-        var b = TryEvaluateMaterialScriptDouble(material, "Transparecy.b");
+        return TryReadMaterialScriptColor(material, "Transparecy");
+    }
+
+    // Reads a MAXScript colour property (0-255 per channel) off the material by anim handle.
+    private MaxSceneColorSnapshotData? TryReadMaterialScriptColor(IMtl material, string propertyName)
+    {
+        var r = TryEvaluateMaterialScriptDouble(material, propertyName + ".r");
+        var g = TryEvaluateMaterialScriptDouble(material, propertyName + ".g");
+        var b = TryEvaluateMaterialScriptDouble(material, propertyName + ".b");
         if (r is null || g is null || b is null || r < 0d || g < 0d || b < 0d)
             return null;
 
@@ -1078,21 +1084,43 @@ internal sealed class MaxSceneSnapshotCollector
             }
         }
 
-        // Fallback: a material with a bitmap but no recognised slot name still gets its base colour.
+        // Fallback: a material with a bitmap but no recognised slot name still gets its base
+        // colour. Walked per slot rather than tree-first: environment/reflection/refraction
+        // slots hold what the material REFLECTS, never its albedo — C03's chrome carries the
+        // mountain photo as a per-material Environment map, and the blind tree-walk painted
+        // the photo onto the ball as its base colour.
         if (!assignedSlots.Contains(DccTextureSlotKind.BaseColor))
         {
-            var fallbackBitmap = FindFirstBitmapTexture(material);
-            if (fallbackBitmap is not null && !string.IsNullOrWhiteSpace(fallbackBitmap.MapName))
+            for (var i = 0; i < material.NumSubTexmaps; i++)
             {
+                var slotName = material.GetSubTexmapSlotName(i, false);
+                if (slotName?.Contains("environment", StringComparison.OrdinalIgnoreCase) == true
+                    || slotName?.Contains("reflect", StringComparison.OrdinalIgnoreCase) == true
+                    || slotName?.Contains("refract", StringComparison.OrdinalIgnoreCase) == true)
+                    continue;
+
+                var texmap = material.GetSubTexmap(i);
+                if (texmap is null)
+                    continue;
+
+                var fallbackBitmap = texmap as IBitmapTex
+                                     ?? (texmap is IISubMap subMap ? FindFirstBitmapTexture(subMap) : null);
+                if (fallbackBitmap is null || string.IsNullOrWhiteSpace(fallbackBitmap.MapName))
+                    continue;
+
                 var imageAssetId = GetOrCreateImageAsset(fallbackBitmap);
-                if (!string.IsNullOrWhiteSpace(imageAssetId))
+                if (string.IsNullOrWhiteSpace(imageAssetId))
+                    continue;
+
+                var (uvScaleX, uvScaleY) = ReadBitmapUvTiling(fallbackBitmap);
+                materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
                 {
-                    materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
-                    {
-                        Slot = DccTextureSlotKind.BaseColor,
-                        ImageAssetId = imageAssetId
-                    });
-                }
+                    Slot = DccTextureSlotKind.BaseColor,
+                    ImageAssetId = imageAssetId,
+                    UvScaleX = uvScaleX,
+                    UvScaleY = uvScaleY
+                });
+                break;
             }
         }
     }
@@ -1733,15 +1761,24 @@ internal sealed class MaxSceneSnapshotCollector
             }
             if (reflection is null)
             {
-                // RaytraceMaterial exposes its reflectivity through neither a named param block nor
-                // the legacy getters — treat the class itself as a mirror.
-                try
+                // RaytraceMaterial exposes its reflectivity through neither a named param block
+                // nor the legacy getters — read the authored reflect COLOUR via the anim handle.
+                // Its luminance is the honest mirror strength (the old blanket 1.0 chromed even
+                // reflect-black materials), and since Scanline ADDS the reflection, a dominant
+                // reflect colour is the visible look of the mirror: promote it into the base so
+                // C03's white chrome doesn't render as a mirror tinted by its grey diffuse.
+                var raytraceReflect = TryReadMaterialScriptColor(material, "reflect");
+                if (raytraceReflect is not null)
                 {
-                    if (material.ClassName(false)?.Contains("raytrace", StringComparison.OrdinalIgnoreCase) == true)
-                        reflection = 1d;
-                }
-                catch
-                {
+                    var reflectLuminance = Math.Max(raytraceReflect.R, Math.Max(raytraceReflect.G, raytraceReflect.B));
+                    reflection = reflectLuminance;
+
+                    var currentBaseLuminance = Math.Max(snapshot.BaseColor.R, Math.Max(snapshot.BaseColor.G, snapshot.BaseColor.B));
+                    if (reflectLuminance > 0.5d
+                        && currentBaseLuminance >= 0.1d
+                        && reflectLuminance > currentBaseLuminance
+                        && snapshot.Transmission <= 0.1d)
+                        snapshot.BaseColor = raytraceReflect;
                 }
             }
             // Never metallize a transmissive material: Metallic 1 on the Principled BSDF disables
