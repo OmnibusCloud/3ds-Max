@@ -228,9 +228,9 @@ internal sealed class MaxSceneSnapshotCollector
         };
     }
 
-    // Evaluates "<material>.<propertyPath>" via MAXScript, addressing the material by its anim
+    // Evaluates "<anim>.<propertyPath>" via MAXScript, addressing the object by its anim
     // handle. Returns null when the property is missing or the evaluation fails (-100000 marker).
-    private double? TryEvaluateMaterialScriptDouble(IMtl material, string propertyPath)
+    private double? TryEvaluateMaterialScriptDouble(IAnimatable material, string propertyPath)
     {
         try
         {
@@ -256,27 +256,40 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private (double UScale, double VScale) ReadBitmapUvTiling(IBitmapTex bitmap)
+    private (double UScale, double VScale, double UOffset, double VOffset) ReadBitmapUvTiling(IBitmapTex bitmap)
     {
         try
         {
             if (bitmap.TheUVGen is not IStdUVGen uvGen)
-                return (1d, 1d);
+                return (1d, 1d, 0d, 0d);
 
-            // The contract's UvScale is TEXTURE-space: the generator's Mapping node runs in
-            // 'TEXTURE' mode (the inverse of the point transform), so Max tiling N — pattern
-            // repeated N times — maps to texture scale 1/N.
-            var time = m_coreInterface.Time;
-            var uTiling = (double)uvGen.GetUScl(time);
-            var vTiling = (double)uvGen.GetVScl(time);
-            var uScale = double.IsFinite(uTiling) && uTiling != 0d ? 1d / uTiling : 1d;
-            var vScale = double.IsFinite(vTiling) && vTiling != 0d ? 1d / vTiling : 1d;
+            // Take the authored transform straight from the UVGen matrix — it already composes
+            // tiling, the centre anchor AND the authored offsets (the dragon sky is
+            // scale(3, 2.4) + translation(−1.45, −0.892); reconstructing that from the spinners
+            // shifted the repeat phases and grew seams Max hides). The generator's Mapping node
+            // runs in 'TEXTURE' mode with tex = (uv − Location) / Scale, and Max computes
+            // tex = uv·T + Tr, so Scale = 1/T and Location = −Tr/T.
+            var matrix = m_global.Matrix3.Create();
+            uvGen.GetUVTransform(matrix);
+            var rowU = matrix.GetRow(0);
+            var rowV = matrix.GetRow(1);
+            var translation = matrix.GetRow(3);
 
-            return (uScale, vScale);
+            // Authored UV rotation would put off-diagonal terms here — the Mapping pivot
+            // semantics differ, so leave those maps untransformed rather than mis-rotate them.
+            if (Math.Abs(rowU.Y) > 1e-4 || Math.Abs(rowV.X) > 1e-4)
+                return (1d, 1d, 0d, 0d);
+
+            double uTiling = rowU.X;
+            double vTiling = rowV.Y;
+            if (!double.IsFinite(uTiling) || uTiling == 0d || !double.IsFinite(vTiling) || vTiling == 0d)
+                return (1d, 1d, 0d, 0d);
+
+            return (1d / uTiling, 1d / vTiling, -translation.X / uTiling, -translation.Y / vTiling);
         }
         catch
         {
-            return (1d, 1d);
+            return (1d, 1d, 0d, 0d);
         }
     }
 
@@ -1059,13 +1072,15 @@ internal sealed class MaxSceneSnapshotCollector
             if (string.IsNullOrWhiteSpace(imageAssetId))
                 continue;
 
-            var (uvScaleX, uvScaleY) = ReadBitmapUvTiling(bitmap);
+            var (uvScaleX, uvScaleY, uvOffsetX, uvOffsetY) = ReadBitmapUvTiling(bitmap);
             materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
             {
                 Slot = slotKind.Value,
                 ImageAssetId = imageAssetId,
                 UvScaleX = uvScaleX,
-                UvScaleY = uvScaleY
+                UvScaleY = uvScaleY,
+                UvOffsetX = uvOffsetX,
+                UvOffsetY = uvOffsetY
             });
             assignedSlots.Add(slotKind.Value);
 
@@ -1112,13 +1127,15 @@ internal sealed class MaxSceneSnapshotCollector
                 if (string.IsNullOrWhiteSpace(imageAssetId))
                     continue;
 
-                var (uvScaleX, uvScaleY) = ReadBitmapUvTiling(fallbackBitmap);
+                var (uvScaleX, uvScaleY, uvOffsetX, uvOffsetY) = ReadBitmapUvTiling(fallbackBitmap);
                 materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
                 {
                     Slot = DccTextureSlotKind.BaseColor,
                     ImageAssetId = imageAssetId,
                     UvScaleX = uvScaleX,
-                    UvScaleY = uvScaleY
+                    UvScaleY = uvScaleY,
+                    UvOffsetX = uvOffsetX,
+                    UvOffsetY = uvOffsetY
                 });
                 break;
             }
@@ -1362,19 +1379,31 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
-    private static bool ReadDecayTypeIsNone(ILightObject lightObject)
+    private bool ReadDecayTypeIsNone(ILightObject lightObject)
     {
         // The runtime wrapper is the base LightObject: GenLight's DecayType is unreachable and
         // ClassName degrades to a generic "Light", so classify by CLASS ID — standard Max lights
         // (omni 0x1011, fspot 0x1012, tspot 0x1013, dir 0x1014, tdir 0x1015) default to decay
-        // "None". Authored attenuation surfaces through UseAtten — respect it by falling back to
-        // the physical model when the artist configured attenuation ranges.
+        // "None".
         try
         {
             var classIdPartA = lightObject.ClassID?.PartA ?? 0;
             if (classIdPartA is < 0x1011 or > 0x1015)
                 return false;
 
+            // Read the authored decay kind via the anim handle (1 = None, 2 = Inverse,
+            // 3 = Inverse Square). Attenuation RANGES do not change the model: a decay-None
+            // light is CONSTANT until its far-attenuation window — the ape stands at 850 units
+            // under spots whose fade only begins at 2486, yet the old "has attenuation → go
+            // physical" fallback pushed all 44 of them into inverse-square and starved the
+            // whole character. The fade window itself stays unmodelled (subjects inside the
+            // window render slightly brighter than native — a far smaller error than a wrong
+            // falloff curve).
+            var decayKind = TryEvaluateMaterialScriptDouble(lightObject, "attenDecay");
+            if (decayKind is not null)
+                return Math.Round(decayKind.Value) == 1d;
+
+            // Script read failed — keep the conservative legacy heuristic.
             var useAttenProperty = lightObject.GetType().GetProperty("UseAtten");
             var usesAttenuation = useAttenProperty?.GetValue(lightObject) is bool useAtten && useAtten;
             return !usesAttenuation;

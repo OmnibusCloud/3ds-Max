@@ -263,11 +263,16 @@ internal static class MaxSceneDccSceneMapper
                     Ior = me.Ior,
                     DisplacementScale = me.DisplacementScale,
                     BackfaceCull = me.BackfaceCull,
-                    EmissionColor = MapDisplayColor(me.EmissionColor.R, me.EmissionColor.G, me.EmissionColor.B, me.EmissionColor.A),
-                    EmissionStrength = me.EmissionStrength,
+                    EmissionColor = ResolveOverUnitySpecularEmission(summary, me) > 0d && me.EmissionStrength <= 0d
+                        ? MapDisplayColor(me.BaseColor.R, me.BaseColor.G, me.BaseColor.B, me.BaseColor.A)
+                        : MapDisplayColor(me.EmissionColor.R, me.EmissionColor.G, me.EmissionColor.B, me.EmissionColor.A),
+                    EmissionStrength = me.EmissionStrength > 0d
+                        ? me.EmissionStrength
+                        : ResolveOverUnitySpecularEmission(summary, me),
                     // Scanline has no GI: a self-illuminated surface glows but never lights the
                     // scene (Lighting-Vertex's boxes flooded the interior through Cycles GI).
-                    EmissionCameraOnly = summary.UsesScanlineRenderer && me.EmissionStrength > 0d,
+                    EmissionCameraOnly = summary.UsesScanlineRenderer
+                                         && (me.EmissionStrength > 0d || ResolveOverUnitySpecularEmission(summary, me) > 0d),
                     BaseColorFromVertexColors = me.BaseColorFromVertexColors,
                     EmissionFromVertexColors = me.EmissionFromVertexColors,
                     TextureSlots =
@@ -277,7 +282,9 @@ internal static class MaxSceneDccSceneMapper
                             Slot = slot.Slot,
                             ImageAssetId = slot.ImageAssetId,
                             UvScaleX = slot.UvScaleX,
-                            UvScaleY = slot.UvScaleY
+                            UvScaleY = slot.UvScaleY,
+                            UvOffsetX = slot.UvOffsetX,
+                            UvOffsetY = slot.UvOffsetY
                         })
                     ]
                 })
@@ -625,6 +632,24 @@ internal static class MaxSceneDccSceneMapper
                 Z = transform.Scale.Z
             }
         };
+    }
+
+    // Scanline's over-unity Blinn specular (Specular Level > 100%) is ADDITIVE: it blows the
+    // surface toward white regardless of shadowing — the ape's and Maxine's eye whites stay
+    // white domes even inside fully shadowed sockets. Energy-conserving Cycles cannot blow
+    // out, so read the over-unity share as partial self-illumination; the replacement
+    // semantics (emission = diffuse × share, diffuse response × (1 − share)) keep dark pupils
+    // dark. Metallic mirrors and glass carry their over-unity look via real reflections and
+    // are excluded.
+    private static double ResolveOverUnitySpecularEmission(MaxSceneSummaryData summary, MaxSceneMaterialSnapshotData material)
+    {
+        if (!summary.UsesScanlineRenderer
+            || material.Specular <= 1.001d
+            || material.Metallic >= 0.5d
+            || material.Transmission >= 0.1d)
+            return 0d;
+
+        return Math.Clamp(material.Specular - 1d, 0d, 0.6d);
     }
 
     private static DccWorldData? ResolveWorld(MaxSceneSummaryData summary)
