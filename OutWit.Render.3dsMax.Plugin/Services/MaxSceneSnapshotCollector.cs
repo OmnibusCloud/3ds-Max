@@ -124,7 +124,7 @@ internal sealed class MaxSceneSnapshotCollector
                 // Near-uniform bakes are allowed here: a flat-ish sky is still the authored
                 // backdrop (A06's Noise environment reads as an even grey).
                 var (bakeWidth, bakeHeight) = isScreenMapped ? ResolveBackdropBakeSize() : ((ushort)1024, (ushort)512);
-                var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", bakeWidth, bakeHeight, allowNearUniform: true);
+            var bakedId = TryBakeTexmapToImageAsset(environmentMap, "environment", bakeWidth, bakeHeight, allowNearUniform: true);
                 if (!string.IsNullOrWhiteSpace(bakedId))
                 {
                     m_summary.EnvironmentImageId = bakedId;
@@ -588,7 +588,7 @@ internal sealed class MaxSceneSnapshotCollector
             var polyShape = m_global.PolyShape.Create();
             shapeObject.MakePolyShape(m_coreInterface.Time, polyShape, -1, false);
 
-            var correction = ComputeObjectToNodeCorrection(node, m_coreInterface.Time);
+        var correction = ComputeObjectToNodeCorrection(node, m_coreInterface.Time);
 
             for (var lineIndex = 0; lineIndex < polyShape.NumLines; lineIndex++)
             {
@@ -1007,6 +1007,9 @@ internal sealed class MaxSceneSnapshotCollector
         // name, so PBR maps (normal/roughness/metalness/opacity) survive — not just the base
         // colour. Slot-name matching is renderer-agnostic (Standard, Physical, and most third-party
         // shaders all name their slots descriptively).
+        // Foreign renderer families only contribute DIRECT bitmaps (walking their submap trees
+        // for class/file names is safe) — baking their procedural maps is not attempted.
+        var foreignFamily = IsForeignPluginClass(material.ClassName(false));
         var assignedSlots = new HashSet<DccTextureSlotKind>();
 
         for (var i = 0; i < material.NumSubTexmaps; i++)
@@ -1047,6 +1050,15 @@ internal sealed class MaxSceneSnapshotCollector
 
             // Procedural maps (Noise, Gradient, Mix, Smoke, Checker…) carry no file — bake the
             // texmap to a PNG so the artist's pattern survives instead of silently dropping it.
+            // Foreign-family materials skip the bake: rendering their maps outside the native
+            // renderer context is where the crash class lives.
+            if (foreignFamily && (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)))
+            {
+                if (texmap is not null)
+                    RecordUnmappedPluginClass("texmap", texmap.ClassName(false), material.Name);
+                continue;
+            }
+
             if ((bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)) && texmap is not null)
             {
                 // A dark opacity bake would hide the object outright — require a bright-enough map.
@@ -1417,6 +1429,29 @@ internal sealed class MaxSceneSnapshotCollector
     private MaxSceneLightSnapshotData ExtractLight(IINode node, ILightObject lightObject, string lightId)
     {
         var time = m_coreInterface.Time;
+
+        // Foreign renderer light families (VRayLight, VRaySun, CoronaLight, …): the typed
+        // GenLight getters and the area-light param walk are unsafe on them (same hang class
+        // as the material param blocks). Until a family has a dedicated reader, export a
+        // neutral constant point light so the scene is lit rather than black, and record the
+        // class for diagnostics.
+        var lightClassName = lightObject.ClassName(false);
+        if (IsForeignPluginClass(lightClassName))
+        {
+            RecordUnmappedPluginClass("light", lightClassName, node.Name);
+            return new MaxSceneLightSnapshotData
+            {
+                Id = lightId,
+                Name = node.Name,
+                Kind = DccLightKind.Point,
+                Color = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d },
+                Intensity = 1d,
+                Range = 0.01d,
+                NoDecay = true,
+                CastShadows = true
+            };
+        }
+
         var color = lightObject.GetRGBColor(time);
         var hotspotDegrees = RadiansToDegrees(lightObject.GetHotspot(time));
         // Max spots have a hard HOTSPOT cone inside a soft FALLOFF cone; Blender's spot_size is
@@ -1635,6 +1670,38 @@ internal sealed class MaxSceneSnapshotCollector
         return materialId;
     }
 
+    // Third-party renderer plugin families (V-Ray, Corona, …) must not run through the
+    // generic parameter heuristics: walking a VRayMtl's param blocks hangs inside
+    // IIParamBlock2.GetColor and never returns (the Automotive sample crashed 3ds Max with a
+    // minidump after 20 minutes), and the anim-handle MAXScript reads cost seconds per
+    // material. Until a family has a dedicated reader, its materials/lights take a minimal
+    // safe path and the class is recorded for diagnostics.
+    private static readonly string[] FOREIGN_PLUGIN_CLASS_PREFIXES =
+    [
+        "VRay", "Corona", "Octane", "Redshift", "Maxwell", "Thea", "fR", "finalRender"
+    ];
+
+    private bool IsForeignPluginClass(string? className)
+    {
+        if (string.IsNullOrWhiteSpace(className))
+            return false;
+
+        foreach (var prefix in FOREIGN_PLUGIN_CLASS_PREFIXES)
+        {
+            if (className.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void RecordUnmappedPluginClass(string kind, string? className, string objectName)
+    {
+        var key = $"{kind}:{className ?? "unknown"}";
+        m_summary.UnmappedPluginClasses.TryGetValue(key, out var count);
+        m_summary.UnmappedPluginClasses[key] = count + 1;
+    }
+
     private void ReadMaterialAppearance(IMtl material, MaxSceneMaterialSnapshotData snapshot)
     {
         // Read the standard material parameters 3ds Max exposes on IMtl. Materials that do not
@@ -1642,6 +1709,17 @@ internal sealed class MaxSceneSnapshotCollector
         try
         {
             var time = m_coreInterface.Time;
+
+            // Foreign renderer families: minimal safe read only. The viewport diffuse swatch
+            // survives GetDiffuse; every heuristic beyond that is unsafe (see the gate note).
+            var materialClassName = material.ClassName(false);
+            if (IsForeignPluginClass(materialClassName))
+            {
+                RecordUnmappedPluginClass("material", materialClassName, material.Name);
+                var foreignDiffuse = material.GetDiffuse(time, false);
+                snapshot.BaseColor = new MaxSceneColorSnapshotData { R = foreignDiffuse.R, G = foreignDiffuse.G, B = foreignDiffuse.B, A = 1d };
+                return;
+            }
 
             // Renderer-specific PBR materials (Arnold ai_standard_surface, some Physical variants)
             // do not surface their colour through the legacy GetDiffuse (it returns the class

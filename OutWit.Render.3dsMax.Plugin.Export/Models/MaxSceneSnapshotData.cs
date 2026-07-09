@@ -90,6 +90,11 @@ public sealed class MaxSceneSnapshotData
     // across the render window rather than a panorama. Ignored when EnvironmentImageId is unset.
     public bool EnvironmentIsScreenMapped { get; set; }
 
+    // Third-party plugin classes ("kind:ClassName" → occurrence count) that exported through the
+    // minimal safe path instead of a dedicated reader — the scene-profile diagnostic that tells
+    // a beta user (and us) exactly which families a scene relies on.
+    public Dictionary<string, int> UnmappedPluginClasses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
     public bool MotionBlur { get; set; }
 
