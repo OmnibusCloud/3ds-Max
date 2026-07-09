@@ -5,13 +5,16 @@ network: the plugin exports the open scene into a neutral DCC payload, uploads i
 texture assets, and the network renders it across many machines — stills, frame ranges,
 tiled stills, or encoded video.
 
-> **Status: in active development, pre-release.** The strongest verified path today is
-> end-to-end still rendering: a real `.max` scene exported from 3ds Max, submitted to the
-> deployed OmnibusCloud instance, rendered by real connected nodes, and downloaded back as
-> a non-black image. The connected in-window UX (sign-in, launch settings, job tracking)
-> is being built next — see the sibling
+> **Status: public alpha.** Stills and video render end-to-end from real `.max` scenes:
+> skinned character animation, Scanline and PBR materials, raytraced glass and mirrors,
+> motion blur, HDRI / procedural / screen-mapped environments — validated scene-by-scene
+> against native 3ds Max renders and blind-tested on scenes the pipeline has never seen.
+> See **[Capabilities & Known Limitations](docs/capabilities-and-limitations.md)** for the
+> honest feature matrix: what transfers faithfully, what is approximated, what is not
+> supported yet, and what is planned. The in-Max UI is minimal for now (sign-in, launch
+> settings, and job tracking are being built — see the sibling
 > [Blender integration](https://github.com/OutWitLab/OmnibusCloud-Blender) for the UX this
-> repo is converging on.
+> repo is converging on) — functional feedback is what this alpha is for.
 
 ---
 
@@ -35,10 +38,14 @@ The plugin never ships `.max` files to render nodes. Instead it converts the sce
 Authoring is Windows-only (3ds Max), rendering is cross-platform — the neutral contract is
 what makes the heterogeneous network possible.
 
-What travels well today: static meshes, principled PBR materials, bitmap textures, standard
-lights, cameras (including a synthetic camera from the active perspective viewport when the
-scene has no render camera). Unsupported feature families are **blocked early with explicit
-diagnostics** rather than guessed at.
+What travels well today: meshes with full smoothing fidelity, skinned/deforming animation
+on a frame-exact timeline, Standard/Blinn and PBR materials (plus Raytrace glass and
+mirrors), bitmap and baked procedural textures with authored tiling, standard and
+photometric lights with their real decay semantics, motion blur, HDRI / procedural /
+screen-mapped environments, and cameras (including a synthetic camera from the active
+perspective viewport when the scene has no render camera). The full matrix — including
+approximations and unsupported families — lives in
+[Capabilities & Known Limitations](docs/capabilities-and-limitations.md).
 
 ---
 
