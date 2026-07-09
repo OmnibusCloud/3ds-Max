@@ -1,6 +1,7 @@
 using Autodesk.Max;
 using OutWit.Controller.Render.Dcc.Model;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Mapping;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Snapshots;
 using System.IO;
 using System.Linq;
@@ -1054,6 +1055,26 @@ internal sealed class MaxSceneSnapshotCollector
             // renderer context is where the crash class lives.
             if (foreignFamily && (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName)))
             {
+                // V-Ray scenes carry their files in VRayBitmap texmaps — a V-Ray class the
+                // IBitmapTex walk can't see. Class names and a script filename read are safe
+                // on foreign texmaps (unlike baking), so route the file into the slot.
+                var vrayBitmap = texmap is null ? null : FindFirstVRayBitmapTexmap(texmap, 0);
+                var vrayBitmapPath = vrayBitmap is null ? null : TryReadVRayBitmapFilePath(vrayBitmap);
+                if (vrayBitmap is not null && !string.IsNullOrWhiteSpace(vrayBitmapPath))
+                {
+                    var vrayImageAssetId = GetOrCreateImageAssetFromPath(vrayBitmapPath, vrayBitmap);
+                    if (!string.IsNullOrWhiteSpace(vrayImageAssetId))
+                    {
+                        materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
+                        {
+                            Slot = slotKind.Value,
+                            ImageAssetId = vrayImageAssetId
+                        });
+                        assignedSlots.Add(slotKind.Value);
+                        continue;
+                    }
+                }
+
                 if (texmap is not null)
                     RecordUnmappedPluginClass("texmap", texmap.ClassName(false), material.Name);
                 continue;
@@ -1657,8 +1678,16 @@ internal sealed class MaxSceneSnapshotCollector
             Name = string.IsNullOrWhiteSpace(material.Name) ? materialId : material.Name
         };
 
-        ReadMaterialAppearance(material, materialSnapshot);
-        ReadMaterialTextureSlots(material, materialSnapshot);
+        // V-Ray wrapper materials (Bump/2Sided/Blend/Override) delegate their base look to a
+        // sub-material; read appearance and texture slots from the wrapped material so a tire
+        // (VRayBumpMtl over VRayMtl) doesn't export as the wrapper's defaults. The wrapper's own
+        // layer (bump map, back side, blend coats) is dropped — recorded for diagnostics.
+        var effectiveMaterial = ResolveForeignWrapperMaterial(material);
+        if (!ReferenceEquals(effectiveMaterial, material))
+            RecordUnmappedPluginClass("material-wrapper", material.ClassName(false), material.Name);
+
+        ReadMaterialAppearance(effectiveMaterial, materialSnapshot);
+        ReadMaterialTextureSlots(effectiveMaterial, materialSnapshot);
 
         // Scanline hides backfaces unless the material is flagged 2-Sided; interiors are routinely
         // authored with inward-facing walls the camera looks through from outside. Carry that
@@ -1702,6 +1731,112 @@ internal sealed class MaxSceneSnapshotCollector
         m_summary.UnmappedPluginClasses[key] = count + 1;
     }
 
+    // V-Ray wrapper materials delegate their base look to a sub-material. Unwrap to the first
+    // non-null sub-material (slot 0 is the base/front on every V-Ray wrapper), preferring a
+    // VRayMtl when one is present, so the wrapped material's dedicated reader can run.
+    // Depth-guarded: wrappers nest (Bump over Blend over VRayMtl).
+    private static readonly string[] VRAY_WRAPPER_CLASS_NAMES =
+    [
+        "VRayBumpMtl", "VRay2SidedMtl", "VRayBlendMtl", "VRayOverrideMtl"
+    ];
+
+    private IMtl ResolveForeignWrapperMaterial(IMtl material)
+    {
+        var current = material;
+        for (var depth = 0; depth < 4; depth++)
+        {
+            var className = current.ClassName(false);
+            if (Array.IndexOf(VRAY_WRAPPER_CLASS_NAMES, className) < 0)
+                return current;
+
+            IMtl? firstSubMaterial = null;
+            IMtl? firstVRayMtl = null;
+            for (var i = 0; i < current.NumSubMtls; i++)
+            {
+                var subMaterial = current.GetSubMtl(i);
+                if (subMaterial is null)
+                    continue;
+
+                firstSubMaterial ??= subMaterial;
+                if (subMaterial.ClassName(false) == "VRayMtl")
+                {
+                    firstVRayMtl = subMaterial;
+                    break;
+                }
+            }
+
+            var next = firstVRayMtl ?? firstSubMaterial;
+            if (next is null)
+                return current;
+
+            current = next;
+        }
+
+        return current;
+    }
+
+    // Reads a V-Ray material's mapped properties in ONE batched MAXScript execution per material
+    // and applies the Principled mapping. Returns false (caller falls back to the minimal safe
+    // read) for classes without a dedicated reader or when the script read fails.
+    private bool TryReadVRayMtlAppearance(IMtl material, string? materialClassName, MaxSceneMaterialSnapshotData snapshot)
+    {
+        try
+        {
+            switch (materialClassName)
+            {
+                case "VRayMtl":
+                {
+                    var handle = m_global.Animatable.GetHandleByAnim(material);
+                    var raw = TryEvaluateScriptString(VRayMaterialReader.BuildMaxScript(handle.ToUInt64()));
+                    var values = VRayMaterialReader.TryParseScriptResult(raw);
+                    if (values is null)
+                        return false;
+
+                    VRayMaterialReader.Apply(values, snapshot);
+                    return true;
+                }
+
+                case "VRayScannedMtl":
+                {
+                    var handle = m_global.Animatable.GetHandleByAnim(material);
+                    var raw = TryEvaluateScriptString(VRayScannedMaterialReader.BuildMaxScript(handle.ToUInt64()));
+                    if (!VRayScannedMaterialReader.TryApply(raw, snapshot))
+                        return false;
+
+                    // The measured BRDF itself is not reconstructable — keep the class visible in
+                    // diagnostics as an approximation even though the export got a plausible look.
+                    RecordUnmappedPluginClass("material-approximated", materialClassName, material.Name);
+                    return true;
+                }
+
+                default:
+                    return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Evaluates a MAXScript expression expected to return a string. Returns null when the
+    // evaluation fails or yields a non-string value.
+    private string? TryEvaluateScriptString(string script)
+    {
+        try
+        {
+            var result = m_global.FPValue.Create();
+            if (!m_global.ExecuteMAXScriptScript(script, Autodesk.Max.MAXScript.ScriptSource.NonEmbedded, true, result, false))
+                return null;
+
+            return result.S;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private void ReadMaterialAppearance(IMtl material, MaxSceneMaterialSnapshotData snapshot)
     {
         // Read the standard material parameters 3ds Max exposes on IMtl. Materials that do not
@@ -1710,11 +1845,15 @@ internal sealed class MaxSceneSnapshotCollector
         {
             var time = m_coreInterface.Time;
 
-            // Foreign renderer families: minimal safe read only. The viewport diffuse swatch
-            // survives GetDiffuse; every heuristic beyond that is unsafe (see the gate note).
+            // Foreign renderer families: dedicated script readers where we have one (VRayMtl),
+            // otherwise a minimal safe read only — the viewport diffuse swatch survives
+            // GetDiffuse; every heuristic beyond that is unsafe (see the gate note).
             var materialClassName = material.ClassName(false);
             if (IsForeignPluginClass(materialClassName))
             {
+                if (TryReadVRayMtlAppearance(material, materialClassName, snapshot))
+                    return;
+
                 RecordUnmappedPluginClass("material", materialClassName, material.Name);
                 var foreignDiffuse = material.GetDiffuse(time, false);
                 snapshot.BaseColor = new MaxSceneColorSnapshotData { R = foreignDiffuse.R, G = foreignDiffuse.G, B = foreignDiffuse.B, A = 1d };
@@ -2204,8 +2343,11 @@ internal sealed class MaxSceneSnapshotCollector
 
     private string GetOrCreateImageAsset(IBitmapTex bitmapTexture)
     {
-        var sourcePath = bitmapTexture.MapName ?? string.Empty;
+        return GetOrCreateImageAssetFromPath(bitmapTexture.MapName, bitmapTexture);
+    }
 
+    private string GetOrCreateImageAssetFromPath(string? sourcePath, object textureKey)
+    {
         if (string.IsNullOrWhiteSpace(sourcePath))
             return string.Empty;
 
@@ -2216,7 +2358,7 @@ internal sealed class MaxSceneSnapshotCollector
         var imageAssetId = CreateUniquePrefixedId(m_usedImageAssetIds, "image", Path.GetFileNameWithoutExtension(fileName));
         m_imageAssetIdsByPath[sourcePath] = imageAssetId;
 
-        if (m_exportedTextures.Add(bitmapTexture))
+        if (m_exportedTextures.Add(textureKey))
         {
             m_summary.ImageAssets.Add(new MaxSceneImageAssetSnapshotData
             {
@@ -2543,6 +2685,54 @@ internal sealed class MaxSceneSnapshotCollector
                              ?? sourceType.GetMethod("get_Item", BindingFlags.Instance | BindingFlags.Public, [typeof(int)]);
 
         return getValueMethod?.Invoke(source, [index]);
+    }
+
+    // Finds the first VRayBitmap (né VRayHDRI) in the texmap tree. Walking foreign submap
+    // trees for CLASS NAMES is safe — only typed paramblock getters and render bakes hang.
+    private static ITexmap? FindFirstVRayBitmapTexmap(ITexmap texmap, int depth)
+    {
+        if (depth > 8)
+            return null;
+
+        var className = texmap.ClassName(false);
+        if (className is "VRayBitmap" or "VRayHDRI")
+            return texmap;
+
+        if (texmap is IISubMap subMap)
+        {
+            for (var i = 0; i < subMap.NumSubTexmaps; i++)
+            {
+                var child = subMap.GetSubTexmap(i);
+                if (child is null)
+                    continue;
+
+                var nested = FindFirstVRayBitmapTexmap(child, depth + 1);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+
+    // VRayBitmap keeps its file in the HDRIMapName property (the class began life as VRayHDRI);
+    // read it by anim handle — the typed facade accessors don't apply to a V-Ray class.
+    private string? TryReadVRayBitmapFilePath(ITexmap texmap)
+    {
+        try
+        {
+            var handle = m_global.Animatable.GetHandleByAnim(texmap);
+            var script = $"(local m = getAnimByHandle {handle.ToUInt64()}; local s = (try (m.HDRIMapName as string) catch (\"?\")); if s == \"?\" or s == \"undefined\" do (s = (try (m.fileName as string) catch (\"?\"))); s)";
+            var result = TryEvaluateScriptString(script);
+            if (string.IsNullOrWhiteSpace(result) || result == "?" || result == "undefined")
+                return null;
+
+            return result;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static IBitmapTex? FindFirstBitmapTexture(IISubMap subMap)

@@ -117,10 +117,22 @@ These transfer with documented approximations. Expect a faithful read, not an ex
   self-illumination or displacement (showcase shaders like lava slates) do not survive:
   simple leaves are baked, but deep graph logic is not translated yet. This is the
   top-priority v2 item.
-- **Third-party renderer materials (V-Ray, Corona, finalRender, …)** — *untested*. The
-  exporter reads renderer-agnostic parameter names where possible, so basic color and
-  roughness may come through, but no fidelity is promised. Scenes authored for Scanline,
-  Arnold, or Physical Material are the supported path today.
+- **V-Ray materials** — dedicated support, approximate by design:
+  - **VRayMtl** maps to the neutral PBR surface: diffuse color and texture, reflection
+    glossiness/metalness/Fresnel IOR, refraction (with fog tint and glossiness),
+    self-illumination, and direct bitmap slots (including V-Ray Bitmap files and normal
+    maps). Procedural V-Ray maps are not baked.
+  - **VRayScannedMtl** carries a measured BRDF that cannot be reconstructed; the exporter
+    approximates it from the paint/filter overrides and the scan's own type and color
+    naming (a red car-paint scan renders as glossy red metallic paint, not as its exact
+    measured response).
+  - V-Ray **lights, sun/sky environment, and Physical Camera exposure** are not mapped
+    yet (a neutral light stands in) — this is the current work-in-progress wave, so
+    V-Ray scenes render with faithful geometry/camera/materials under neutral lighting.
+- **Other third-party renderer materials (Corona, Octane, Redshift, …)** — *untested*.
+  The exporter takes a minimal safe read (viewport diffuse), so basic color may come
+  through, but no fidelity is promised. Scenes authored for Scanline, Arnold, or
+  Physical Material remain the fully supported path.
 - **Far-attenuation fade windows** — the constant plateau is modeled; the linear fade
   zone between Start and End is not (subjects inside the fade zone render somewhat
   brighter than native).
@@ -149,8 +161,8 @@ These transfer with documented approximations. Expect a faithful read, not an ex
 
 1. **Procedural material graph transfer** — translating or lit-baking deep map trees so
    showcase shaders survive.
-2. **V-Ray / Corona material mapping** — dedicated readers for the most common
-   third-party materials.
+2. **V-Ray lighting and camera** — VRayLight/VRaySun/VRaySky environment and Physical
+   Camera exposure mapping (materials shipped; Corona and other renderers to follow).
 3. **Attenuation fade windows and UV rotation** — closing the two known approximation
    gaps.
 4. **Ambient light transfer and sky bake fidelity.**
