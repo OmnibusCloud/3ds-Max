@@ -123,8 +123,14 @@ public sealed class MaxConnectedRenderSceneAttachmentService
         if (File.Exists(imageAsset.SourcePath))
             return imageAsset.SourcePath;
 
-        if (Path.IsPathRooted(imageAsset.SourcePath))
+        // Drive-relative paths ('\Assets\Asphalt_Diffuse.jpg' — rooted but with no drive, the
+        // way V-Ray sample scenes author their references) count as rooted yet still resolve
+        // against the scene's folders like any relative path; only a fully qualified path that
+        // does not exist is a dead end.
+        if (Path.IsPathFullyQualified(imageAsset.SourcePath))
             return null;
+
+        var relativeSourcePath = imageAsset.SourcePath.TrimStart('\\', '/');
 
         var sceneDirectoryPath = Path.GetDirectoryName(sceneFilePath);
         if (string.IsNullOrWhiteSpace(sceneDirectoryPath))
@@ -132,7 +138,7 @@ public sealed class MaxConnectedRenderSceneAttachmentService
 
         foreach (var ancestorDirectoryPath in EnumerateAncestorDirectories(sceneDirectoryPath))
         {
-            var candidatePath = Path.GetFullPath(Path.Combine(ancestorDirectoryPath, imageAsset.SourcePath));
+            var candidatePath = Path.GetFullPath(Path.Combine(ancestorDirectoryPath, relativeSourcePath));
             if (File.Exists(candidatePath))
                 return candidatePath;
         }

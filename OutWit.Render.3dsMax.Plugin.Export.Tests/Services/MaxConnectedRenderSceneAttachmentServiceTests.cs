@@ -160,5 +160,43 @@ public sealed class MaxConnectedRenderSceneAttachmentServiceTests
         });
     }
 
+    [Test]
+    public async Task UploadImageAssetAttachmentsAsyncResolvesDriveRelativeImagePathAgainstSceneDirectoryTest()
+    {
+        // V-Ray sample scenes author their references drive-relative ('\Assets\Asphalt_Diffuse.jpg')
+        // — rooted but with no drive letter. Such a path must resolve against the scene's own
+        // folders instead of being rejected as an unresolvable absolute path.
+        var service = new MaxConnectedRenderSceneAttachmentService();
+        var exportService = MaxSceneExportTestData.CreateService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+        var scene = exportService.ValidateCurrentScene().Scene!;
+        var sceneDirectoryPath = Path.Combine(m_tempDirectoryPath, "Automotive_Exterior");
+        var assetsDirectoryPath = Path.Combine(sceneDirectoryPath, "Assets");
+        Directory.CreateDirectory(assetsDirectoryPath);
+        var texturePath = Path.Combine(assetsDirectoryPath, "Asphalt_Diffuse.jpg");
+        File.WriteAllBytes(texturePath, [1, 2, 3, 4]);
+        scene.ImageAssets[0].SourcePath = @"\Assets\Asphalt_Diffuse.jpg";
+        var sceneFilePath = Path.Combine(sceneDirectoryPath, "Automotive_Exterior.max");
+        File.WriteAllText(sceneFilePath, string.Empty);
+
+        var uploadedFilePaths = new List<string>();
+
+        await service.UploadImageAssetAttachmentsAsync(
+            scene,
+            sceneFilePath,
+            (filePath, _) =>
+            {
+                uploadedFilePaths.Add(filePath);
+                return Task.FromResult(Guid.Parse("44444444-4444-4444-4444-444444444444"));
+            },
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(uploadedFilePaths, Is.EqualTo(new[] { texturePath }));
+            Assert.That(scene.AttachedFiles[0].OriginalPath, Is.EqualTo(texturePath));
+            Assert.That(scene.AttachedFiles[0].BlobId, Is.EqualTo(Guid.Parse("44444444-4444-4444-4444-444444444444")));
+        });
+    }
+
     #endregion
 }
