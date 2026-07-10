@@ -47,6 +47,11 @@ internal static class MaxSceneDefaultLightSynthesizer
         if (summary.Lights.Count > 0)
             return;
 
+        // A dome-lit scene has NO light nodes — the environment carries the authored lighting
+        // (ChairCloth: a single V-Ray dome HDRI). The rig would double-light it.
+        if (summary.EnvironmentIsLightSource)
+            return;
+
         var bounds = MaxSceneBounds.Compute(summary);
         if (bounds == null)
             return;

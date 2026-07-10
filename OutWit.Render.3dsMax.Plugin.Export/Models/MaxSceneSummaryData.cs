@@ -95,6 +95,10 @@ public sealed class MaxSceneSummaryData
     // across the render window rather than a panorama. Ignored when EnvironmentImageId is unset.
     public bool EnvironmentIsScreenMapped { get; set; }
 
+    // True when the environment IS the scene's authored light source (a V-Ray dome light routed
+    // into the world). Suppresses the default three-point rig a light-less scene would get.
+    public bool EnvironmentIsLightSource { get; set; }
+
     // Third-party plugin classes ("kind:ClassName" → occurrence count) exported through the
     // minimal safe path — surfaced to the user as scene-profile diagnostics.
     public Dictionary<string, int> UnmappedPluginClasses { get; set; } = new(StringComparer.OrdinalIgnoreCase);

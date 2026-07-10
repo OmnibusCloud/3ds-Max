@@ -118,6 +118,23 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (bitmap is null || string.IsNullOrWhiteSpace(bitmap.MapName))
             {
+                // A V-Ray environment keeps its panorama in a VRayBitmap (the auto sample wraps
+                // Output -> Color Correction -> VRayBitmap around a coastal HDRI). Take the FILE
+                // itself: baking it through renderMap clips the HDR range to LDR, killing the
+                // sun energy the environment carries.
+                var vrayBitmap = FindFirstVRayBitmapTexmap(environmentMap, 0);
+                var vrayBitmapPath = vrayBitmap is null ? null : TryReadVRayBitmapFilePath(vrayBitmap);
+                if (vrayBitmap is not null && !string.IsNullOrWhiteSpace(vrayBitmapPath))
+                {
+                    var vrayImageAssetId = GetOrCreateImageAssetFromPath(vrayBitmapPath, vrayBitmap);
+                    if (!string.IsNullOrWhiteSpace(vrayImageAssetId))
+                    {
+                        m_summary.EnvironmentImageId = vrayImageAssetId;
+                        m_summary.EnvironmentIsScreenMapped = isScreenMapped;
+                        return;
+                    }
+                }
+
                 // Procedural environment (Gradient sky etc.) — bake it as an image so the backdrop
                 // keeps its authored look instead of collapsing to a flat colour. Screen-mapped
                 // environments are 2D backdrops stretched across the render window, so bake those
@@ -1453,12 +1470,16 @@ internal sealed class MaxSceneSnapshotCollector
 
         // Foreign renderer light families (VRayLight, VRaySun, CoronaLight, …): the typed
         // GenLight getters and the area-light param walk are unsafe on them (same hang class
-        // as the material param blocks). Until a family has a dedicated reader, export a
-        // neutral constant point light so the scene is lit rather than black, and record the
-        // class for diagnostics.
+        // as the material param blocks). Classes with a dedicated script reader map for real;
+        // the rest export a neutral constant point light so the scene is lit rather than
+        // black, and record the class for diagnostics.
         var lightClassName = lightObject.ClassName(false);
         if (IsForeignPluginClass(lightClassName))
         {
+            var vrayLightSnapshot = TryReadVRayLight(node, lightObject, lightClassName, lightId);
+            if (vrayLightSnapshot is not null)
+                return vrayLightSnapshot;
+
             RecordUnmappedPluginClass("light", lightClassName, node.Name);
             return new MaxSceneLightSnapshotData
             {
@@ -1511,6 +1532,102 @@ internal sealed class MaxSceneSnapshotCollector
 
         SampleLightPropertyKeyframes(lightObject, snapshot);
         return snapshot;
+    }
+
+    // Reads a V-Ray light through its dedicated batched script reader. Returns null (caller
+    // falls back to the neutral read) for classes without a reader or when the read fails.
+    private MaxSceneLightSnapshotData? TryReadVRayLight(IINode node, ILightObject lightObject, string? lightClassName, string lightId)
+    {
+        try
+        {
+            var snapshot = new MaxSceneLightSnapshotData
+            {
+                Id = lightId,
+                Name = node.Name
+            };
+
+            switch (lightClassName)
+            {
+                case "VRaySun":
+                {
+                    var handle = m_global.Animatable.GetHandleByAnim(lightObject);
+                    var raw = TryEvaluateScriptString(VRayLightReader.BuildSunMaxScript(handle.ToUInt64()));
+                    return VRayLightReader.TryApplySun(raw, snapshot) ? snapshot : null;
+                }
+
+                case "VRayLight":
+                {
+                    var handle = m_global.Animatable.GetHandleByAnim(lightObject);
+                    var raw = TryEvaluateScriptString(VRayLightReader.BuildLightMaxScript(handle.ToUInt64()));
+                    var role = VRayLightReader.Apply(raw, snapshot);
+                    if (role == VRayLightRole.Unsupported)
+                        return null;
+
+                    if (role == VRayLightRole.DomeEnvironment)
+                    {
+                        CaptureVRayDomeEnvironment(lightObject, snapshot);
+                        snapshot.Intensity = 0d;
+                    }
+
+                    return snapshot;
+                }
+
+                default:
+                    return null;
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // A dome light IS the scene's environment. Its HDRI (a VRayBitmap in the texmap property —
+    // NOT a submap slot, so it is reachable only by script) becomes the world image when the
+    // scene has no environment of its own; a texture-less dome contributes its colour. Either
+    // way the environment now CARRIES the authored lighting, which suppresses the default rig.
+    // The scene's own environment slot always wins — it was collected before the node walk.
+    private void CaptureVRayDomeEnvironment(ILightObject lightObject, MaxSceneLightSnapshotData snapshot)
+    {
+        try
+        {
+            // Whatever ends up in the world (the dome's HDRI, its colour, or a scene environment
+            // that was already collected), the dome's presence means the world IS the lighting.
+            m_summary.EnvironmentIsLightSource = true;
+
+            if (string.IsNullOrWhiteSpace(m_summary.EnvironmentImageId))
+            {
+                var handle = m_global.Animatable.GetHandleByAnim(lightObject);
+                var script = $"(local m = getAnimByHandle {handle.ToUInt64()}; (try (if m.texmap_on and m.texmap != undefined then (m.texmap.HDRIMapName as string) else \"?\") catch (\"?\")))";
+                var texmapPath = TryEvaluateScriptString(script);
+                if (!string.IsNullOrWhiteSpace(texmapPath) && texmapPath != "?" && texmapPath != "undefined")
+                {
+                    var imageAssetId = GetOrCreateImageAssetFromPath(texmapPath, texmapPath);
+                    if (!string.IsNullOrWhiteSpace(imageAssetId))
+                    {
+                        m_summary.EnvironmentImageId = imageAssetId;
+                        return;
+                    }
+                }
+            }
+
+            if (m_summary.EnvironmentColor is null && string.IsNullOrWhiteSpace(m_summary.EnvironmentImageId))
+            {
+                var strength = Math.Clamp(snapshot.Intensity, 0d, 1d);
+                m_summary.EnvironmentColor = new MaxSceneColorSnapshotData
+                {
+                    R = Math.Clamp(snapshot.Color.R * strength, 0d, 1d),
+                    G = Math.Clamp(snapshot.Color.G * strength, 0d, 1d),
+                    B = Math.Clamp(snapshot.Color.B * strength, 0d, 1d),
+                    A = 1d
+                };
+            }
+        }
+        catch
+        {
+            // A failed dome capture only loses the environment contribution — the light node
+            // is still dropped and the scene renders under its remaining lights.
+        }
     }
 
     private static bool TryResolveAreaLight(ILightObject lightObject, int time, out double width, out double height)

@@ -90,6 +90,10 @@ public sealed class MaxSceneSnapshotData
     // across the render window rather than a panorama. Ignored when EnvironmentImageId is unset.
     public bool EnvironmentIsScreenMapped { get; set; }
 
+    // True when the environment IS the scene's authored light source (a V-Ray dome light routed
+    // into the world). Suppresses the default three-point rig a light-less scene would get.
+    public bool EnvironmentIsLightSource { get; set; }
+
     // Third-party plugin classes ("kind:ClassName" → occurrence count) that exported through the
     // minimal safe path instead of a dedicated reader — the scene-profile diagnostic that tells
     // a beta user (and us) exactly which families a scene relies on.
