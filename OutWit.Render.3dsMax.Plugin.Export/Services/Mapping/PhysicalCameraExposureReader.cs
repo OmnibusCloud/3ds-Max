@@ -33,7 +33,8 @@ internal static class PhysicalCameraExposureReader
         "m.f_number",
         "m.shutter_length_seconds",
         "m.shutter_speed",
-        "m.exposure"
+        "m.exposure",
+        "m.shutter_unit_type"
     ];
 
     #endregion
@@ -118,7 +119,14 @@ internal static class PhysicalCameraExposureReader
             if (gainType == 1 && exposureValue is not null)
                 return exposureValue;
 
-            return ComputeEv100(fNumber, values[4], iso) ?? exposureValue;
+            // shutter_length_seconds is only valid for the seconds-based shutter unit types
+            // (0 = 1/seconds, 1 = seconds); a camera authored in frames/degrees keeps a stale
+            // value there, so fall back to the authored EV instead of computing from it.
+            var shutterSeconds = values[4];
+            if (values[7] is not null && (int)Math.Round(values[7]!.Value) is not (0 or 1))
+                shutterSeconds = null;
+
+            return ComputeEv100(fNumber, shutterSeconds, iso) ?? exposureValue;
         }
 
         return null;

@@ -367,6 +367,39 @@ public sealed class VRayMaterialReaderTests
     }
 
     [Test]
+    public void LightMaterialMapsToEmissionTest()
+    {
+        // VRayLightMtl: colour 255,140,40 at multiplier 8 — a glowing panel.
+        var snapshot = new MaxSceneMaterialSnapshotData();
+        var applied = VRayMaterialReader.TryApplyLightMaterial("255.0|140.0|40.0|8.0|", snapshot);
+
+        Assert.That(applied, Is.True);
+        Assert.That(snapshot.EmissionColor.R, Is.EqualTo(1d).Within(1e-9));
+        Assert.That(snapshot.EmissionColor.G, Is.EqualTo(140d / 255d).Within(1e-9));
+        Assert.That(snapshot.EmissionStrength, Is.EqualTo(8d).Within(1e-9));
+        Assert.That(snapshot.BaseColor.B, Is.EqualTo(40d / 255d).Within(1e-9));
+    }
+
+    [Test]
+    public void LightMaterialScriptEmbedsHandleAndPropertiesTest()
+    {
+        var script = VRayMaterialReader.BuildLightMaterialMaxScript(555);
+
+        Assert.That(script, Does.Contain("getAnimByHandle 555"));
+        Assert.That(script, Does.Contain("m.color.b"));
+        Assert.That(script, Does.Contain("m.multiplier"));
+    }
+
+    [Test]
+    public void MalformedLightMaterialPayloadFailsTest()
+    {
+        var snapshot = new MaxSceneMaterialSnapshotData();
+        Assert.That(VRayMaterialReader.TryApplyLightMaterial(null, snapshot), Is.False);
+        Assert.That(VRayMaterialReader.TryApplyLightMaterial("1.0|2.0|", snapshot), Is.False);
+        Assert.That(VRayMaterialReader.TryApplyLightMaterial("?|?|?|3.0|", snapshot), Is.False, "colour is required");
+    }
+
+    [Test]
     public void MissingOptionalValuesFallBackToSafeDefaultsTest()
     {
         // An older V-Ray build missing the modern spinners must still export the diffuse look.

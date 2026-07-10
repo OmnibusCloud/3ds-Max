@@ -131,6 +131,12 @@ internal sealed class MaxSceneSnapshotCollector
                     {
                         m_summary.EnvironmentImageId = vrayImageAssetId;
                         m_summary.EnvironmentIsScreenMapped = isScreenMapped;
+
+                        // The authored horizontal rotation orients the panorama (the auto sample
+                        // authors 30°) — without it the world renders rotated against the source.
+                        var horizontalRotation = TryEvaluateMaterialScriptDouble(vrayBitmap, "horizontalRotation");
+                        if (horizontalRotation is >= -360d and <= 360d && horizontalRotation.Value != 0d)
+                            m_summary.EnvironmentRotationDegrees = horizontalRotation.Value;
                         return;
                     }
                 }
@@ -1082,10 +1088,15 @@ internal sealed class MaxSceneSnapshotCollector
                     var vrayImageAssetId = GetOrCreateImageAssetFromPath(vrayBitmapPath, vrayBitmap);
                     if (!string.IsNullOrWhiteSpace(vrayImageAssetId))
                     {
+                        var (vrayUvScaleX, vrayUvScaleY, vrayUvOffsetX, vrayUvOffsetY) = ReadVRayBitmapUvTiling(vrayBitmap);
                         materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
                         {
                             Slot = slotKind.Value,
-                            ImageAssetId = vrayImageAssetId
+                            ImageAssetId = vrayImageAssetId,
+                            UvScaleX = vrayUvScaleX,
+                            UvScaleY = vrayUvScaleY,
+                            UvOffsetX = vrayUvOffsetX,
+                            UvOffsetY = vrayUvOffsetY
                         });
                         assignedSlots.Add(slotKind.Value);
                         continue;
@@ -1635,8 +1646,21 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (string.IsNullOrWhiteSpace(m_summary.EnvironmentImageId))
             {
+                // The dome texture is reachable only by script (the texmap PROPERTY, not a
+                // submap slot). Cascade: a direct VRayBitmap (HDRIMapName), a stock bitmap
+                // (filename), or either wrapped one level deep (Color Correction's 'map').
                 var handle = m_global.Animatable.GetHandleByAnim(lightObject);
-                var script = $"(local m = getAnimByHandle {handle.ToUInt64()}; (try (if m.texmap_on and m.texmap != undefined then (m.texmap.HDRIMapName as string) else \"?\") catch (\"?\")))";
+                var script =
+                    $"(local m = getAnimByHandle {handle.ToUInt64()}; " +
+                    "local t = (try (if m.texmap_on and m.texmap != undefined then m.texmap else undefined) catch (undefined)); " +
+                    "local s = \"?\"; " +
+                    "if t != undefined do (" +
+                    "s = (try (t.HDRIMapName as string) catch (\"?\")); " +
+                    "if s == \"?\" do s = (try (t.filename as string) catch (\"?\")); " +
+                    "if s == \"?\" do (local c = (try (t.map) catch (undefined)); " +
+                    "if c != undefined do (s = (try (c.HDRIMapName as string) catch (\"?\")); " +
+                    "if s == \"?\" do s = (try (c.filename as string) catch (\"?\"))))); " +
+                    "s)";
                 var texmapPath = TryEvaluateScriptString(script);
                 if (!string.IsNullOrWhiteSpace(texmapPath) && texmapPath != "?" && texmapPath != "undefined")
                 {
@@ -1644,6 +1668,14 @@ internal sealed class MaxSceneSnapshotCollector
                     if (!string.IsNullOrWhiteSpace(imageAssetId))
                     {
                         m_summary.EnvironmentImageId = imageAssetId;
+
+                        var rotationScript =
+                            $"(local m = getAnimByHandle {handle.ToUInt64()}; " +
+                            "(try ((m.texmap.horizontalRotation as float) as string) catch (\"?\")))";
+                        var rotationToken = TryEvaluateScriptString(rotationScript);
+                        if (double.TryParse(rotationToken, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var rotation)
+                            && rotation is >= -360d and <= 360d && rotation != 0d)
+                            m_summary.EnvironmentRotationDegrees = rotation;
                         return;
                     }
                 }
@@ -1872,10 +1904,10 @@ internal sealed class MaxSceneSnapshotCollector
         m_summary.UnmappedPluginClasses[key] = count + 1;
     }
 
-    // V-Ray wrapper materials delegate their base look to a sub-material. Unwrap to the first
-    // non-null sub-material (slot 0 is the base/front on every V-Ray wrapper), preferring a
-    // VRayMtl when one is present, so the wrapped material's dedicated reader can run.
-    // Depth-guarded: wrappers nest (Bump over Blend over VRayMtl).
+    // V-Ray wrapper materials delegate their base look to a sub-material — slot 0 is the
+    // base/front on every V-Ray wrapper (Bump base, 2Sided front, Blend base, Override base),
+    // so take the FIRST non-null sub regardless of its class: preferring a VRayMtl from a later
+    // slot picked a Blend COAT over a scanned-material base. Depth-guarded: wrappers nest.
     private static readonly string[] VRAY_WRAPPER_CLASS_NAMES =
     [
         "VRayBumpMtl", "VRay2SidedMtl", "VRayBlendMtl", "VRayOverrideMtl"
@@ -1891,26 +1923,13 @@ internal sealed class MaxSceneSnapshotCollector
                 return current;
 
             IMtl? firstSubMaterial = null;
-            IMtl? firstVRayMtl = null;
-            for (var i = 0; i < current.NumSubMtls; i++)
-            {
-                var subMaterial = current.GetSubMtl(i);
-                if (subMaterial is null)
-                    continue;
+            for (var i = 0; i < current.NumSubMtls && firstSubMaterial is null; i++)
+                firstSubMaterial = current.GetSubMtl(i);
 
-                firstSubMaterial ??= subMaterial;
-                if (subMaterial.ClassName(false) == "VRayMtl")
-                {
-                    firstVRayMtl = subMaterial;
-                    break;
-                }
-            }
-
-            var next = firstVRayMtl ?? firstSubMaterial;
-            if (next is null)
+            if (firstSubMaterial is null)
                 return current;
 
-            current = next;
+            current = firstSubMaterial;
         }
 
         return current;
@@ -1948,6 +1967,13 @@ internal sealed class MaxSceneSnapshotCollector
                     // diagnostics as an approximation even though the export got a plausible look.
                     RecordUnmappedPluginClass("material-approximated", materialClassName, material.Name);
                     return true;
+                }
+
+                case "VRayLightMtl":
+                {
+                    var handle = m_global.Animatable.GetHandleByAnim(material);
+                    var raw = TryEvaluateScriptString(VRayMaterialReader.BuildLightMaterialMaxScript(handle.ToUInt64()));
+                    return VRayMaterialReader.TryApplyLightMaterial(raw, snapshot);
                 }
 
                 default:
@@ -2854,6 +2880,33 @@ internal sealed class MaxSceneSnapshotCollector
         }
 
         return null;
+    }
+
+    // A VRayBitmap's Coordinates rollout is a STANDARD UVGen ('Placement'), but the facade has
+    // no generic Texmap.GetTheUVGen — read the tiling spinners by script. The Mapping node runs
+    // in TEXTURE mode (tex = (uv − Location) / Scale) while the Max transform is centre-anchored
+    // (tex = (uv − 0.5)·T + 0.5), so Scale = 1/T and Location = (T − 1) / (2T). Authored spinner
+    // offsets are left untransferred — their pivot composition needs the UVGen matrix the facade
+    // cannot reach here, and the phase of a tiling texture is not visually load-bearing.
+    private (double UScale, double VScale, double UOffset, double VOffset) ReadVRayBitmapUvTiling(ITexmap texmap)
+    {
+        try
+        {
+            var uTiling = TryEvaluateMaterialScriptDouble(texmap, "coords.u_tiling");
+            var vTiling = TryEvaluateMaterialScriptDouble(texmap, "coords.v_tiling");
+            if (uTiling is not > 0d || vTiling is not > 0d)
+                return (1d, 1d, 0d, 0d);
+
+            return (
+                1d / uTiling.Value,
+                1d / vTiling.Value,
+                (uTiling.Value - 1d) / (2d * uTiling.Value),
+                (vTiling.Value - 1d) / (2d * vTiling.Value));
+        }
+        catch
+        {
+            return (1d, 1d, 0d, 0d);
+        }
     }
 
     // VRayBitmap keeps its file in the HDRIMapName property (the class began life as VRayHDRI);

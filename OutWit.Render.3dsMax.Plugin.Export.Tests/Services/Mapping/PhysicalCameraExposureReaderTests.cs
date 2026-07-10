@@ -14,7 +14,7 @@ public sealed class PhysicalCameraExposureReaderTests
     #region Tools
 
     // Token order: exposure_value, exposure_gain_type, ISO, f_number, shutter_length_seconds,
-    // shutter_speed, exposure (V-Ray mode).
+    // shutter_speed, exposure (V-Ray mode), shutter_unit_type.
     private static string BuildPayload(
         string exposureValue = "?",
         string gainType = "?",
@@ -22,9 +22,10 @@ public sealed class PhysicalCameraExposureReaderTests
         string fNumber = "?",
         string shutterLengthSeconds = "?",
         string shutterSpeed = "?",
-        string vrayExposureMode = "?")
+        string vrayExposureMode = "?",
+        string shutterUnitType = "?")
     {
-        return string.Join('|', exposureValue, gainType, iso, fNumber, shutterLengthSeconds, shutterSpeed, vrayExposureMode) + "|";
+        return string.Join('|', exposureValue, gainType, iso, fNumber, shutterLengthSeconds, shutterSpeed, vrayExposureMode, shutterUnitType) + "|";
     }
 
     #endregion
@@ -77,6 +78,22 @@ public sealed class PhysicalCameraExposureReaderTests
             shutterLengthSeconds: "0.000833333"));
 
         Assert.That(ev, Is.EqualTo(Math.Log2(3.5d * 3.5d / 0.000833333d)).Within(1e-6));
+    }
+
+    [Test]
+    public void StockPhysicalManualModeIgnoresStaleShutterSecondsForNonSecondsUnitsTest()
+    {
+        // shutter_unit_type 2 (frames): shutter_length_seconds is stale — fall back to the
+        // authored EV instead of computing a wrong one from it.
+        var ev = PhysicalCameraExposureReader.TryResolveExposureValue(BuildPayload(
+            exposureValue: "9.5",
+            gainType: "0.0",
+            iso: "100.0",
+            fNumber: "3.5",
+            shutterLengthSeconds: "0.000833333",
+            shutterUnitType: "2.0"));
+
+        Assert.That(ev, Is.EqualTo(9.5d).Within(1e-9));
     }
 
     [Test]

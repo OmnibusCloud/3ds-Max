@@ -24,9 +24,10 @@ public sealed class VRayLightReaderTests
         string sizeWidth = "20.0",
         string size0 = "50.0",
         string noDecay = "0.0",
-        string castShadows = "1.0")
+        string castShadows = "1.0",
+        string size1 = "10.0")
     {
-        return string.Join('|', on, type, color, multiplier, normalizeColor, sizeLength, sizeWidth, size0, noDecay, castShadows) + "|";
+        return string.Join('|', on, type, color, multiplier, normalizeColor, sizeLength, sizeWidth, size0, noDecay, castShadows, size1) + "|";
     }
 
     private static string BuildSunPayload(
@@ -92,6 +93,22 @@ public sealed class VRayLightReaderTests
         VRayLightReader.Apply(BuildLightPayload(normalizeColor: "0.0"), snapshot);
 
         Assert.That(snapshot.IsPhotometric, Is.False);
+    }
+
+    [Test]
+    public void PlaneLightFallsBackToHalfExtentSpinnersTest()
+    {
+        // Older V-Ray builds without sizeLength/sizeWidth: the half-extent spinners double up.
+        var snapshot = new MaxSceneLightSnapshotData();
+        var role = VRayLightReader.Apply(BuildLightPayload(
+            sizeLength: "?",
+            sizeWidth: "?",
+            size0: "50.0",
+            size1: "9.83"), snapshot);
+
+        Assert.That(role, Is.EqualTo(VRayLightRole.Light));
+        Assert.That(snapshot.AreaWidth, Is.EqualTo(100d).Within(1e-9));
+        Assert.That(snapshot.AreaHeight, Is.EqualTo(19.66d).Within(1e-6));
     }
 
     [Test]

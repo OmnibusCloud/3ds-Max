@@ -108,6 +108,17 @@ public sealed class VRayScannedMaterialReaderTests
     }
 
     [Test]
+    public void CarbonScanIsGlossyNotMatteTest()
+    {
+        // Carbon fibre is a woven composite under clearcoat — the fabric branch rendered it
+        // as matte cloth.
+        var snapshot = Apply(BuildPayload(filename: "Carbon_Fiber_2x2.vrscan"));
+
+        Assert.That(snapshot.Metallic, Is.EqualTo(0.85d).Within(1e-9));
+        Assert.That(snapshot.Roughness, Is.EqualTo(0.3d).Within(1e-9));
+    }
+
+    [Test]
     public void FabricScanIsMatteTest()
     {
         var snapshot = Apply(BuildPayload(filename: "Fabric_Weave_2.vrscan"));

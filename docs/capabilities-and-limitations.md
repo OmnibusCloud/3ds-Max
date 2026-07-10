@@ -132,9 +132,14 @@ These transfer with documented approximations. Expect a faithful read, not an ex
     the fallback light rig); VRaySun maps to a calibrated sun; a V-Ray Bitmap
     environment ships its HDR file directly (no LDR bake). Colour-correction layers on
     the environment and mesh lights are not translated.
-  - V-Ray **Physical Camera exposure / tone mapping** is not applied yet — V-Ray scenes
-    render with faithful geometry, materials, and lighting, but the overall frame tone
-    can read brighter than the native render until the exposure wave ships.
+  - **Physical camera exposure** (the stock Physical Camera and VRayPhysicalCamera) —
+    the authored exposure carries as a deviation from a photographic reference, and
+    only towards darkening: an EV above the reference is an authored mood (sunset,
+    night), while a fast lens compensating dim physical light stays neutral — the
+    exporter's light calibration already normalizes intensity. VRayLightMtl emissive
+    panels map to real emission. V-Ray tone mapping (color mapping curves) and the
+    environment intensity multiplier are not translated — the calibrated exposure
+    absorbs their overall effect.
 - **Other third-party renderer materials (Corona, Octane, Redshift, …)** — *untested*.
   The exporter takes a minimal safe read (viewport diffuse), so basic color may come
   through, but no fidelity is promised. Scenes authored for Scanline, Arnold, or
@@ -167,8 +172,9 @@ These transfer with documented approximations. Expect a faithful read, not an ex
 
 1. **Procedural material graph transfer** — translating or lit-baking deep map trees so
    showcase shaders survive.
-2. **V-Ray camera exposure** — Physical Camera exposure and tone mapping (materials
-   and lighting shipped; Corona and other renderers to follow).
+2. **V-Ray refinements** — tone-mapping curves, environment intensity multipliers,
+   colour-correction layers on environments (exposure, materials, and lighting
+   shipped; Corona and other renderers to follow).
 3. **Attenuation fade windows and UV rotation** — closing the two known approximation
    gaps.
 4. **Ambient light transfer and sky bake fidelity.**

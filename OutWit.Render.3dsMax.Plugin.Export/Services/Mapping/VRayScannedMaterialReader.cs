@@ -127,9 +127,9 @@ internal static class VRayScannedMaterialReader
         // Scan TYPE sets the response curve the measured BRDF would have carried.
         double metallic;
         double roughness;
-        if (scanName.Contains("carpaint"))
+        if (scanName.Contains("carpaint") || scanName.Contains("carbon"))
         {
-            // Pigment under clearcoat: metallic paint with a polished finish.
+            // Pigment (or woven carbon fibre) under clearcoat: metallic with a polished finish.
             metallic = 0.85d;
             roughness = 0.3d;
         }
@@ -141,8 +141,7 @@ internal static class VRayScannedMaterialReader
                 : 0.35d;
         }
         else if (scanName.Contains("fabric") || scanName.Contains("suede") || scanName.Contains("cloth")
-                 || scanName.Contains("leather") || scanName.Contains("velvet") || scanName.Contains("silk")
-                 || scanName.Contains("carbon"))
+                 || scanName.Contains("leather") || scanName.Contains("velvet") || scanName.Contains("silk"))
         {
             metallic = 0d;
             roughness = 0.85d;

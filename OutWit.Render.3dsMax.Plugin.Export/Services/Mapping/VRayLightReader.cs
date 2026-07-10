@@ -40,7 +40,8 @@ internal static class VRayLightReader
         "m.sizeWidth",
         "m.size0",
         "if m.noDecay then 1 else 0",
-        "if m.castShadows then 1 else 0"
+        "if m.castShadows then 1 else 0",
+        "m.size1"
     ];
 
     private static readonly string[] SUN_PROPERTY_EXPRESSIONS =
@@ -147,8 +148,11 @@ internal static class VRayLightReader
         {
             case LIGHT_TYPE_PLANE:
                 snapshot.Kind = DccLightKind.Area;
-                snapshot.AreaWidth = Math.Max(values[7] ?? 1d, 0.01d);
-                snapshot.AreaHeight = Math.Max(values[8] ?? 1d, 0.01d);
+                // sizeLength/sizeWidth are the FULL extents (verified: 2× the size0/size1
+                // half-extents on the live dump); older V-Ray builds without them fall back
+                // to doubling the half-extent spinners.
+                snapshot.AreaWidth = Math.Max(values[7] ?? ((values[9] ?? 0.5d) * 2d), 0.01d);
+                snapshot.AreaHeight = Math.Max(values[8] ?? ((values[12] ?? 0.5d) * 2d), 0.01d);
                 return VRayLightRole.Light;
 
             case LIGHT_TYPE_DISC:

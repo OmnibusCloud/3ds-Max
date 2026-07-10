@@ -159,6 +159,79 @@ internal static class VRayMaterialReader
 
     #endregion
 
+    #region Light Material
+
+    // VRayLightMtl: colour, multiplier (raw units, can far exceed 1), and the direct-light toggle.
+    private static readonly string[] LIGHT_MATERIAL_PROPERTY_EXPRESSIONS =
+    [
+        "m.color.r",
+        "m.color.g",
+        "m.color.b",
+        "m.multiplier"
+    ];
+
+    public static string BuildLightMaterialMaxScript(ulong animHandle)
+    {
+        var script = new System.Text.StringBuilder();
+        script.Append("(local m = getAnimByHandle ").Append(animHandle.ToString(CultureInfo.InvariantCulture));
+        script.Append("; local s = \"\"");
+
+        foreach (var expression in LIGHT_MATERIAL_PROPERTY_EXPRESSIONS)
+        {
+            script.Append("; s += (try (((").Append(expression).Append(") as float) as string) catch (\"")
+                  .Append(MISSING_TOKEN).Append("\")) + \"").Append(TOKEN_SEPARATOR).Append('"');
+        }
+
+        script.Append("; s)");
+        return script.ToString();
+    }
+
+    /// <summary>
+    /// Maps a VRayLightMtl (a pure emissive material — glowing panels, screens, lightboxes) onto
+    /// the snapshot. Returns false when the payload is malformed.
+    /// </summary>
+    public static bool TryApplyLightMaterial(string? scriptResult, MaxSceneMaterialSnapshotData snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(scriptResult))
+            return false;
+
+        var tokens = scriptResult.Split(TOKEN_SEPARATOR);
+        if (tokens.Length != LIGHT_MATERIAL_PROPERTY_EXPRESSIONS.Length + 1)
+            return false;
+
+        var values = new double?[LIGHT_MATERIAL_PROPERTY_EXPRESSIONS.Length];
+        for (var i = 0; i < LIGHT_MATERIAL_PROPERTY_EXPRESSIONS.Length; i++)
+        {
+            var token = tokens[i].Trim();
+            if (token == MISSING_TOKEN)
+                continue;
+
+            if (!double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                || !double.IsFinite(value))
+                return false;
+
+            values[i] = value;
+        }
+
+        if (values[0] is null || values[1] is null || values[2] is null)
+            return false;
+
+        var color = (R: values[0]!.Value / 255d, G: values[1]!.Value / 255d, B: values[2]!.Value / 255d);
+        snapshot.BaseColor = new MaxSceneColorSnapshotData
+        {
+            R = Math.Clamp(color.R, 0d, 1d),
+            G = Math.Clamp(color.G, 0d, 1d),
+            B = Math.Clamp(color.B, 0d, 1d),
+            A = 1d
+        };
+        snapshot.EmissionColor = snapshot.BaseColor;
+        snapshot.EmissionStrength = Math.Clamp(values[3] ?? 1d, 0d, 100d);
+        snapshot.Roughness = 0.8d;
+        return true;
+    }
+
+    #endregion
+
     #region Mapping
 
     /// <summary>
