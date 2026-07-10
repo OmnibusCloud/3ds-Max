@@ -1744,10 +1744,50 @@ internal sealed class MaxSceneSnapshotCollector
         {
             var handle = m_global.Animatable.GetHandleByAnim(node);
             var escapedPath = bakePath.Replace("\\", "\\\\");
+
+            // The diffuse-filter element is the material's own albedo — it needs NO GI, lights,
+            // shadows, reflections or displacement, yet #bakeSelected renders with the scene's
+            // PRODUCTION settings (the ChairCloth bake ran 40+ minutes of full-CPU Light Cache +
+            // high-sample fabric shading). Strip everything the element ignores and hard-cap the
+            // progressive sampler; every override saves the authored value and restores it after
+            // the bake, each in its own try so a renamed property degrades gracefully (names
+            // verified against V-Ray 7 update 4). Scanned materials are CPU-only in V-Ray (no
+            // GPU/RTX support), so cheap settings — not hardware — are the only lever.
+            const string fastBakeOverrides =
+                "local vr = renderers.production; " +
+                "local oGi = undefined; local oLights = undefined; local oShadows = undefined; local oReflRefr = undefined; local oDisp = undefined; " +
+                "local oSamplerNew = undefined; local oSampler = undefined; local oMaxSamples = undefined; local oNoise = undefined; local oTime = undefined; " +
+                "try (oGi = vr.gi_on; vr.gi_on = false) catch (); " +
+                "try (oLights = vr.options_lights; vr.options_lights = false) catch (); " +
+                "try (oShadows = vr.options_shadows; vr.options_shadows = false) catch (); " +
+                "try (oReflRefr = vr.options_reflectionRefraction; vr.options_reflectionRefraction = false) catch (); " +
+                "try (oDisp = vr.options_displacement; vr.options_displacement = false) catch (); " +
+                // imageSampler_type_new and the legacy imageSampler_type are two views of the SAME
+                // setting — touching both makes the restores fight (the legacy restore flipped the
+                // chair's bucket sampler back to progressive). Prefer the modern property and fall
+                // back to the legacy one only when it does not exist.
+                "try (oSamplerNew = vr.imageSampler_type_new; vr.imageSampler_type_new = 0) catch (try (oSampler = vr.imageSampler_type; vr.imageSampler_type = 3) catch ()); " +
+                "try (oMaxSamples = vr.progressive_maxSamples; vr.progressive_maxSamples = 16) catch (); " +
+                "try (oNoise = vr.progressive_noise_threshold; vr.progressive_noise_threshold = 0.05) catch (); " +
+                "try (oTime = vr.progressive_max_render_time; vr.progressive_max_render_time = 2.0) catch (); ";
+
+            const string fastBakeRestores =
+                "try (if oGi != undefined then vr.gi_on = oGi) catch (); " +
+                "try (if oLights != undefined then vr.options_lights = oLights) catch (); " +
+                "try (if oShadows != undefined then vr.options_shadows = oShadows) catch (); " +
+                "try (if oReflRefr != undefined then vr.options_reflectionRefraction = oReflRefr) catch (); " +
+                "try (if oDisp != undefined then vr.options_displacement = oDisp) catch (); " +
+                "try (if oSamplerNew != undefined then vr.imageSampler_type_new = oSamplerNew) catch (); " +
+                "try (if oSampler != undefined then vr.imageSampler_type = oSampler) catch (); " +
+                "try (if oMaxSamples != undefined then vr.progressive_maxSamples = oMaxSamples) catch (); " +
+                "try (if oNoise != undefined then vr.progressive_noise_threshold = oNoise) catch (); " +
+                "try (if oTime != undefined then vr.progressive_max_render_time = oTime) catch (); ";
+
             var script =
                 $"(local n = getAnimByHandle {handle.ToUInt64()}; " +
                 "local ok = \"0\"; " +
                 "local prevSel = selection as array; " +
+                fastBakeOverrides +
                 "try (" +
                 "select n; " +
                 "local bp = n.INodeBakeProperties; " +
@@ -1765,6 +1805,7 @@ internal sealed class MaxSceneSnapshotCollector
                 "bp.bakeEnabled = false; " +
                 "ok = \"1\"" +
                 ") catch (ok = \"0\"); " +
+                fastBakeRestores +
                 // The bake runs from inside the user's Render click — leave their selection as we found it.
                 "try (if prevSel.count > 0 then (select prevSel) else (max select none)) catch (); " +
                 "ok)";
