@@ -81,11 +81,12 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task InitializeAsync()
     {
-        // Scene validation reads the 3ds Max scene through the single-threaded Max SDK and must run
-        // on the Max main thread: do it synchronously before the first await.
-        var result = SceneExport.ValidateCurrentScene();
-        SummaryVm.Apply(result.Summary);
-        DiagnosticsVm.Apply(result.Diagnostics);
+        // Scene reads go through the single-threaded Max SDK and must run on the Max main
+        // thread. Dialog-open uses the SummaryOnly capture profile — the full geometry capture
+        // of a heavy scene freezes the application for minutes; the real capture happens on
+        // the export action itself.
+        var summary = SceneExport.CollectSummary(MaxSceneCaptureOptions.SummaryOnly);
+        SummaryVm.Apply(summary);
         UpdateStatus();
 
         // Silent session restore so the default Blender target is available without a browser trip.

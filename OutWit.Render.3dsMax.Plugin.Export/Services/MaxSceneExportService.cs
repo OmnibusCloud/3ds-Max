@@ -48,6 +48,16 @@ public sealed class MaxSceneExportService
     }
 
     /// <summary>
+    /// Collects the scene summary with capture options — dialogs open on the
+    /// <see cref="MaxSceneCaptureOptions.SummaryOnly"/> profile so a heavy scene does not
+    /// freeze the UI for the minutes a full geometry capture takes.
+    /// </summary>
+    public MaxSceneSummaryData CollectSummary(MaxSceneCaptureOptions captureOptions)
+    {
+        return m_sceneSummaryService.Collect(captureOptions);
+    }
+
+    /// <summary>
     /// Builds and validates the current 3ds Max scene against the shared neutral DCC contract.
     /// </summary>
     public MaxSceneExportResult ValidateCurrentScene()

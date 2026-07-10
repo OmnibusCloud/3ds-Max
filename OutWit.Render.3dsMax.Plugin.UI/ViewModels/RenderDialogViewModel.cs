@@ -101,14 +101,16 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void ValidateScene()
     {
-        var result = SceneExport.ValidateCurrentScene();
-        SummaryVm.Apply(result.Summary);
-        LaunchVm.ApplySceneDefaults(result.Summary);
-        DiagnosticsVm.Apply(result.Diagnostics);
+        // Dialog-open uses the SummaryOnly capture profile: the full geometry capture of a heavy
+        // scene takes MINUTES synchronously on the Max main thread (ChairCloth froze the whole
+        // application here). The full capture runs when the render actually launches.
+        var summary = SceneExport.CollectSummary(MaxSceneCaptureOptions.SummaryOnly);
+        SummaryVm.Apply(summary);
+        LaunchVm.ApplySceneDefaults(summary);
 
         // The scanned-material bake option only makes sense when the scene actually carries
         // V-Ray scanned materials — the collector's diagnostics already name them.
-        HasVRayScannedMaterials = result.Summary.UnmappedPluginClasses.Keys
+        HasVRayScannedMaterials = summary.UnmappedPluginClasses.Keys
             .Any(me => me.Contains("VRayScannedMtl", StringComparison.OrdinalIgnoreCase));
         UpdateStatus();
     }

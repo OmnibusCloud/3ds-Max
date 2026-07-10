@@ -432,7 +432,10 @@ internal sealed class MaxSceneSnapshotCollector
                 // TriObject) fails Dcc validation ("mesh requires positions"), aborting the whole
                 // scene. Drop it so the rest renders; the export service surfaces a Warning from
                 // SkippedEmptyMeshCount. Children re-parent onto the nearest INCLUDED ancestor.
-                if (meshSnapshot.Positions.Count == 0)
+                // The SummaryOnly profile intentionally extracts EVERY mesh empty — counts and
+                // material bindings must still be collected there, so the drop only applies to
+                // the full capture.
+                if (meshSnapshot.Positions.Count == 0 && !m_captureOptions.SkipGeometryData)
                 {
                     m_summary.SkippedEmptyMeshCount++;
                 }
@@ -441,7 +444,8 @@ internal sealed class MaxSceneSnapshotCollector
                     added = true;
                     m_summary.MeshesCount++;
                     meshSnapshot.SubdivisionLevels = ResolveRenderSubdivisionLevels(childNode);
-                    SampleDeformationFrames(childNode, meshSnapshot);
+                    if (!m_captureOptions.SkipGeometryData)
+                        SampleDeformationFrames(childNode, meshSnapshot);
                     // The scanned-material RTT bake needs the node the material sits on; the
                     // binding path only sees the material, so carry the node alongside.
                     m_currentMaterialNode = childNode;
@@ -816,6 +820,17 @@ internal sealed class MaxSceneSnapshotCollector
 
     private MaxSceneMeshSnapshotData ExtractMesh(IINode node, IObject sceneObject, string meshId)
     {
+        // Dialog-open profile: the summary UI needs counts and bindings, not the bulk arrays —
+        // extracting a heavy scene's vertices synchronously froze the Render dialog for minutes.
+        if (m_captureOptions.SkipGeometryData)
+        {
+            return new MaxSceneMeshSnapshotData
+            {
+                Id = meshId,
+                Name = $"{node.Name}Mesh"
+            };
+        }
+
         // Shape (spline) objects: the TriObject conversion yields a FILLED planar disc, but Max
         // renders the shape's "Enable In Renderer" tube — rebuild that thread from the shape's
         // polylines (Maxine's rig circles are 0.1-unit hairlines in the native render, not solid
@@ -2460,6 +2475,11 @@ internal sealed class MaxSceneSnapshotCollector
     // slot is then simply omitted, matching the previous silent-drop behaviour.
     private string? TryBakeTexmapToImageAsset(ITexmap texmap, string bakeName, ushort width, ushort height, double minimumMeanLuminance = 0d, bool allowNearUniform = false)
     {
+        // Dialog-open profile: renderMap bakes take seconds each — the summary UI does not
+        // need them, only the full pre-render capture does.
+        if (m_captureOptions.SkipGeometryData)
+            return null;
+
         try
         {
             var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");

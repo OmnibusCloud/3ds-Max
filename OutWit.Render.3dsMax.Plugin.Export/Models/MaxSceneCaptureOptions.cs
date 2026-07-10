@@ -19,5 +19,14 @@ public sealed class MaxSceneCaptureOptions
     // render time to the export, which the UI states explicitly.
     public bool BakeVRayScannedMaterials { get; set; }
 
+    // Dialog-open profile: skip the bulk geometry (vertex/normal/UV arrays, deformation
+    // sampling) and every texture bake, keeping counts, names, cameras, lights, and material
+    // parameters. A full capture of a heavy scene takes MINUTES synchronously on the Max main
+    // thread — opening the Render dialog on ChairCloth froze the whole application.
+    public bool SkipGeometryData { get; set; }
+
+    /// <summary>The dialog-open profile: everything the summary UI needs, none of the bulk.</summary>
+    public static readonly MaxSceneCaptureOptions SummaryOnly = new() { SkipGeometryData = true };
+
     #endregion
 }
