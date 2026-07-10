@@ -11,6 +11,7 @@
     { "key": "RememberLastRenderSettings", "value": "True", "valueKind": "Boolean" },
     { "key": "LastRenderMode", "value": "RenderStill", "valueKind": "String" },
     { "key": "SplitFrame", "value": "False", "valueKind": "Boolean" },
+    { "key": "BakeVRayScannedMaterials", "value": "False", "valueKind": "Boolean" },
     { "key": "TilesX", "value": "2", "valueKind": "Integer" },
     { "key": "TilesY", "value": "2", "valueKind": "Integer" },
     { "key": "TileOverlap", "value": "8", "valueKind": "Integer" },

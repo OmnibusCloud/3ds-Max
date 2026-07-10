@@ -53,6 +53,24 @@ public sealed class MaxPluginSettingsTests
         Assert.That(settings.VideoContainer, Is.EqualTo("mp4"));
         Assert.That(settings.VideoCrf, Is.EqualTo(18));
         Assert.That(settings.LogLevel, Is.EqualTo("Information"));
+        Assert.That(settings.BakeVRayScannedMaterials, Is.False);
+    }
+
+    [Test]
+    public void EverySettingPropertyHasAnEmbeddedDefaultTest()
+    {
+        // A [Setting] property WITHOUT a matching key in plugin-settings.json throws on first
+        // read — 0.7.37 shipped BakeVRayScannedMaterials that way and the Render dialog died
+        // with a NullReferenceException on open. Reading every property through the container
+        // catches the desync at test time.
+        var settings = MaxPluginSettingsFactory.CreateForUserStore(Path.Combine(m_tempDir, "settings.json"));
+
+        foreach (var property in typeof(MaxPluginSettings).GetProperties()
+                     .Where(me => me.GetCustomAttributes(true).Any(attr => attr.GetType().Name.StartsWith("Setting"))))
+        {
+            Assert.That(() => property.GetValue(settings), Throws.Nothing,
+                $"[Setting] property '{property.Name}' must have a default in plugin-settings.json");
+        }
     }
 
     [Test]
