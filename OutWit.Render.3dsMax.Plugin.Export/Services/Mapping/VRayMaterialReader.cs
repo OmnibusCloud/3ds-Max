@@ -197,8 +197,11 @@ internal static class VRayMaterialReader
         // V-Ray's PBR metalness carries the metal look with the diffuse as the metal colour —
         // exactly Principled's semantics. Never metallize a transmissive material (Metallic 1
         // disables Principled transmission outright — the same trap the Raytrace glass hit).
+        // The gate mirrors the transmission branch below EXACTLY: with mismatched thresholds a
+        // faintly-refractive rough metal fell into both branches and rendered as a polished
+        // mirror (the refraction glossiness default overwrote its authored roughness).
         var metallic = 0d;
-        if (transmission <= 0.1d && reflectionStrength > CHANNEL_EPSILON)
+        if (transmission <= CHANNEL_EPSILON && reflectionStrength > CHANNEL_EPSILON)
         {
             metallic = Math.Clamp(values.Metalness ?? 0d, 0d, 1d);
 

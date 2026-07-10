@@ -1505,7 +1505,10 @@ internal sealed class MaxSceneSnapshotCollector
                 Name = node.Name,
                 Kind = DccLightKind.Point,
                 Color = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d },
-                Intensity = 1d,
+                // The neutral stand-in still honours the authored on/off switch: a disabled
+                // V-Ray mesh light exported at the neutral intensity adds light the artist
+                // turned off (zero intensity drops the node at the call site).
+                Intensity = ReadForeignLightIsEnabled(lightObject) ? 1d : 0d,
                 Range = 0.01d,
                 NoDecay = true,
                 CastShadows = true
@@ -1550,6 +1553,23 @@ internal sealed class MaxSceneSnapshotCollector
 
         SampleLightPropertyKeyframes(lightObject, snapshot);
         return snapshot;
+    }
+
+    // Reads the on/off switch of a foreign light headed for the neutral fallback. V-Ray lights
+    // call it 'on', VRaySun 'enabled'; an unreadable switch keeps the light ON (never silently
+    // drop a real light).
+    private bool ReadForeignLightIsEnabled(ILightObject lightObject)
+    {
+        try
+        {
+            var handle = m_global.Animatable.GetHandleByAnim(lightObject);
+            var script = $"(local m = getAnimByHandle {handle.ToUInt64()}; (try (if m.on then \"1\" else \"0\") catch (try (if m.enabled then \"1\" else \"0\") catch (\"1\"))))";
+            return TryEvaluateScriptString(script) != "0";
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     // Reads a V-Ray light through its dedicated batched script reader. Returns null (caller
@@ -1840,23 +1860,9 @@ internal sealed class MaxSceneSnapshotCollector
     // minidump after 20 minutes), and the anim-handle MAXScript reads cost seconds per
     // material. Until a family has a dedicated reader, its materials/lights take a minimal
     // safe path and the class is recorded for diagnostics.
-    private static readonly string[] FOREIGN_PLUGIN_CLASS_PREFIXES =
-    [
-        "VRay", "Corona", "Octane", "Redshift", "Maxwell", "Thea", "fR", "finalRender"
-    ];
-
     private bool IsForeignPluginClass(string? className)
     {
-        if (string.IsNullOrWhiteSpace(className))
-            return false;
-
-        foreach (var prefix in FOREIGN_PLUGIN_CLASS_PREFIXES)
-        {
-            if (className.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
+        return ForeignRendererClasses.IsForeign(className);
     }
 
     private void RecordUnmappedPluginClass(string kind, string? className, string objectName)

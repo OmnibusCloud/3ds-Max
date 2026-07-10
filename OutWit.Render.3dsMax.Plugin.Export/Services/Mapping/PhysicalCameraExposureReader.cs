@@ -108,12 +108,14 @@ internal static class PhysicalCameraExposureReader
             return null;
         }
 
-        // Stock Physical Camera: gain type 0 keeps the authored Target EV (the camera reports
-        // it directly); manual-ISO mode derives EV100 from the physicals.
+        // Stock Physical Camera. Per the MAXScript reference the gain combo is 0 = Manual (ISO),
+        // 1 = Target (EV, the default): Target mode keeps the authored EV the camera reports,
+        // Manual mode derives EV100 from the physicals (the Target spinner is inactive there and
+        // may hold a stale value — Max only syncs it while the UI is open).
         if (values[1] is not null)
         {
             var gainType = (int)Math.Round(values[1]!.Value);
-            if (gainType == 0 && exposureValue is not null)
+            if (gainType == 1 && exposureValue is not null)
                 return exposureValue;
 
             return ComputeEv100(fNumber, values[4], iso) ?? exposureValue;

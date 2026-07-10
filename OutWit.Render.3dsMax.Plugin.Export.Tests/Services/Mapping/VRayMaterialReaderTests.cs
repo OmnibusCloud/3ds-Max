@@ -312,6 +312,23 @@ public sealed class VRayMaterialReaderTests
     }
 
     [Test]
+    public void FaintlyTransmissiveMetalKeepsItsAuthoredFinishTest()
+    {
+        // Transmission in the old (0.01, 0.1] threshold gap: the material fell into BOTH the
+        // metallization and the transmission branches — a rough metal with a trace of refraction
+        // rendered as a polished mirror (refraction glossiness default overwrote its roughness).
+        var snapshot = ApplyPayload(BuildPayload(
+            diffuse: "180.0|140.0|60.0",
+            reflection: "255.0|255.0|255.0",
+            reflectionGlossiness: "0.6",
+            metalness: "1.0",
+            refraction: "13.0|13.0|13.0"));
+
+        Assert.That(snapshot.Metallic, Is.Zero, "the transmission branch owns the gap now");
+        Assert.That(snapshot.Transmission, Is.EqualTo(13d / 255d).Within(1e-9));
+    }
+
+    [Test]
     public void FogColourTintsTransmissiveBaseTest()
     {
         var snapshot = ApplyPayload(BuildPayload(

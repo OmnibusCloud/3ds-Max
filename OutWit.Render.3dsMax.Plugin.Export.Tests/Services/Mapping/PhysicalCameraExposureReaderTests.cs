@@ -51,29 +51,45 @@ public sealed class PhysicalCameraExposureReaderTests
     [Test]
     public void StockPhysicalTargetEvModeUsesAuthoredValueTest()
     {
-        // The auto sample's RenderCam: gain type 0 (Target EV), authored EV 13.8435.
+        // Gain type 1 = Target EV: the authored EV wins even when the inactive manual spinners
+        // hold values that would compute differently.
         var ev = PhysicalCameraExposureReader.TryResolveExposureValue(BuildPayload(
-            exposureValue: "13.8435",
-            gainType: "0.0",
+            exposureValue: "6.0",
+            gainType: "1.0",
             iso: "100.0",
-            fNumber: "3.5",
-            shutterLengthSeconds: "0.000833333"));
+            fNumber: "8.0",
+            shutterLengthSeconds: "0.0166667"));
 
-        Assert.That(ev, Is.EqualTo(13.8435d).Within(1e-6));
+        Assert.That(ev, Is.EqualTo(6d).Within(1e-6));
     }
 
     [Test]
     public void StockPhysicalManualIsoModeComputesEvTest()
     {
-        // Manual ISO: EV100 = log2(N²/t · 100/ISO) = log2(12.25 · 1200) ≈ 13.84 at ISO 100.
+        // Gain type 0 = Manual ISO (the auto sample's RenderCam): EV100 derives from the
+        // physicals — log2(N²/t · 100/ISO) = log2(12.25 · 1200) ≈ 13.84 — and must NOT trust
+        // the Target spinner, which is inactive in this mode and may be stale.
         var ev = PhysicalCameraExposureReader.TryResolveExposureValue(BuildPayload(
             exposureValue: "6.0",
-            gainType: "1.0",
+            gainType: "0.0",
             iso: "100.0",
             fNumber: "3.5",
             shutterLengthSeconds: "0.000833333"));
 
         Assert.That(ev, Is.EqualTo(Math.Log2(3.5d * 3.5d / 0.000833333d)).Within(1e-6));
+    }
+
+    [Test]
+    public void StockPhysicalManualIsoModeFallsBackToAuthoredEvOnDegeneratePhysicalsTest()
+    {
+        var ev = PhysicalCameraExposureReader.TryResolveExposureValue(BuildPayload(
+            exposureValue: "11.0",
+            gainType: "0.0",
+            iso: "?",
+            fNumber: "3.5",
+            shutterLengthSeconds: "?"));
+
+        Assert.That(ev, Is.EqualTo(11d).Within(1e-9));
     }
 
     [Test]
