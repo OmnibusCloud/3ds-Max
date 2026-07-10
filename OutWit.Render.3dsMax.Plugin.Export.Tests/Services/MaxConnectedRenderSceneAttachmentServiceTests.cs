@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services;
@@ -108,21 +109,30 @@ public sealed class MaxConnectedRenderSceneAttachmentServiceTests
     }
 
     [Test]
-    public void UploadImageAssetAttachmentsAsyncRejectsMissingImageAssetFileTest()
+    public async Task UploadImageAssetAttachmentsAsyncDegradesMissingImageAssetFileTest()
     {
+        // A missing texture file must not fail the whole submission (3ds Max itself renders
+        // with missing bitmaps): the asset and every reference to it drop out with a warning.
         var service = new MaxConnectedRenderSceneAttachmentService();
         var exportService = MaxSceneExportTestData.CreateService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
         var scene = exportService.ValidateCurrentScene().Scene!;
+        var missingAssetId = scene.ImageAssets[0].Id;
         scene.ImageAssets[0].SourcePath = Path.Combine(m_tempDirectoryPath, "missing.png");
 
-        var exception = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await service.UploadImageAssetAttachmentsAsync(
-                scene,
-                string.Empty,
-                (_, _) => Task.FromResult(Guid.NewGuid()),
-                CancellationToken.None));
+        var diagnostics = await service.UploadImageAssetAttachmentsAsync(
+            scene,
+            string.Empty,
+            (_, _) => Task.FromResult(Guid.NewGuid()),
+            CancellationToken.None);
 
-        Assert.That(exception!.Message, Does.Contain("source file was not found"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Warning
+                                              && me.Message.Contains("source file was not found")), Is.True);
+            Assert.That(scene.ImageAssets.Any(me => me.Id == missingAssetId), Is.False, "the asset is removed");
+            Assert.That(scene.Materials.SelectMany(me => me.TextureSlots).Any(me => me.ImageAssetId == missingAssetId), Is.False, "slot references are removed");
+            Assert.That(scene.AttachedFiles, Is.Empty, "nothing was uploaded");
+        });
     }
 
     [Test]

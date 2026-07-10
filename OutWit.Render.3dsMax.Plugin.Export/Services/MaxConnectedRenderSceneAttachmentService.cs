@@ -50,22 +50,30 @@ public sealed class MaxConnectedRenderSceneAttachmentService
             referencedImageAssetIds.Add(scene.World!.EnvironmentImageId);
         var uploadedBlobIdsBySourcePath = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
 
+        var missingImageAssetIds = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var imageAsset in scene.ImageAssets.Where(me => referencedImageAssetIds.Contains(me.Id)))
         {
             if (HasMaterializedAttachment(scene, imageAsset))
                 continue;
 
-            if (string.IsNullOrWhiteSpace(imageAsset.SourcePath))
-            {
-                throw new InvalidOperationException(
-                    $"Connected render scene image asset '{imageAsset.Id}' does not have a source path and cannot be uploaded as a scene attachment.");
-            }
-
-            var resolvedSourcePath = ResolveSourcePath(imageAsset, sceneFilePath);
+            // A missing source file degrades that one texture instead of failing the whole
+            // submission — 3ds Max itself renders scenes with missing bitmaps (the V-Ray VSphere
+            // sample references its dome HDRI on a Chaos-internal network share). The asset and
+            // every reference to it are removed so the payload stays consistent, and the user
+            // sees a warning naming the file.
+            var resolvedSourcePath = string.IsNullOrWhiteSpace(imageAsset.SourcePath)
+                ? null
+                : ResolveSourcePath(imageAsset, sceneFilePath);
             if (string.IsNullOrWhiteSpace(resolvedSourcePath))
             {
-                throw new InvalidOperationException(
-                    $"Connected render scene image asset '{imageAsset.Id}' source file was not found at '{imageAsset.SourcePath}'.");
+                missingImageAssetIds.Add(imageAsset.Id);
+                diagnostics.Add(new MaxSceneDiagnosticItem
+                {
+                    Severity = MaxSceneDiagnosticSeverity.Warning,
+                    Message = $"Scene image asset '{imageAsset.Id}' source file was not found at '{imageAsset.SourcePath}' — the render proceeds without this texture."
+                });
+                continue;
             }
 
             if (!uploadedBlobIdsBySourcePath.TryGetValue(resolvedSourcePath, out var blobId))
@@ -90,7 +98,23 @@ public sealed class MaxConnectedRenderSceneAttachmentService
             });
         }
 
+        if (missingImageAssetIds.Count > 0)
+            RemoveMissingImageAssetReferences(scene, missingImageAssetIds);
+
         return diagnostics;
+    }
+
+    private static void RemoveMissingImageAssetReferences(DccSceneData scene, HashSet<string> missingImageAssetIds)
+    {
+        scene.ImageAssets.RemoveAll(me => missingImageAssetIds.Contains(me.Id));
+
+        foreach (var material in scene.Materials)
+            material.TextureSlots.RemoveAll(me => me.ImageAssetId is not null && missingImageAssetIds.Contains(me.ImageAssetId));
+
+        if (scene.World is not null
+            && !string.IsNullOrWhiteSpace(scene.World.EnvironmentImageId)
+            && missingImageAssetIds.Contains(scene.World.EnvironmentImageId))
+            scene.World.EnvironmentImageId = null;
     }
 
     private static bool HasMaterializedAttachment(DccSceneData scene, DccImageAssetData imageAsset)
