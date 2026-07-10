@@ -5,7 +5,7 @@
         xmlns:vm="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels"
         Title="OmnibusCloud — Render"
         Width="452"
-        Height="432"
+        SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource Max.Brush.Window}"
