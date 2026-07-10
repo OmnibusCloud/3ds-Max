@@ -145,6 +145,19 @@ public sealed class MaxSceneExportService
         return result;
     }
 
+    /// <summary>
+    /// Writes an ALREADY-captured scene into an artifact — launch preparation captures the scene
+    /// once and serializes it into every requested format (each ExportCurrentScene call used to
+    /// re-run the full multi-minute capture on heavy scenes).
+    /// </summary>
+    public string ExportScene(DccSceneData scene, string outputFolder, MaxSceneExportOutputFormat outputFormat)
+    {
+        Directory.CreateDirectory(outputFolder);
+        var outputPath = Path.Combine(outputFolder, $"dcc-scene{GetOutputFileExtension(outputFormat)}");
+        WriteSceneArtifact(scene, outputPath, outputFormat);
+        return outputPath;
+    }
+
     private static void WriteSceneArtifact(DccSceneData scene, string outputPath, MaxSceneExportOutputFormat outputFormat)
     {
         var jsonPayload = default(string);

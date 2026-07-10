@@ -38,10 +38,14 @@ public sealed class MaxSceneLaunchPreparationService
         var packageFolderPath = Path.Combine(request.OutputFolder, packageId);
         Directory.CreateDirectory(packageFolderPath);
 
+        // ONE capture, N serializations: the scene is captured (and validated) once and every
+        // artifact serializes from the same DccSceneData — each ExportCurrentScene call used to
+        // re-run the full capture, tripling a multi-minute launch on heavy scenes (preflight +
+        // Json + MemoryPackGzip).
         var captureOptions = new MaxSceneCaptureOptions { BakeVRayScannedMaterials = request.BakeVRayScannedMaterials };
-        var jsonResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.Json, captureOptions);
+        var jsonResult = m_sceneExportService.ValidateCurrentScene(captureOptions);
 
-        if (!jsonResult.IsSuccess)
+        if (!jsonResult.IsSuccess || jsonResult.Scene is null)
         {
             return new MaxSceneLaunchPackageResult
             {
@@ -53,19 +57,8 @@ public sealed class MaxSceneLaunchPreparationService
             };
         }
 
-        var memoryPackGzipResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.MemoryPackGzip, captureOptions);
-
-        if (!memoryPackGzipResult.IsSuccess)
-        {
-            return new MaxSceneLaunchPackageResult
-            {
-                IsSuccess = false,
-                PackageId = packageId,
-                PackageFolderPath = packageFolderPath,
-                StatusText = memoryPackGzipResult.StatusText,
-                Diagnostics = [.. memoryPackGzipResult.Diagnostics]
-            };
-        }
+        jsonResult.OutputPath = m_sceneExportService.ExportScene(jsonResult.Scene, packageFolderPath, MaxSceneExportOutputFormat.Json);
+        var memoryPackGzipArtifactPath = m_sceneExportService.ExportScene(jsonResult.Scene, packageFolderPath, MaxSceneExportOutputFormat.MemoryPackGzip);
 
         var manifest = new MaxSceneLaunchPackageManifest
         {
@@ -82,7 +75,7 @@ public sealed class MaxSceneLaunchPreparationService
             UseAllClients = request.UseAllClients,
             SelectedGroupName = request.SelectedGroupName,
             JsonArtifactPath = jsonResult.OutputPath ?? string.Empty,
-            MemoryPackGzipArtifactPath = memoryPackGzipResult.OutputPath ?? string.Empty
+            MemoryPackGzipArtifactPath = memoryPackGzipArtifactPath
         };
 
         var manifestPath = Path.Combine(packageFolderPath, "launch-request.json");

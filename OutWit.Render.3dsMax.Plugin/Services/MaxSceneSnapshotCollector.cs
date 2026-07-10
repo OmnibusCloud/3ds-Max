@@ -18,6 +18,7 @@ internal sealed class MaxSceneSnapshotCollector
     private readonly IInterface m_coreInterface;
     private readonly MaxSceneSnapshotData m_summary;
     private readonly MaxSceneCaptureOptions m_captureOptions;
+    private readonly bool m_reportNativeProgress;
     // Scanned materials queued for the post-walk RTT bake: material snapshot id -> the first
     // node wearing it (the bake renders on that node's UVs).
     private readonly Dictionary<string, (IMtl Material, IINode Node)> m_scannedMaterialBakeQueue = new(StringComparer.Ordinal);
@@ -39,12 +40,13 @@ internal sealed class MaxSceneSnapshotCollector
 
     #region Constructors
 
-    public MaxSceneSnapshotCollector(IGlobal global, IInterface coreInterface, MaxSceneSnapshotData summary, MaxSceneCaptureOptions? captureOptions = null)
+    public MaxSceneSnapshotCollector(IGlobal global, IInterface coreInterface, MaxSceneSnapshotData summary, MaxSceneCaptureOptions? captureOptions = null, bool reportNativeProgress = false)
     {
         m_global = global;
         m_coreInterface = coreInterface;
         m_summary = summary;
         m_captureOptions = captureOptions ?? MaxSceneCaptureOptions.Default;
+        m_reportNativeProgress = reportNativeProgress;
         m_materials = new HashSet<object>(ReferenceEqualityComparer.Instance);
         m_textures = new HashSet<object>(ReferenceEqualityComparer.Instance);
         m_materialNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -426,6 +428,7 @@ internal sealed class MaxSceneSnapshotCollector
             if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject)
             {
                 var meshId = $"mesh:{childNode.Handle}";
+                ReportNativeProgress($"OmnibusCloud: extracting '{childNode.Name}'…");
                 var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
 
                 // A mesh with no vertices (a helper/degenerate object that still converts to a
@@ -1625,6 +1628,7 @@ internal sealed class MaxSceneSnapshotCollector
             return;
         }
 
+        var bakeIndex = 0;
         foreach (var (materialId, entry) in m_scannedMaterialBakeQueue)
         {
             try
@@ -1632,6 +1636,9 @@ internal sealed class MaxSceneSnapshotCollector
                 var materialSnapshot = m_summary.Materials.FirstOrDefault(me => me.Id == materialId);
                 if (materialSnapshot is null)
                     continue;
+
+                bakeIndex++;
+                ReportNativeProgress($"OmnibusCloud: baking scanned material '{materialSnapshot.Name}' ({bakeIndex}/{m_scannedMaterialBakeQueue.Count})…");
 
                 var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
                 Directory.CreateDirectory(bakeDirectory);
@@ -1699,6 +1706,25 @@ internal sealed class MaxSceneSnapshotCollector
         catch
         {
             return false;
+        }
+    }
+
+    // Updates Max's native progress dialog during the full capture (started by the host
+    // service). The percentage is coarse — the node count is unknown up front — but the moving
+    // title is what proves the application is alive during a minutes-long capture.
+    private void ReportNativeProgress(string title)
+    {
+        if (!m_reportNativeProgress)
+            return;
+
+        try
+        {
+            var pseudoPercent = Math.Min(95, m_summary.MeshesCount * 5 + 5);
+            m_coreInterface.ProgressUpdate(pseudoPercent, false, title);
+        }
+        catch
+        {
+            // Progress is cosmetic — never let it break the capture.
         }
     }
 

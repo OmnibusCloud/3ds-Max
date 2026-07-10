@@ -45,8 +45,14 @@ public sealed class MaxConnectedRenderPreflightService
     public MaxConnectedRenderPreflightResult Run(MaxSceneLaunchPackageRequest request)
     {
         var diagnostics = new List<MaxSceneDiagnosticItem>();
-        var validation = m_sceneExportService.ValidateCurrentScene();
-        diagnostics.AddRange(validation.Diagnostics);
+
+        // Preflight reads the scene through the SummaryOnly profile: a full geometry capture
+        // takes minutes on heavy scenes and runs anyway during launch preparation — which is
+        // also where the deep DCC-contract validation happens (its failure fails the launch).
+        // Preflight checks the request fields and the scene's coarse shape.
+        var summary = m_sceneExportService.CollectSummary(MaxSceneCaptureOptions.SummaryOnly);
+        if (summary.MeshesCount == 0)
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "The scene contains no renderable meshes."));
 
         if (string.IsNullOrWhiteSpace(request.CloudUrl) && string.IsNullOrWhiteSpace(request.IdentityUrl))
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "OmnibusCloud URL or Identity URL is required before connected launch."));
@@ -73,7 +79,7 @@ public sealed class MaxConnectedRenderPreflightService
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Video launch usually expects more than one frame."));
         }
 
-        var hasErrors = diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Error) || !validation.IsSuccess;
+        var hasErrors = diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Error);
 
         if (!hasErrors)
         {

@@ -45,9 +45,61 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         };
         (snapshot.ImageMotionBlurObjectCount, snapshot.ObjectMotionBlurObjectCount) = CountMotionBlurKinds(global);
 
-        var collector = new MaxSceneSnapshotCollector(global, coreInterface, snapshot, captureOptions);
-        collector.Collect(rootNode);
+        // The FULL capture of a heavy scene runs for minutes synchronously on the Max main
+        // thread; without feedback the whole application reads as hung. Max's native progress
+        // dialog is the SDK-safe way to stay visibly alive (it pumps messages itself) — shown
+        // only for interactive full captures; the SummaryOnly profile finishes in milliseconds.
+        var showNativeProgress = !captureOptions.SkipGeometryData && !SafeGetQuietMode(coreInterface);
+        if (showNativeProgress)
+            TryProgressStart(coreInterface, "OmnibusCloud: preparing scene…");
+
+        try
+        {
+            var collector = new MaxSceneSnapshotCollector(global, coreInterface, snapshot, captureOptions, showNativeProgress);
+            collector.Collect(rootNode);
+        }
+        finally
+        {
+            if (showNativeProgress)
+                TryProgressEnd(coreInterface);
+        }
+
         return snapshot;
+    }
+
+    private static bool SafeGetQuietMode(IInterface coreInterface)
+    {
+        try
+        {
+            return coreInterface.GetQuietMode(true);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static void TryProgressStart(IInterface coreInterface, string title)
+    {
+        try
+        {
+            coreInterface.ProgressStart(title, true);
+        }
+        catch
+        {
+            // No progress dialog is a cosmetic loss only.
+        }
+    }
+
+    private static void TryProgressEnd(IInterface coreInterface)
+    {
+        try
+        {
+            coreInterface.ProgressEnd();
+        }
+        catch
+        {
+        }
     }
 
     private static string ResolveSceneName(IInterface coreInterface)
