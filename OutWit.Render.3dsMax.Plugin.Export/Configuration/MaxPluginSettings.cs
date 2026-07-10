@@ -59,6 +59,10 @@ public class MaxPluginSettings : SettingsContainer
     [Setting("Render")]
     public virtual bool SplitFrame { get; set; }
 
+    /// <summary>Opt-in local V-Ray render-to-texture of scanned (.vrscan) materials before upload.</summary>
+    [Setting("Render")]
+    public virtual bool BakeVRayScannedMaterials { get; set; }
+
     [Setting("Render")]
     public virtual int TilesX { get; set; }
 

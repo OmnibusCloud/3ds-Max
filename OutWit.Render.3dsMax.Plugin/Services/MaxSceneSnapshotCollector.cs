@@ -17,6 +17,11 @@ internal sealed class MaxSceneSnapshotCollector
     private readonly IGlobal m_global;
     private readonly IInterface m_coreInterface;
     private readonly MaxSceneSnapshotData m_summary;
+    private readonly MaxSceneCaptureOptions m_captureOptions;
+    // Scanned materials queued for the post-walk RTT bake: material snapshot id -> the first
+    // node wearing it (the bake renders on that node's UVs).
+    private readonly Dictionary<string, (IMtl Material, IINode Node)> m_scannedMaterialBakeQueue = new(StringComparer.Ordinal);
+    private IINode? m_currentMaterialNode;
     private readonly HashSet<object> m_materials;
     private readonly HashSet<object> m_textures;
     private readonly SortedSet<string> m_materialNames;
@@ -34,11 +39,12 @@ internal sealed class MaxSceneSnapshotCollector
 
     #region Constructors
 
-    public MaxSceneSnapshotCollector(IGlobal global, IInterface coreInterface, MaxSceneSnapshotData summary)
+    public MaxSceneSnapshotCollector(IGlobal global, IInterface coreInterface, MaxSceneSnapshotData summary, MaxSceneCaptureOptions? captureOptions = null)
     {
         m_global = global;
         m_coreInterface = coreInterface;
         m_summary = summary;
+        m_captureOptions = captureOptions ?? MaxSceneCaptureOptions.Default;
         m_materials = new HashSet<object>(ReferenceEqualityComparer.Instance);
         m_textures = new HashSet<object>(ReferenceEqualityComparer.Instance);
         m_materialNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -59,6 +65,7 @@ internal sealed class MaxSceneSnapshotCollector
     public void Collect(IINode rootNode)
     {
         CollectSceneContent(rootNode, rootNode, null);
+        BakeQueuedScannedMaterials();
         ReadEnvironment();
         ReadEnvironmentMap();
         m_summary.MaterialsCount = m_materials.Count;
@@ -435,7 +442,11 @@ internal sealed class MaxSceneSnapshotCollector
                     m_summary.MeshesCount++;
                     meshSnapshot.SubdivisionLevels = ResolveRenderSubdivisionLevels(childNode);
                     SampleDeformationFrames(childNode, meshSnapshot);
+                    // The scanned-material RTT bake needs the node the material sits on; the
+                    // binding path only sees the material, so carry the node alongside.
+                    m_currentMaterialNode = childNode;
                     var materialBindingMap = GetMaterialBindingMap(childNode.Mtl);
+                    m_currentMaterialNode = null;
                     NormalizeMaterialIndices(meshSnapshot, materialBindingMap);
                     var materialBindingId = ResolveMaterialBindingId(meshSnapshot, materialBindingMap.MaterialIds);
 
@@ -1566,6 +1577,116 @@ internal sealed class MaxSceneSnapshotCollector
         return snapshot;
     }
 
+    // Runs the opt-in local V-Ray render-to-texture pass for queued scanned materials: the
+    // measured (.vrscan) BRDF cannot be read parametrically, but the user's local V-Ray can
+    // RENDER its diffuse into a texture on the node's own UVs — fabric weave and suede nap then
+    // travel as an ordinary baked bitmap. Uses the VRayDiffuseFilterMap bake element (diffuse
+    // without lighting) on map channel 1; a failed bake keeps the flat approximation.
+    private void BakeQueuedScannedMaterials()
+    {
+        if (m_scannedMaterialBakeQueue.Count == 0)
+            return;
+
+        // A V-Ray production render from a HEADLESS session (3dsmaxbatch) hangs — the known
+        // renderer-recursion class; render-to-texture hits it too (verified: the bake wedged
+        // for 26 minutes and minidumped on kill). The bake is an interactive-session feature;
+        // headless exports keep the flat approximation with an explicit diagnostic. Probed
+        // through the SDK directly — script-level probes proved unreliable from inside
+        // ExecuteMAXScriptScript.
+        var isHeadless = true;
+        try
+        {
+            isHeadless = m_coreInterface.GetQuietMode(true);
+        }
+        catch
+        {
+            // An unreadable mode keeps the bake OFF — hanging a session is the worse failure.
+        }
+
+        if (isHeadless)
+        {
+            RecordUnmappedPluginClass("texmap-bake-skipped-headless", "VRayScannedMtl", string.Empty);
+            m_scannedMaterialBakeQueue.Clear();
+            return;
+        }
+
+        foreach (var (materialId, entry) in m_scannedMaterialBakeQueue)
+        {
+            try
+            {
+                var materialSnapshot = m_summary.Materials.FirstOrDefault(me => me.Id == materialId);
+                if (materialSnapshot is null)
+                    continue;
+
+                var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
+                Directory.CreateDirectory(bakeDirectory);
+                var bakePath = Path.Combine(bakeDirectory, $"{SanitizeId(materialSnapshot.Name)}_vrscan_{entry.Material.GetHashCode():x8}.png");
+
+                if (!File.Exists(bakePath) && !TryRenderScannedMaterialToTexture(entry.Node, bakePath))
+                {
+                    RecordUnmappedPluginClass("texmap-bake-failed", "VRayScannedMtl", materialSnapshot.Name);
+                    continue;
+                }
+
+                var imageAssetId = GetOrCreateImageAssetFromPath(bakePath, bakePath);
+                if (string.IsNullOrWhiteSpace(imageAssetId))
+                    continue;
+
+                materialSnapshot.TextureSlots.RemoveAll(me => me.Slot == DccTextureSlotKind.BaseColor);
+                materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
+                {
+                    Slot = DccTextureSlotKind.BaseColor,
+                    ImageAssetId = imageAssetId
+                });
+
+                // The baked pixels carry the colour; a tinted base would double-apply it.
+                materialSnapshot.BaseColor = new MaxSceneColorSnapshotData { R = 1d, G = 1d, B = 1d, A = 1d };
+            }
+            catch
+            {
+                // A failed bake keeps the flat parametric approximation for this material.
+            }
+        }
+
+        m_scannedMaterialBakeQueue.Clear();
+    }
+
+    private bool TryRenderScannedMaterialToTexture(IINode node, string bakePath)
+    {
+        try
+        {
+            var handle = m_global.Animatable.GetHandleByAnim(node);
+            var escapedPath = bakePath.Replace("\\", "\\\\");
+            var script =
+                $"(local n = getAnimByHandle {handle.ToUInt64()}; " +
+                "local ok = \"0\"; " +
+                "try (" +
+                "select n; " +
+                "local bp = n.INodeBakeProperties; " +
+                "bp.removeAllBakeElements(); " +
+                "local be = VRayDiffuseFilterMap(); " +
+                "be.outputSzX = 1024; be.outputSzY = 1024; " +
+                $"be.fileName = \"{escapedPath}\"; " +
+                $"be.fileType = \"{escapedPath}\"; " +
+                "be.enabled = true; " +
+                "bp.addBakeElement be; " +
+                "bp.bakeEnabled = true; " +
+                "bp.bakeChannel = 1; " +
+                "bp.nDilations = 4; " +
+                "render rendertype:#bakeSelected vfb:false progressBar:false outputSize:[1024,1024]; " +
+                "bp.bakeEnabled = false; " +
+                "ok = \"1\"" +
+                ") catch (ok = \"0\"); " +
+                "ok)";
+            var result = TryEvaluateScriptString(script);
+            return result == "1" && File.Exists(bakePath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // Reads the on/off switch of a foreign light headed for the neutral fallback. V-Ray lights
     // call it 'on', VRaySun 'enabled'; an unreadable switch keeps the light ON (never silently
     // drop a real light).
@@ -1966,6 +2087,15 @@ internal sealed class MaxSceneSnapshotCollector
                     // The measured BRDF itself is not reconstructable — keep the class visible in
                     // diagnostics as an approximation even though the export got a plausible look.
                     RecordUnmappedPluginClass("material-approximated", materialClassName, material.Name);
+
+                    // Opt-in local RTT bake: queue the material with the first node wearing it;
+                    // the bakes run AFTER the scene walk (render-to-texture inside the walk would
+                    // re-enter the SDK mid-collection).
+                    if (m_captureOptions.BakeVRayScannedMaterials
+                        && m_currentMaterialNode is not null
+                        && !m_scannedMaterialBakeQueue.ContainsKey(snapshot.Id))
+                        m_scannedMaterialBakeQueue[snapshot.Id] = (material, m_currentMaterialNode);
+
                     return true;
                 }
 

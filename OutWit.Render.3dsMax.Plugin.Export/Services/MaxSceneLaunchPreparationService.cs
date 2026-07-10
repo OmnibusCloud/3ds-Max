@@ -38,7 +38,8 @@ public sealed class MaxSceneLaunchPreparationService
         var packageFolderPath = Path.Combine(request.OutputFolder, packageId);
         Directory.CreateDirectory(packageFolderPath);
 
-        var jsonResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.Json);
+        var captureOptions = new MaxSceneCaptureOptions { BakeVRayScannedMaterials = request.BakeVRayScannedMaterials };
+        var jsonResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.Json, captureOptions);
 
         if (!jsonResult.IsSuccess)
         {
@@ -52,7 +53,7 @@ public sealed class MaxSceneLaunchPreparationService
             };
         }
 
-        var memoryPackGzipResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.MemoryPackGzip);
+        var memoryPackGzipResult = m_sceneExportService.ExportCurrentScene(packageFolderPath, MaxSceneExportOutputFormat.MemoryPackGzip, captureOptions);
 
         if (!memoryPackGzipResult.IsSuccess)
         {

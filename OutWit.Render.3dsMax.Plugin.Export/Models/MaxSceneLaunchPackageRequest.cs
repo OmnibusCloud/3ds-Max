@@ -29,5 +29,9 @@ public sealed class MaxSceneLaunchPackageRequest
 
     public string OutputFolder { get; set; } = string.Empty;
 
+    // Opt-in local V-Ray render-to-texture of scanned (.vrscan) materials before upload; part
+    // of the export runs on the user's machine, which the UI states explicitly.
+    public bool BakeVRayScannedMaterials { get; set; }
+
     #endregion
 }

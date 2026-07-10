@@ -33,7 +33,15 @@ public sealed class MaxSceneSummaryService
     /// </summary>
     public MaxSceneSummaryData Collect()
     {
-        var snapshot = m_sceneSnapshotProvider.Capture();
+        return Collect(MaxSceneCaptureOptions.Default);
+    }
+
+    /// <summary>
+    /// Collects and normalizes the current 3ds Max scene summary with capture options.
+    /// </summary>
+    public MaxSceneSummaryData Collect(MaxSceneCaptureOptions captureOptions)
+    {
+        var snapshot = m_sceneSnapshotProvider.Capture(captureOptions);
         var frameStart = snapshot.FrameStart <= 0 ? 1 : snapshot.FrameStart;
         var frameEnd = snapshot.FrameEnd < frameStart ? frameStart : snapshot.FrameEnd;
         var renderWidth = snapshot.RenderWidth <= 0 ? 1920 : snapshot.RenderWidth;

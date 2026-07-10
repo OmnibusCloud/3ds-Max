@@ -13,6 +13,24 @@ public sealed class MaxSceneExportServiceTests
     #region Tests
 
     [Test]
+    public void ValidateCurrentSceneForwardsCaptureOptionsToTheSnapshotProviderTest()
+    {
+        // The scanned-material bake toggle travels UI -> request -> capture options -> collector;
+        // this pins the export-service leg of that chain.
+        var snapshot = MaxSceneExportTestData.CreateMinimalValidSceneSnapshot();
+        var provider = new FakeMaxSceneSnapshotProvider(snapshot);
+        var service = new MaxSceneExportService(new MaxSceneSummaryService(provider));
+
+        service.ValidateCurrentScene(new MaxSceneCaptureOptions { BakeVRayScannedMaterials = true });
+
+        Assert.That(provider.LastCaptureOptions?.BakeVRayScannedMaterials, Is.True);
+
+        service.ValidateCurrentScene();
+
+        Assert.That(provider.LastCaptureOptions?.BakeVRayScannedMaterials, Is.False, "the plain overload keeps defaults");
+    }
+
+    [Test]
     public void CollectSummaryUsesSnapshotProviderDataTest()
     {
         var service = MaxSceneExportTestData.CreateService(new MaxSceneSnapshotData

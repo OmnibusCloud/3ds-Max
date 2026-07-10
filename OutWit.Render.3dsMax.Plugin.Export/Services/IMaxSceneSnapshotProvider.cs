@@ -12,7 +12,7 @@ public interface IMaxSceneSnapshotProvider
     /// <summary>
     /// Captures the current host scene into a snapshot model.
     /// </summary>
-    MaxSceneSnapshotData Capture();
+    MaxSceneSnapshotData Capture(MaxSceneCaptureOptions captureOptions);
 
     #endregion
 }

@@ -17,7 +17,7 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
     /// <summary>
     /// Captures the current 3ds Max scene into the export snapshot model.
     /// </summary>
-    public MaxSceneSnapshotData Capture()
+    public MaxSceneSnapshotData Capture(MaxSceneCaptureOptions captureOptions)
     {
         var global = GlobalInterface.Instance;
         var coreInterface = global.COREInterface;
@@ -45,7 +45,7 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         };
         (snapshot.ImageMotionBlurObjectCount, snapshot.ObjectMotionBlurObjectCount) = CountMotionBlurKinds(global);
 
-        var collector = new MaxSceneSnapshotCollector(global, coreInterface, snapshot);
+        var collector = new MaxSceneSnapshotCollector(global, coreInterface, snapshot, captureOptions);
         collector.Collect(rootNode);
         return snapshot;
     }

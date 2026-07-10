@@ -17,8 +17,9 @@ internal sealed class FakeMaxSceneSnapshotProvider : IMaxSceneSnapshotProvider
 
     #region Functions
 
-    public MaxSceneSnapshotData Capture()
+    public MaxSceneSnapshotData Capture(MaxSceneCaptureOptions captureOptions)
     {
+        LastCaptureOptions = captureOptions;
         return Snapshot;
     }
 
@@ -27,6 +28,8 @@ internal sealed class FakeMaxSceneSnapshotProvider : IMaxSceneSnapshotProvider
     #region Properties
 
     public MaxSceneSnapshotData Snapshot { get; }
+
+    public MaxSceneCaptureOptions? LastCaptureOptions { get; private set; }
 
     #endregion
 }

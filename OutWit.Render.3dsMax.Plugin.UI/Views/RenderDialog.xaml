@@ -101,6 +101,20 @@
                 </StackPanel>
             </Border>
 
+            <!-- V-Ray scanned materials (visible only when the scene uses them) -->
+            <Border Background="{DynamicResource Max.Brush.Panel}" BorderBrush="{DynamicResource Max.Brush.GroupBorder}"
+                    BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,10,0,0"
+                    Visibility="{Binding HasVRayScannedMaterials, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="V-Ray scanned materials" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <CheckBox Content="Bake scanned materials with local V-Ray before upload"
+                              IsChecked="{Binding BakeVRayScannedMaterials}" />
+                    <TextBlock Margin="22,4,0,0" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Max.Brush.TextMuted}"
+                               Text="Renders each scanned (.vrscan) material's surface into a texture on this machine before submitting (interactive 3ds Max only) — preserves fabric/suede detail the neutral export cannot carry, at the cost of extra local render time." />
+                </StackPanel>
+            </Border>
+
             <!-- Progress (during an active job) -->
             <ProgressBar Margin="0,12,0,0" Height="4" Minimum="0" Maximum="1"
                          Foreground="{DynamicResource Max.Brush.Accent}"

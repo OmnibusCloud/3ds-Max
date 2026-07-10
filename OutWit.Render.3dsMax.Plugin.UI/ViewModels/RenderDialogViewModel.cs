@@ -49,6 +49,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         // Seed the output axes from the persisted "last render mode" preference.
         ApplyRenderModeToAxes(Settings.LastRenderMode);
         SplitFrame = Settings.SplitFrame;
+        BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
     }
 
     private void InitEvents()
@@ -104,6 +105,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         SummaryVm.Apply(result.Summary);
         LaunchVm.ApplySceneDefaults(result.Summary);
         DiagnosticsVm.Apply(result.Diagnostics);
+
+        // The scanned-material bake option only makes sense when the scene actually carries
+        // V-Ray scanned materials — the collector's diagnostics already name them.
+        HasVRayScannedMaterials = result.Summary.UnmappedPluginClasses.Keys
+            .Any(me => me.Contains("VRayScannedMtl", StringComparison.OrdinalIgnoreCase));
         UpdateStatus();
     }
 
@@ -268,7 +274,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             Samples = LaunchVm.Samples,
             UseAllClients = LaunchVm.UseAllClients,
             SelectedGroupName = LaunchVm.SelectedGroupName,
-            OutputFolder = outputFolder
+            OutputFolder = outputFolder,
+            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
         };
     }
 
@@ -341,6 +348,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         Settings.LastRenderMode = ResolveRenderMode();
         Settings.SplitFrame = SplitFrame;
+        Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.UseAllClients = LaunchVm.UseAllClients;
         Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
         Settings.SettingsManager.Save();
@@ -409,6 +417,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool SplitFrame { get; set; }
+
+    // Visible only when the scene carries V-Ray scanned materials; states explicitly that part
+    // of the work (a local V-Ray render-to-texture pass) runs on the user's machine.
+    [Notify]
+    public bool BakeVRayScannedMaterials { get; set; }
+
+    [Notify]
+    public bool HasVRayScannedMaterials { get; set; }
 
     [Notify]
     public bool IsImageOutput { get; set; }

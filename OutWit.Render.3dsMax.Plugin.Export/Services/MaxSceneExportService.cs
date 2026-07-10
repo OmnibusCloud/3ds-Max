@@ -52,7 +52,15 @@ public sealed class MaxSceneExportService
     /// </summary>
     public MaxSceneExportResult ValidateCurrentScene()
     {
-        var summary = CollectSummary();
+        return ValidateCurrentScene(MaxSceneCaptureOptions.Default);
+    }
+
+    /// <summary>
+    /// Builds and validates the current 3ds Max scene with capture options.
+    /// </summary>
+    public MaxSceneExportResult ValidateCurrentScene(MaxSceneCaptureOptions captureOptions)
+    {
+        var summary = m_sceneSummaryService.Collect(captureOptions);
         var scene = MaxSceneDccSceneMapper.Create(summary);
 
         try
@@ -106,9 +114,10 @@ public sealed class MaxSceneExportService
     /// </summary>
     /// <param name="outputFolder">The destination folder for the exported artifact.</param>
     /// <param name="outputFormat">The requested artifact format.</param>
-    public MaxSceneExportResult ExportCurrentScene(string outputFolder, MaxSceneExportOutputFormat outputFormat)
+    /// <param name="captureOptions">Optional capture options (defaults preserve the plain export).</param>
+    public MaxSceneExportResult ExportCurrentScene(string outputFolder, MaxSceneExportOutputFormat outputFormat, MaxSceneCaptureOptions? captureOptions = null)
     {
-        var result = ValidateCurrentScene();
+        var result = ValidateCurrentScene(captureOptions ?? MaxSceneCaptureOptions.Default);
 
         if (!result.IsSuccess || result.Scene is null)
             return result;
