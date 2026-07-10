@@ -1366,8 +1366,26 @@ internal sealed class MaxSceneSnapshotCollector
         };
 
         ReadCameraDepthOfField(cameraObject, time, snapshot);
+        ReadCameraExposure(cameraObject, snapshot);
         SampleCameraPropertyKeyframes(cameraObject, snapshot, manualClip);
         return snapshot;
+    }
+
+    // Physical cameras (stock Physical, VRayPhysicalCamera) carry an authored exposure. The
+    // batched script probes every camera — ordinary cameras answer with markers and resolve
+    // to null, so no class-name gate is needed.
+    private void ReadCameraExposure(ICameraObject cameraObject, MaxSceneCameraSnapshotData snapshot)
+    {
+        try
+        {
+            var handle = m_global.Animatable.GetHandleByAnim(cameraObject);
+            var raw = TryEvaluateScriptString(PhysicalCameraExposureReader.BuildMaxScript(handle.ToUInt64()));
+            snapshot.ExposureEv = PhysicalCameraExposureReader.TryResolveExposureValue(raw);
+        }
+        catch
+        {
+            // Leave the exposure unset — the scene renders at the neutral exposure.
+        }
     }
 
     private void ReadCameraDepthOfField(ICameraObject cameraObject, int time, MaxSceneCameraSnapshotData snapshot)

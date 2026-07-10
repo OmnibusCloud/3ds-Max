@@ -28,5 +28,10 @@ public sealed class MaxSceneCameraSnapshotData
 
     public double FStop { get; set; } = 2.8d;
 
+    // The authored EV100 of a physical camera (stock Physical / VRayPhysicalCamera); null for
+    // ordinary cameras. The mapper carries its deviation from a photographic reference into the
+    // render exposure.
+    public double? ExposureEv { get; set; }
+
     #endregion
 }

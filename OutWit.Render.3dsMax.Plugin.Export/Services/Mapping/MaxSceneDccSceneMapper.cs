@@ -127,9 +127,10 @@ internal static class MaxSceneDccSceneMapper
                                   && summary.ImageMotionBlurObjectCount >= summary.ObjectMotionBlurObjectCount,
                 // Physical Exposure Control: EV 6 is Max's neutral default; each stop above
                 // darkens. This is the artist-facing knob for tuning our render's brightness.
+                // Without an explicit control, a physical camera's authored EV stands in.
                 Exposure = summary.ExposureControlEv is double exposureValue
                     ? Math.Clamp(6d - exposureValue, -10d, 10d)
-                    : 0d
+                    : ResolveCameraExposureStops(summary)
             },
             World = ResolveWorld(summary),
             Nodes =
@@ -799,6 +800,31 @@ internal static class MaxSceneDccSceneMapper
         var mid = intensities.Length / 2;
         var median = intensities.Length % 2 == 1 ? intensities[mid] : (intensities[mid - 1] + intensities[mid]) / 2d;
         return Math.Max(median, 1d);
+    }
+
+    // Photographic reference for a physical camera's authored EV100. The absolute EV is meant
+    // to counter PHYSICAL light intensities, which the light calibration normalizes away — so
+    // only the deviation from a mid reference translates. EV 12 sits between full daylight
+    // (~15) and dim interiors (~8); against it the Automotive sample's authored EV 13.84 darkens
+    // the frame by ~1.8 stops, closing most of its measured 2.4-stop gap to the native render.
+    private const double CAMERA_EV_NEUTRAL = 12d;
+
+    private static double ResolveCameraExposureStops(MaxSceneSummaryData summary)
+    {
+        foreach (var camera in summary.Cameras)
+        {
+            if (camera.ExposureEv is double cameraEv)
+            {
+                // Darkening only. An EV above the reference is an authored mood (sunset, night
+                // under bright practicals) worth carrying. An EV BELOW it is a fast lens
+                // compensating dim physical light — light our calibration already normalized
+                // to a well-lit frame, so brightening on top would overexpose (ChairCloth's
+                // f/1.4 studio camera reads EV 7.9 → +4 stops of pure blow-out).
+                return Math.Clamp(CAMERA_EV_NEUTRAL - cameraEv, -10d, 0d);
+            }
+        }
+
+        return 0d;
     }
 
     private static double NormalizeLightIntensity(MaxSceneLightSnapshotData light, double intensityReference)
