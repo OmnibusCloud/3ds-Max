@@ -53,6 +53,17 @@
                         <CheckBox Margin="0,8,0,0" Content="Pack textures &amp; assets"
                                   Visibility="{Binding IsBlend, Converter={StaticResource BoolToVis}}"
                                   IsChecked="{Binding PackAssets}" />
+
+                        <!-- V-Ray scanned materials (server .blend target only, and only when the scene uses them) -->
+                        <StackPanel Visibility="{Binding IsBlend, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Visibility="{Binding HasVRayScannedMaterials, Converter={StaticResource BoolToVis}}">
+                                <CheckBox Margin="0,8,0,0" Content="Bake scanned materials with local V-Ray before upload"
+                                          IsChecked="{Binding BakeVRayScannedMaterials}" />
+                                <TextBlock Margin="22,4,0,0" FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Max.Brush.TextMuted}"
+                                           Text="Renders each scanned (.vrscan) material's surface into a texture on this machine before submitting (interactive 3ds Max only) — the baked texture is packed into the returned .blend." />
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

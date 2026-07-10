@@ -54,6 +54,8 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             ? ExportTarget.DccJson
             : ExportTarget.Blend;
         PackAssets = true;
+        // Shared with the Render dialog — the user's bake preference applies to both round-trips.
+        BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
         OutputFolder = string.IsNullOrWhiteSpace(Settings.OutputFolder)
             ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
             : Settings.OutputFolder;
@@ -87,6 +89,11 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         // the export action itself.
         var summary = SceneExport.CollectSummary(MaxSceneCaptureOptions.SummaryOnly);
         SummaryVm.Apply(summary);
+
+        // The scanned-material bake option only makes sense when the scene actually carries
+        // V-Ray scanned materials — the collector's diagnostics already name them.
+        HasVRayScannedMaterials = summary.UnmappedPluginClasses.Keys
+            .Any(me => me.Contains("VRayScannedMtl", StringComparison.OrdinalIgnoreCase));
         UpdateStatus();
 
         // Silent session restore so the default Blender target is available without a browser trip.
@@ -151,7 +158,10 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             CloudUrl = CloudVm.CloudUrl,
             IdentityUrl = CloudVm.IdentityUrl,
             RenderMode = "ExportBlend",
-            OutputFolder = outputFolder
+            OutputFolder = outputFolder,
+            // The server packs every attachment into the .blend (pack_all), so a baked scanned
+            // material travels inside the returned file like any authored texture.
+            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
         };
 
         // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
@@ -287,6 +297,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
     {
         Settings.ExportTarget = Target == ExportTarget.DccJson ? "DccJson" : "Blend";
         Settings.OutputFolder = OutputFolder;
+        Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.SettingsManager.Save();
     }
 
@@ -324,6 +335,12 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool PackAssets { get; set; }
+
+    [Notify]
+    public bool BakeVRayScannedMaterials { get; set; }
+
+    [Notify]
+    public bool HasVRayScannedMaterials { get; set; }
 
     [Notify]
     public string OutputFolder { get; set; } = string.Empty;

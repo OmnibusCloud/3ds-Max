@@ -158,5 +158,29 @@ public sealed class VRayScannedMaterialReaderTests
         Assert.That(snapshot.Metallic, Is.EqualTo(0.85d).Within(1e-9));
     }
 
+    [Test]
+    public void SpecularDominantScansAreNotDiffuseBakeCandidatesTest()
+    {
+        // Car paint / carbon / metal scans carry their look in the specular response — the RTT
+        // diffuse-filter bake painted the Automotive car black.
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(BuildPayload(), ""), Is.False);
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(
+            BuildPayload(filename: @"\Assets\VRScans\Metal_Matte_3_S.vrscan"), ""), Is.False);
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(null, "VRScan_MetalSheet"), Is.False);
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(
+            BuildPayload(filename: @"C:\scan.vrscan"), "Carbon Weave"), Is.False);
+    }
+
+    [Test]
+    public void DiffuseDominantScansQualifyForTheBakeTest()
+    {
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(
+            BuildPayload(filename: @"\Assets\VRScans\Fabric_Suede_Brown.vrscan"), "ChairSeat"), Is.True);
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(null, "SofaLeather"), Is.True);
+        // Unknown scans stay eligible — the flat approximation is the thing the user opted to improve.
+        Assert.That(VRayScannedMaterialReader.IsDiffuseDominantScan(
+            BuildPayload(filename: @"\Assets\VRScans\Mystery_1.vrscan"), "Mystery"), Is.True);
+    }
+
     #endregion
 }

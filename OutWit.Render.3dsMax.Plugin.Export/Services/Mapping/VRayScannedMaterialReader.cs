@@ -193,6 +193,24 @@ internal static class VRayScannedMaterialReader
         return true;
     }
 
+    /// <summary>
+    /// Whether the scan's look lives in its diffuse response (fabric/leather/generic surfaces) —
+    /// the only scans worth the RTT diffuse-filter bake. Car paint, carbon and metals carry their
+    /// look in the specular response: their diffuse filter is legitimately near black, and baking
+    /// it would replace a good parametric approximation with a black smear (the black-car bug).
+    /// </summary>
+    public static bool IsDiffuseDominantScan(string? scriptResult, string materialName)
+    {
+        var scanName = string.Empty;
+        var tokens = (scriptResult ?? string.Empty).Split(TOKEN_SEPARATOR);
+        if (tokens.Length == NUMERIC_TOKEN_COUNT + 2)
+            scanName = ExtractScanName(tokens[NUMERIC_TOKEN_COUNT]);
+
+        scanName = scanName + " " + (materialName ?? string.Empty).ToLowerInvariant();
+        return !scanName.Contains("carpaint") && !scanName.Contains("carbon")
+               && !scanName.Contains("metal") && !scanName.Contains("chrome") && !scanName.Contains("alu");
+    }
+
     // "\Assets\VRScans\Carpaint_Red_1_S.vrscan" -> "carpaint_red_1_s"
     private static string ExtractScanName(string filenameToken)
     {

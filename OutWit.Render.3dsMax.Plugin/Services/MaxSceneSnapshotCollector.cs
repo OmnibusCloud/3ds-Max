@@ -1,6 +1,7 @@
 using Autodesk.Max;
 using OutWit.Controller.Render.Dcc.Model;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Mapping;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Snapshots;
 using System.IO;
@@ -14,11 +15,21 @@ internal sealed class MaxSceneSnapshotCollector
 {
     #region Fields
 
+    // Field kill-switch for the bulk pointer-based mesh read: set the variable to "1" to force
+    // the legacy per-corner wrapper walk (orders of magnitude slower, but zero pointer layout
+    // assumptions) while diagnosing a suspect export.
+    private static readonly bool BULK_MESH_DISABLED =
+        Environment.GetEnvironmentVariable("OUTWIT_RENDER_DISABLE_BULK_MESH") == "1";
+
     private readonly IGlobal m_global;
     private readonly IInterface m_coreInterface;
     private readonly MaxSceneSnapshotData m_summary;
     private readonly MaxSceneCaptureOptions m_captureOptions;
     private readonly bool m_reportNativeProgress;
+    // Worker-thread mesh assemblies in flight (bulk-captured buffers → snapshot lists). Joined
+    // before anything reads mesh geometry: deformation sampling per mesh, and Collect() before
+    // the bake pass / returning to the caller.
+    private readonly List<Task> m_pendingMeshAssemblies = new();
     // Scanned materials queued for the post-walk RTT bake: material snapshot id -> the first
     // node wearing it (the bake renders on that node's UVs).
     private readonly Dictionary<string, (IMtl Material, IINode Node)> m_scannedMaterialBakeQueue = new(StringComparer.Ordinal);
@@ -67,6 +78,7 @@ internal sealed class MaxSceneSnapshotCollector
     public void Collect(IINode rootNode)
     {
         CollectSceneContent(rootNode, rootNode, null);
+        JoinPendingMeshAssemblies();
         BakeQueuedScannedMaterials();
         ReadEnvironment();
         ReadEnvironmentMap();
@@ -429,7 +441,8 @@ internal sealed class MaxSceneSnapshotCollector
             {
                 var meshId = $"mesh:{childNode.Handle}";
                 ReportNativeProgress($"OmnibusCloud: extracting '{childNode.Name}'…");
-                var meshSnapshot = ExtractMesh(childNode, sceneObject, meshId);
+                var extraction = ExtractMesh(childNode, sceneObject, meshId);
+                var meshSnapshot = extraction.Snapshot;
 
                 // A mesh with no vertices (a helper/degenerate object that still converts to a
                 // TriObject) fails Dcc validation ("mesh requires positions"), aborting the whole
@@ -437,8 +450,8 @@ internal sealed class MaxSceneSnapshotCollector
                 // SkippedEmptyMeshCount. Children re-parent onto the nearest INCLUDED ancestor.
                 // The SummaryOnly profile intentionally extracts EVERY mesh empty — counts and
                 // material bindings must still be collected there, so the drop only applies to
-                // the full capture.
-                if (meshSnapshot.Positions.Count == 0 && !m_captureOptions.SkipGeometryData)
+                // the full capture (HasGeometry is always true there).
+                if (!extraction.HasGeometry)
                 {
                     m_summary.SkippedEmptyMeshCount++;
                 }
@@ -448,7 +461,7 @@ internal sealed class MaxSceneSnapshotCollector
                     m_summary.MeshesCount++;
                     meshSnapshot.SubdivisionLevels = ResolveRenderSubdivisionLevels(childNode);
                     if (!m_captureOptions.SkipGeometryData)
-                        SampleDeformationFrames(childNode, meshSnapshot);
+                        SampleDeformationFrames(childNode, extraction);
                     // The scanned-material RTT bake needs the node the material sits on; the
                     // binding path only sees the material, so carry the node alongside.
                     m_currentMaterialNode = childNode;
@@ -821,17 +834,18 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
-    private MaxSceneMeshSnapshotData ExtractMesh(IINode node, IObject sceneObject, string meshId)
+    private MeshExtraction ExtractMesh(IINode node, IObject sceneObject, string meshId)
     {
         // Dialog-open profile: the summary UI needs counts and bindings, not the bulk arrays —
         // extracting a heavy scene's vertices synchronously froze the Render dialog for minutes.
+        // The empty stub still COUNTS as geometry so the summary keeps every mesh.
         if (m_captureOptions.SkipGeometryData)
         {
-            return new MaxSceneMeshSnapshotData
+            return new MeshExtraction(new MaxSceneMeshSnapshotData
             {
                 Id = meshId,
                 Name = $"{node.Name}Mesh"
-            };
+            }, true, null);
         }
 
         // Shape (spline) objects: the TriObject conversion yields a FILLED planar disc, but Max
@@ -842,7 +856,7 @@ internal sealed class MaxSceneSnapshotCollector
         {
             var shapeMesh = TryExtractShapeRenderMesh(node, shapeObject, sceneObject, meshId);
             if (shapeMesh != null)
-                return shapeMesh;
+                return new MeshExtraction(shapeMesh, shapeMesh.Positions.Count > 0, null);
         }
 
         IMesh? mesh;
@@ -854,11 +868,11 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (convertedObject is not ITriObject triObject)
             {
-                return new MaxSceneMeshSnapshotData
+                return new MeshExtraction(new MaxSceneMeshSnapshotData
                 {
                     Id = meshId,
                     Name = $"{node.Name}Mesh"
-                };
+                }, false, null);
             }
 
             mesh = triObject.Mesh;
@@ -890,6 +904,25 @@ internal sealed class MaxSceneSnapshotCollector
         // guard) — either every corner gets a colour or none do.
         var hasVertexColors = MeshSupportsMapChannel(mesh, 0);
 
+        // Fast path: bulk-copy the native mesh arrays (a handful of memcpys, verified against the
+        // wrapper before being trusted) and assemble the per-corner lists on a WORKER thread —
+        // the Max main thread moves on to the next node meanwhile. MaterialIndices are the one
+        // list the caller needs synchronously (binding resolution), and they come straight from
+        // the face records. Any verification mismatch falls through to the legacy per-corner walk.
+        if (!BULK_MESH_DISABLED && mesh.NumFaces > 0)
+        {
+            var bulkData = MaxMeshBulkCapture.TryCapture(mesh, MeshSupportsMapChannel(mesh, 1), hasSecondUv, hasVertexColors, correction);
+            if (bulkData is not null)
+            {
+                MaxMeshBulkAssembler.AppendMaterialIndices(bulkData, meshData.MaterialIndices);
+                var assembly = Task.Run(() => MaxMeshBulkAssembler.AssembleGuarded(bulkData, meshData));
+                m_pendingMeshAssemblies.Add(assembly);
+                return new MeshExtraction(meshData, true, assembly);
+            }
+
+            RecordUnmappedPluginClass("mesh-bulk-read-fallback", "Mesh", node.Name);
+        }
+
         for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
         {
             var face = mesh.GetFace(faceIndex);
@@ -917,7 +950,27 @@ internal sealed class MaxSceneSnapshotCollector
             meshData.MaterialIndices.Add(mesh.GetFaceMtlIndex(faceIndex));
         }
 
-        return meshData;
+        return new MeshExtraction(meshData, meshData.Positions.Count > 0, null);
+    }
+
+    // A mesh handed back by ExtractMesh: the snapshot's MaterialIndices are always filled, but
+    // the corner lists may still be assembling on a worker thread (Assembly non-null). Nothing
+    // reads the corner lists before waiting on the task; JoinPendingMeshAssemblies() at the end
+    // of the walk is the global barrier.
+    private sealed record MeshExtraction(MaxSceneMeshSnapshotData Snapshot, bool HasGeometry, Task? Assembly);
+
+    private void JoinPendingMeshAssemblies()
+    {
+        if (m_pendingMeshAssemblies.Count == 0)
+            return;
+
+        // Wait in slices, refreshing the native progress title — the join is where a heavy
+        // scene's remaining assembly time is spent, and the moving title keeps Max visibly alive.
+        var all = Task.WhenAll(m_pendingMeshAssemblies);
+        while (!all.Wait(TimeSpan.FromMilliseconds(250)))
+            ReportNativeProgress("OmnibusCloud: assembling meshes…");
+
+        m_pendingMeshAssemblies.Clear();
     }
 
     // Looks up a colour parameter by internal name across the material's parameter blocks —
@@ -1640,6 +1693,18 @@ internal sealed class MaxSceneSnapshotCollector
                 bakeIndex++;
                 ReportNativeProgress($"OmnibusCloud: baking scanned material '{materialSnapshot.Name}' ({bakeIndex}/{m_scannedMaterialBakeQueue.Count})…");
 
+                // The bake lands on the node's own channel-1 UVs. A collapsed unwrap (no artist
+                // UVs — the Automotive car body crams every face into a sliver) bakes into a few
+                // texels and samples back as a near-black smear; the flat approximation is
+                // strictly better. 1% of UV space is far below any real unwrap and far above a
+                // degenerate one.
+                var bakeNodeMesh = m_summary.Meshes.FirstOrDefault(me => me.Id == $"mesh:{entry.Node.Handle}");
+                if (bakeNodeMesh is null || MaxSceneMeshUvCoverage.ComputeUv0Area(bakeNodeMesh) < 0.01d)
+                {
+                    RecordUnmappedPluginClass("texmap-bake-degenerate-uv", "VRayScannedMtl", materialSnapshot.Name);
+                    continue;
+                }
+
                 var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
                 Directory.CreateDirectory(bakeDirectory);
                 var bakePath = Path.Combine(bakeDirectory, $"{SanitizeId(materialSnapshot.Name)}_vrscan_{entry.Material.GetHashCode():x8}.png");
@@ -1682,6 +1747,7 @@ internal sealed class MaxSceneSnapshotCollector
             var script =
                 $"(local n = getAnimByHandle {handle.ToUInt64()}; " +
                 "local ok = \"0\"; " +
+                "local prevSel = selection as array; " +
                 "try (" +
                 "select n; " +
                 "local bp = n.INodeBakeProperties; " +
@@ -1699,6 +1765,8 @@ internal sealed class MaxSceneSnapshotCollector
                 "bp.bakeEnabled = false; " +
                 "ok = \"1\"" +
                 ") catch (ok = \"0\"); " +
+                // The bake runs from inside the user's Render click — leave their selection as we found it.
+                "try (if prevSel.count > 0 then (select prevSel) else (max select none)) catch (); " +
                 "ok)";
             var result = TryEvaluateScriptString(script);
             return result == "1" && File.Exists(bakePath);
@@ -2131,11 +2199,19 @@ internal sealed class MaxSceneSnapshotCollector
 
                     // Opt-in local RTT bake: queue the material with the first node wearing it;
                     // the bakes run AFTER the scene walk (render-to-texture inside the walk would
-                    // re-enter the SDK mid-collection).
+                    // re-enter the SDK mid-collection). Only diffuse-dominant scans qualify — a
+                    // car-paint/metal scan's look lives in the specular response and its diffuse
+                    // filter is legitimately near black (the baked Automotive body rendered
+                    // black); the parametric approximation is strictly better there.
                     if (m_captureOptions.BakeVRayScannedMaterials
                         && m_currentMaterialNode is not null
                         && !m_scannedMaterialBakeQueue.ContainsKey(snapshot.Id))
-                        m_scannedMaterialBakeQueue[snapshot.Id] = (material, m_currentMaterialNode);
+                    {
+                        if (VRayScannedMaterialReader.IsDiffuseDominantScan(raw, snapshot.Name))
+                            m_scannedMaterialBakeQueue[snapshot.Id] = (material, m_currentMaterialNode);
+                        else
+                            RecordUnmappedPluginClass("texmap-bake-skipped-specular-scan", materialClassName, material.Name);
+                    }
 
                     return true;
                 }
@@ -3456,7 +3532,7 @@ internal sealed class MaxSceneSnapshotCollector
     // count, and beyond 3 the visual gain is nil while the render cost explodes.
     private const int MAX_RENDER_SUBDIVISION_LEVELS = 3;
 
-    private void SampleDeformationFrames(IINode node, MaxSceneMeshSnapshotData meshSnapshot)
+    private void SampleDeformationFrames(IINode node, MeshExtraction extraction)
     {
         // Bake per-frame object-space vertex positions (approach A). Re-evaluating the node's object at
         // each frame captures the result of any deformation (skin/morph/cloth/sim) as geometry. Object
@@ -3465,10 +3541,25 @@ internal sealed class MaxSceneSnapshotCollector
         // the range — otherwise it cannot be represented as Blender shape keys.
         var frameStart = m_summary.FrameStart;
         var frameEnd = m_summary.FrameEnd;
-        if (frameEnd <= frameStart || meshSnapshot.Positions.Count == 0)
+        if (frameEnd <= frameStart || !extraction.HasGeometry)
             return;
 
         var ticksPerFrame = 4800 / Math.Max(m_summary.FrameRate, 1);
+
+        // Static meshes pay the biggest hidden cost here: a default 0–100 animation range meant
+        // 101 full re-extractions per mesh that were then thrown away by the anyDeformation gate.
+        // The object's own validity interval (the SDK contract Max's render cache relies on)
+        // answers "does this geometry change over the range" without sampling a single frame.
+        if (IsGeometryStaticOverRange(node, frameStart * ticksPerFrame, frameEnd * ticksPerFrame))
+            return;
+
+        // The baseline corner positions may still be assembling on a worker.
+        extraction.Assembly?.Wait();
+
+        var meshSnapshot = extraction.Snapshot;
+        if (meshSnapshot.Positions.Count == 0)
+            return;
+
         var baseCornerCount = meshSnapshot.Positions.Count;
         var frames = new List<MaxSceneMeshDeformationFrameSnapshotData>();
         var anyDeformation = false;
@@ -3489,6 +3580,49 @@ internal sealed class MaxSceneSnapshotCollector
             meshSnapshot.DeformationFrames = frames;
     }
 
+    // TRUE only when the SDK guarantees the object's world-state geometry does not change across
+    // [startTick, endTick] AND the object→node correction matches at both ends (an animated WSM
+    // can deform geometry as the node moves through it even when the object cache validity looks
+    // wide). Any read failure returns false — sampling proceeds and the anyDeformation gate
+    // keeps the output identical, just slower.
+    private bool IsGeometryStaticOverRange(IINode node, int startTick, int endTick)
+    {
+        try
+        {
+            var worldState = node.EvalWorldState(startTick, true);
+            var validity = worldState.Obj?.ObjectValidity(startTick);
+            if (validity is null || validity.Start > startTick || validity.End < endTick)
+                return false;
+
+            var correctionStart = ComputeObjectToNodeCorrection(node, startTick);
+            var correctionEnd = ComputeObjectToNodeCorrection(node, endTick);
+            if (correctionStart is null && correctionEnd is null)
+                return true;
+            if (correctionStart is null || correctionEnd is null)
+                return false;
+
+            return MatrixRowsMatch(correctionStart.Value.ObjectTm, correctionEnd.Value.ObjectTm)
+                   && MatrixRowsMatch(correctionStart.Value.InverseNodeTm, correctionEnd.Value.InverseNodeTm);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool MatrixRowsMatch(IMatrix3 left, IMatrix3 right)
+    {
+        for (var rowIndex = 0; rowIndex < 4; rowIndex++)
+        {
+            var leftRow = left.GetRow(rowIndex);
+            var rightRow = right.GetRow(rowIndex);
+            if (leftRow.X != rightRow.X || leftRow.Y != rightRow.Y || leftRow.Z != rightRow.Z)
+                return false;
+        }
+
+        return true;
+    }
+
     private List<MaxSceneVector3SnapshotData>? SampleMeshCornerPositionsAtTime(IINode node, int time, int expectedCornerCount)
     {
         try
@@ -3501,10 +3635,25 @@ internal sealed class MaxSceneSnapshotCollector
                 return null;
 
             var mesh = triObject.Mesh;
-            var positions = new List<MaxSceneVector3SnapshotData>(expectedCornerCount);
 
             // WSMs can be animated, so the object→node correction is re-resolved at this frame.
             var correction = ComputeObjectToNodeCorrection(node, time);
+
+            // Bulk fast path — one memcpy of vertices+faces per frame instead of a per-corner
+            // wrapper walk (the sampler runs once per frame over the whole range).
+            if (!BULK_MESH_DISABLED)
+            {
+                var bulkData = MaxMeshBulkCapture.TryCaptureGeometryOnly(mesh, correction);
+                if (bulkData is not null)
+                {
+                    if (bulkData.FaceCount * 3 != expectedCornerCount)
+                        return null;
+
+                    return MaxMeshBulkAssembler.AssembleCornerPositions(bulkData);
+                }
+            }
+
+            var positions = new List<MaxSceneVector3SnapshotData>(expectedCornerCount);
 
             for (var faceIndex = 0; faceIndex < mesh.NumFaces; faceIndex++)
             {
