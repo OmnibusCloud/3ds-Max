@@ -223,6 +223,22 @@ the tag version; logs land per install scope.
 
 ### Wave 5 — WiX installer
 *(session goal 4)*
+**Delivered (plugin-v0.7.53-beta, 2026-07-11), built out of order per user request.**
+`Setup/` WiX v6 SDK project (not in the solution — built explicitly after bundle staging):
+dual-scope MSI (WixUI_Advanced scope page, per-machine default; per-scope folder defaults
+steered to the Autodesk auto-discovery roots via SetProperty after
+WixSetDefaultPer[User|Machine]Folder), wildcard-harvested payload (`<Files
+BundleDir\**>`), MajorUpgrade with AllowDowngrades, RemoveFolderEx wipe of the target on
+install+uninstall (kills pre-MSI xcopy remnants and stale DLLs), HKMU version stamp,
+UpgradeCode reused from PackageContents.xml. CI: plugin.yml builds the MSI from the same
+staged bundle, numeric ProductVersion (suffix stripped), zip+MSI in the artifact and the
+release with SHA256SUMS over both.
+**Locally verified end-to-end (per-user scope):** silent install → files under
+`%APPDATA%\Autodesk\ApplicationPlugins\...` + HKCU stamp; upgrade 0.7.53→0.7.54 wipes a
+planted stale DLL and keeps exactly one product; downgrade allowed; uninstall removes the
+folder and registry cleanly; the live per-machine xcopy install stayed untouched.
+**Not yet verified live:** per-machine scope (needs elevation) and the interactive
+WixUI_Advanced dialog flow — user checks with the released MSI.
 
 1. **WiX v4 MSI, dual scope (decided)** (`Setup/` project, heat-less explicit component
    list — the payload is one folder): one MSI offering "for everyone" / "just for me"

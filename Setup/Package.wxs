@@ -1,0 +1,89 @@
+<!--
+  OmnibusCloud 3ds Max Plugin installer (design ship-plan wave 5).
+
+  - Dual scope (decision D3): one MSI, "everyone" (per-machine) or "just me" (per-user), chosen on
+    the WixUI_Advanced scope page. Default is per-machine (matches the historical install script).
+  - The install target is the Autodesk auto-discovery root, NOT ProgramFiles:
+      per-machine:  %ProgramData%\Autodesk\ApplicationPlugins\<plugin folder>
+      per-user:     %APPDATA%\Autodesk\ApplicationPlugins\<plugin folder>
+    (WixUI_Advanced's stock folder defaults are overridden right after they are set.)
+  - Overwrite semantics (explicit session requirement): MajorUpgrade with AllowDowngrades, plus a
+    RemoveFolderEx wipe of the target folder before files are laid down - this also cleans up
+    pre-MSI xcopy installs and files a newer bundle no longer ships.
+  - UpgradeCode reuses the GUID already published in PackageContents.xml.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?define PluginFolderName = "OutWit.Render.3dsMax.Plugin" ?>
+
+  <Package Name="OmnibusCloud 3ds Max Plugin"
+           Manufacturer="OmnibusCloud"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="10A2CA01-08D8-4B4E-97EA-FC907B54E09B"
+           Language="1033"
+           Compressed="yes">
+
+    <SummaryInformation Description="OmnibusCloud render and scene-export integration for 3ds Max" />
+
+    <MajorUpgrade AllowDowngrades="yes" Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Dual scope: per-machine by default (Package default scope emits ALLUSERS=1);
+         the WixUI_Advanced scope page flips to per-user at run time -->
+    <Property Id="ApplicationFolderName" Value="$(var.PluginFolderName)" />
+    <Property Id="WixAppFolder" Value="WixPerMachineFolder" />
+
+    <!-- WixUI_Advanced binds to APPLICATIONFOLDER internally (scope page + folder page) -->
+    <ui:WixUI Id="WixUI_Advanced" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <!-- Steer WixUI_Advanced's per-scope folder defaults to the Autodesk auto-discovery roots -->
+    <SetProperty Id="WixPerMachineFolder" Action="SetPerMachinePluginsRoot"
+                 Value="[CommonAppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
+                 After="WixSetDefaultPerMachineFolder" Sequence="both" />
+    <SetProperty Id="WixPerUserFolder" Action="SetPerUserPluginsRoot"
+                 Value="[AppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
+                 After="WixSetDefaultPerUserFolder" Sequence="both" />
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="AutodeskFolder" Name="Autodesk">
+        <Directory Id="ApplicationPluginsFolder" Name="ApplicationPlugins">
+          <Directory Id="APPLICATIONFOLDER" Name="$(var.PluginFolderName)" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!--
+      Wipe the target folder content before files are laid down (and on uninstall): replaces
+      pre-MSI xcopy installs in place and never leaves stale DLLs a newer bundle dropped.
+      WIPEFOLDER mirrors the scope-resolved target with literal paths and is set before
+      CostInitialize — safely ahead of the util extension's RemoveFoldersEx costing.
+    -->
+    <SetProperty Id="WIPEFOLDER" Action="SetWipeFolderPerMachine"
+                 Value="[CommonAppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
+                 Condition="ALLUSERS=1" Before="CostInitialize" Sequence="execute" />
+    <SetProperty Id="WIPEFOLDER" Action="SetWipeFolderPerUser"
+                 Value="[AppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
+                 Condition="NOT (ALLUSERS=1)" Before="CostInitialize" Sequence="execute" />
+
+    <Feature Id="Main" Title="OmnibusCloud 3ds Max Plugin" AllowAbsent="no">
+      <ComponentGroupRef Id="BundleFiles" />
+      <ComponentRef Id="InstallStamp" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <!-- The whole staged bundle, structure preserved (PackageContents.xml + Contents/**) -->
+    <ComponentGroup Id="BundleFiles" Directory="APPLICATIONFOLDER">
+      <Files Include="$(var.BundleDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="InstallStamp" Directory="APPLICATIONFOLDER" Guid="7E1C2B44-9A11-4F7D-8C55-3D2A6B1E9C01">
+      <RegistryValue Root="HKMU" Key="Software\OmnibusCloud\3dsMaxPlugin"
+                     Name="InstalledVersion" Type="string" Value="[ProductVersion]" KeyPath="yes" />
+      <util:RemoveFolderEx On="both" Property="WIPEFOLDER" />
+    </Component>
+  </Fragment>
+</Wix>

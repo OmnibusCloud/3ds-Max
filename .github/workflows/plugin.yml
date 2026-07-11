@@ -1,8 +1,9 @@
 name: plugin
 
-# Builds the distributable 3ds Max ApplicationPlugins bundle (zip) and attaches it to a GitHub
-# Release. Triggered by a `plugin-v*` tag; can also be run manually (produces a 0.0.0-dev artifact
-# without a release).
+# Builds the distributable 3ds Max ApplicationPlugins bundle (zip) AND the dual-scope WiX MSI
+# installer, attaching both to a GitHub Release. Triggered by a `plugin-v*` tag; can also be run
+# manually (produces a 0.0.0-dev artifact without a release). The MSI ProductVersion is the tag
+# version with any -beta suffix stripped (MSI versions are numeric); the file name keeps the suffix.
 #
 # The build needs no 3ds Max install, but it DOES need the Autodesk.Max managed SDK assembly, which
 # is proprietary and not committed here (this repo is going open-source; the Autodesk EULA bars
@@ -85,6 +86,18 @@ jobs:
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: ./OutWit.Render.3dsMax.Plugin/Scripts/Build-OutWit.Render.3dsMax.Plugin.Package.ps1 -Configuration Release -Version "${{ steps.ver.outputs.version }}" -OutputDirectory dist
 
+      # The MSI harvests the same staged bundle the zip was built from (obj/plugin-package/...).
+      # Dual scope per ship-plan decision D3; overwrite semantics = MajorUpgrade + folder wipe.
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $msiVersion = ($version -split '-')[0]
+          dotnet build Setup -c Release -t:Rebuild -p:ProductVersion=$msiVersion
+          if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
+          Rename-Item dist/OmnibusCloud-3dsMax-Plugin.msi "OmnibusCloud-3dsMax-Plugin-$version.msi"
+          Get-ChildItem dist
+
       # Guards the bundle layout: PackageContents.xml at the package root and the plugin assembly in
       # Contents/bin. Filename-only matching is separator-agnostic (Compress-Archive entry separators
       # differ across PowerShell versions).
@@ -105,7 +118,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: plugin-win-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.msi
           if-no-files-found: error
 
   release:
@@ -122,9 +137,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          find artifacts -type f -name '*.zip' -exec cp {} release/ \;
+          find artifacts -type f \( -name '*.zip' -o -name '*.msi' \) -exec cp {} release/ \;
           cd release
-          sha256sum *.zip > SHA256SUMS
+          sha256sum *.zip *.msi > SHA256SUMS
           echo "=== SHA256SUMS ==="; cat SHA256SUMS
 
       - name: Attach plugin bundle to the release

@@ -1,0 +1,29 @@
+<!--
+  WiX MSI for the 3ds Max plugin (ship-plan wave 5, decision D3: one dual-scope package).
+  NOT part of OutWit.slnx: built explicitly (CI or by hand) AFTER the bundle staging exists:
+
+      ./OutWit.Render.3dsMax.Plugin/Scripts/Build-OutWit.Render.3dsMax.Plugin.Package.ps1 -Version X.Y.Z
+      dotnet build Setup -c Release -p:ProductVersion=X.Y.Z   (numeric only - MSI rejects -beta)
+
+  The payload is harvested wildcard-style from the staged bundle (obj/plugin-package/...), so the
+  installer never needs a hand-maintained file list.
+-->
+<Project Sdk="WixToolset.Sdk/6.0.1">
+
+  <PropertyGroup>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName>OmnibusCloud-3dsMax-Plugin</OutputName>
+    <OutputPath>$(MSBuildThisFileDirectory)..\dist\</OutputPath>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.0.0</ProductVersion>
+    <BundleDir Condition="'$(BundleDir)' == ''">$(MSBuildThisFileDirectory)..\obj\plugin-package\OutWit.Render.3dsMax.Plugin</BundleDir>
+    <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);BundleDir=$(BundleDir)</DefineConstants>
+    <!-- Harvested per-user-capable payload: no per-component registry keypaths by design -->
+    <SuppressIces>ICE38;ICE43;ICE57;ICE64;ICE90;ICE91</SuppressIces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.1" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.1" />
+  </ItemGroup>
+
+</Project>
