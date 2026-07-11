@@ -41,6 +41,12 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
 
     #endregion
 
+    #region Fields
+
+    private bool m_updateCheckStarted;
+
+    #endregion
+
     #region Constructors
 
     public SettingsViewModel(ApplicationViewModel applicationVm) : base(applicationVm)
@@ -84,6 +90,8 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         OpenPortalCommand = new RelayCommand(_ => OpenPortal());
         OpenWebsiteCommand = new RelayCommand(_ => OpenUrl(WEBSITE_URL));
         OpenCommunityCommand = new RelayCommand(_ => OpenUrl(COMMUNITY_URL));
+        CheckUpdatesCommand = new RelayCommandAsync(CheckUpdatesAsync);
+        OpenDownloadPageCommand = new RelayCommand(_ => OpenUrl(MaxUpdateCheckService.DOWNLOAD_PAGE_URL));
         UpdateStatus();
     }
 
@@ -211,8 +219,30 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
 
     private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(Section))
-            UpdateStatus();
+        if (e.PropertyName != nameof(Section))
+            return;
+
+        UpdateStatus();
+
+        // First visit to About kicks a silent update check (mockup 4.3 "Check for updates" also
+        // stays available as an explicit button).
+        if (Section == SettingsSection.About && !m_updateCheckStarted)
+        {
+            m_updateCheckStarted = true;
+            _ = CheckUpdatesAsync();
+        }
+    }
+
+    private async Task CheckUpdatesAsync()
+    {
+        m_updateCheckStarted = true;
+        UpdateStatusText = "Checking for updates…";
+        IsUpdateAvailable = false;
+
+        var result = await Task.Run(() => new MaxUpdateCheckService().CheckAsync());
+
+        IsUpdateAvailable = result.UpdateAvailable;
+        UpdateStatusText = result.StatusText;
     }
 
     #endregion
@@ -293,6 +323,12 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public string HostVersion { get; set; } = string.Empty;
 
+    [Notify]
+    public string UpdateStatusText { get; set; } = string.Empty;
+
+    [Notify]
+    public bool IsUpdateAvailable { get; set; }
+
     #endregion
 
     #region Commands
@@ -314,6 +350,10 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand OpenWebsiteCommand { get; private set; } = null!;
 
     public ICommand OpenCommunityCommand { get; private set; } = null!;
+
+    public ICommand CheckUpdatesCommand { get; private set; } = null!;
+
+    public ICommand OpenDownloadPageCommand { get; private set; } = null!;
 
     #endregion
 

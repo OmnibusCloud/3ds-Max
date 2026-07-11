@@ -276,7 +276,35 @@
                         <TextBlock Grid.Row="1" Text="3ds Max" FontSize="11" Foreground="{DynamicResource Max.Brush.TextMuted}" Margin="0,0,14,0" />
                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HostVersion}" FontSize="11.5" />
                     </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <Button Margin="0,0,8,0" Command="{Binding CheckUpdatesCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
+                                <TextBlock Text="Check for updates" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Max.Button.Primary}" Command="{Binding OpenDownloadPageCommand}"
+                                Visibility="{Binding IsUpdateAvailable, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Up}" />
+                                <TextBlock Text="Download" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Text="{Binding UpdateStatusText}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsUpdateAvailable}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityOk}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                         <Button Margin="0,0,8,0" Command="{Binding OpenPortalCommand}">
                             <StackPanel Orientation="Horizontal">
                                 <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Cloud}" />

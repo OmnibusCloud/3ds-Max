@@ -13,5 +13,8 @@ public static class OmnibusCloudDefaults
 
     public const string IDENTITY_URL = "https://auth.omnibuscloud.com";
 
+    /// <summary>The public portal — downloads, the CC-9 update feed, account management.</summary>
+    public const string PORTAL_URL = "https://omnibuscloud.com";
+
     #endregion
 }
