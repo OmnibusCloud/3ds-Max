@@ -2,6 +2,7 @@ using OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Views;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Services;
 
@@ -69,6 +70,7 @@ public sealed class MaxPluginBootstrap
         {
             m_renderDialog = m_commandService.CreateRenderDialog(EnsureApplicationViewModel());
             MaxThemeResources.Apply(m_renderDialog, m_themeService.CurrentTheme);
+            AttachToHost(m_renderDialog);
             m_renderDialog.Closed += OnRenderDialogClosed;
             m_renderDialog.Show();
             return;
@@ -97,6 +99,7 @@ public sealed class MaxPluginBootstrap
         {
             m_exportDialog = m_commandService.CreateExportDialog(EnsureApplicationViewModel());
             MaxThemeResources.Apply(m_exportDialog, m_themeService.CurrentTheme);
+            AttachToHost(m_exportDialog);
 
             // Wire the VM's close signal to the window here (host-side) so the View stays code-behind-free.
             if (m_exportDialog.DataContext is ExportDialogViewModel exportViewModel)
@@ -130,6 +133,7 @@ public sealed class MaxPluginBootstrap
         {
             m_settingsDialog = m_commandService.CreateSettingsDialog(EnsureApplicationViewModel());
             MaxThemeResources.Apply(m_settingsDialog, m_themeService.CurrentTheme);
+            AttachToHost(m_settingsDialog);
 
             if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
                 settingsViewModel.DialogClosed += _ => m_settingsDialog?.Close();
@@ -162,6 +166,7 @@ public sealed class MaxPluginBootstrap
         {
             m_signInDialog = m_commandService.CreateSignInDialog(EnsureApplicationViewModel());
             MaxThemeResources.Apply(m_signInDialog, m_themeService.CurrentTheme);
+            AttachToHost(m_signInDialog);
 
             if (m_signInDialog.DataContext is SignInViewModel signInViewModel)
                 signInViewModel.DialogClosed += _ => m_signInDialog?.Close();
@@ -203,6 +208,21 @@ public sealed class MaxPluginBootstrap
     /// Whether a cloud session is active — drives the menu gate (Render/Export require sign-in).
     /// </summary>
     public bool IsSignedIn => m_applicationVm?.CloudSessionVm.IsSignedIn ?? false;
+
+    /// <summary>
+    /// Owns a dialog by the 3ds Max main window (MX-4): keeps it above the host, minimizes with it,
+    /// centers CenterOwner on Max instead of the screen, and keeps it out of the taskbar. No-op
+    /// without a Max host (tests / smoke automation).
+    /// </summary>
+    private void AttachToHost(Window dialog)
+    {
+        var handle = m_commandService.GetMaxWindowHandle();
+        if (handle == IntPtr.Zero)
+            return;
+
+        _ = new WindowInteropHelper(dialog) { Owner = handle };
+        dialog.ShowInTaskbar = false;
+    }
 
     private ApplicationViewModel EnsureApplicationViewModel()
     {

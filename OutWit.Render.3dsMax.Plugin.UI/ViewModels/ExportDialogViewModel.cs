@@ -53,7 +53,6 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         Target = string.Equals(Settings.ExportTarget, "DccJson", StringComparison.OrdinalIgnoreCase)
             ? ExportTarget.DccJson
             : ExportTarget.Blend;
-        PackAssets = true;
         // Shared with the Render dialog — the user's bake preference applies to both round-trips.
         BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
         OutputFolder = string.IsNullOrWhiteSpace(Settings.OutputFolder)
@@ -332,9 +331,6 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool IsBlend { get; set; }
-
-    [Notify]
-    public bool PackAssets { get; set; }
 
     [Notify]
     public bool BakeVRayScannedMaterials { get; set; }

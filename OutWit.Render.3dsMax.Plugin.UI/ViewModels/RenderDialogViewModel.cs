@@ -295,7 +295,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
         ShowResultActions = Status.Phase == MaxRenderPhase.Completed && !string.IsNullOrWhiteSpace(ResultPath);
-        ShowRenderButton = !ShowResultActions;
+        ShowConfigActions = !Status.IsActiveJob && !ShowResultActions;
 
         OpenResultCommand.RaiseCanExecuteChanged();
         OpenFolderCommand.RaiseCanExecuteChanged();
@@ -449,8 +449,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public bool ShowResultActions { get; set; }
 
+    // Footer shows exactly one action set at a time: config (Details + Render), active (Cancel),
+    // or result (Open folder + New render) — never a pile-up of all buttons at once.
     [Notify]
-    public bool ShowRenderButton { get; set; } = true;
+    public bool ShowConfigActions { get; set; } = true;
 
     [Notify]
     public string ResultPath { get; set; } = string.Empty;

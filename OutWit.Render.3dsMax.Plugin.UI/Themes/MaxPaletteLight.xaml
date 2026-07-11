@@ -30,4 +30,26 @@
     <SolidColorBrush x:Key="Max.Brush.Accent" Color="#5BBF4A" />
     <SolidColorBrush x:Key="Max.Brush.OnAccent" Color="#1A2B4C" />
 
+    <!-- Light · interaction states (MaxControls.xaml); accent/danger hues shared with dark where legible -->
+    <SolidColorBrush x:Key="Max.Brush.ControlHover" Color="#EFF1F4" />
+    <SolidColorBrush x:Key="Max.Brush.ControlPressed" Color="#E2E4E8" />
+    <SolidColorBrush x:Key="Max.Brush.AccentHover" Color="#69C959" />
+    <SolidColorBrush x:Key="Max.Brush.AccentPressed" Color="#4FAE40" />
+    <SolidColorBrush x:Key="Max.Brush.DangerFace" Color="#FBEDEC" />
+    <SolidColorBrush x:Key="Max.Brush.DangerEdge" Color="#E5BCB8" />
+    <SolidColorBrush x:Key="Max.Brush.DangerText" Color="#B4534E" />
+    <SolidColorBrush x:Key="Max.Brush.Popup" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.ItemHover" Color="#F0F2F5" />
+    <SolidColorBrush x:Key="Max.Brush.ItemSelected" Color="#EAF4E6" />
+    <SolidColorBrush x:Key="Max.Brush.SidebarActive" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.SegmentFace" Color="#F2F3F5" />
+    <SolidColorBrush x:Key="Max.Brush.SegmentOn" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.SegmentOnEdge" Color="#9AA1AC" />
+    <SolidColorBrush x:Key="Max.Brush.SegmentOnText" Color="#2C2C2A" />
+    <SolidColorBrush x:Key="Max.Brush.TrackFace" Color="#E4E5E8" />
+    <SolidColorBrush x:Key="Max.Brush.TrackEdge" Color="#D5D7DB" />
+    <SolidColorBrush x:Key="Max.Brush.CheckFace" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Max.Brush.CheckEdge" Color="#C9CCD2" />
+    <SolidColorBrush x:Key="Max.Brush.ScrollThumb" Color="#C9CCD2" />
+
 </ResourceDictionary>

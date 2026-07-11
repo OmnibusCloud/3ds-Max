@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
-        xmlns:vm="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels"
         Title="OmnibusCloud — Render"
         Width="452"
+        MinHeight="432"
         SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -16,6 +16,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <conv:EnumToBooleanConverter x:Key="EnumToBool" />
@@ -40,55 +41,66 @@
         </Border>
 
         <!-- Body -->
-        <StackPanel Grid.Row="1" Margin="14,12">
+        <StackPanel Grid.Row="1" Margin="14,14,14,12">
 
-            <!-- Output (2 axes) -->
-            <Border Background="{DynamicResource Max.Brush.Panel}" BorderBrush="{DynamicResource Max.Brush.GroupBorder}"
-                    BorderThickness="1" CornerRadius="4" Padding="12">
+            <!-- Output (2 axes, segmented — design 4.1.2) -->
+            <GroupBox Header="OUTPUT">
                 <StackPanel>
-                    <TextBlock Text="Output" FontWeight="SemiBold" Margin="0,0,0,8" />
-
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton GroupName="OutputAxis" Content="Image" Margin="0,0,16,0"
-                                     IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Image}" />
-                        <RadioButton GroupName="OutputAxis" Content="Animation"
-                                     IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Animation}" />
-                    </StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <RadioButton Style="{StaticResource Max.Radio.Segment}" GroupName="OutputAxis" Content="Image"
+                                     IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Image}">
+                            <RadioButton.Tag><CornerRadius>5,0,0,5</CornerRadius></RadioButton.Tag>
+                        </RadioButton>
+                        <RadioButton Grid.Column="1" Margin="-1,0,0,0" Style="{StaticResource Max.Radio.Segment}"
+                                     GroupName="OutputAxis" Content="Animation"
+                                     IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Animation}">
+                            <RadioButton.Tag><CornerRadius>0,5,5,0</CornerRadius></RadioButton.Tag>
+                        </RadioButton>
+                    </Grid>
 
                     <!-- Image sub-axis -->
-                    <CheckBox Margin="0,8,0,0" Content="Split frame across machines (tiled)"
+                    <CheckBox Margin="0,11,0,0" Content="Split frame across machines (tiled)"
                               Visibility="{Binding IsImageOutput, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding SplitFrame}" />
 
                     <!-- Animation sub-axis -->
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0"
-                                Visibility="{Binding IsAnimationOutput, Converter={StaticResource BoolToVis}}">
-                        <RadioButton GroupName="AnimResult" Content="Sequence" Margin="0,0,16,0"
-                                     IsChecked="{Binding AnimationResult, Converter={StaticResource EnumToBool}, ConverterParameter=Sequence}" />
-                        <RadioButton GroupName="AnimResult" Content="Video"
-                                     IsChecked="{Binding AnimationResult, Converter={StaticResource EnumToBool}, ConverterParameter=Video}" />
-                    </StackPanel>
+                    <Grid Margin="0,11,0,0"
+                          Visibility="{Binding IsAnimationOutput, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <RadioButton Style="{StaticResource Max.Radio.Segment}" GroupName="AnimResult" Content="Image sequence"
+                                     IsChecked="{Binding AnimationResult, Converter={StaticResource EnumToBool}, ConverterParameter=Sequence}">
+                            <RadioButton.Tag><CornerRadius>5,0,0,5</CornerRadius></RadioButton.Tag>
+                        </RadioButton>
+                        <RadioButton Grid.Column="1" Margin="-1,0,0,0" Style="{StaticResource Max.Radio.Segment}"
+                                     GroupName="AnimResult" Content="Video"
+                                     IsChecked="{Binding AnimationResult, Converter={StaticResource EnumToBool}, ConverterParameter=Video}">
+                            <RadioButton.Tag><CornerRadius>0,5,5,0</CornerRadius></RadioButton.Tag>
+                        </RadioButton>
+                    </Grid>
 
-                    <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource Max.Brush.TextMuted}"
+                    <TextBlock Margin="0,10,0,0" Foreground="{DynamicResource Max.Brush.TextMuted}"
                                Text="{Binding LaunchVm.RenderResolutionText}" />
                 </StackPanel>
-            </Border>
+            </GroupBox>
 
             <!-- Target -->
-            <Border Background="{DynamicResource Max.Brush.Panel}" BorderBrush="{DynamicResource Max.Brush.GroupBorder}"
-                    BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,10,0,0">
+            <GroupBox Header="TARGET" Margin="0,12,0,0">
                 <StackPanel>
-                    <TextBlock Text="Target" FontWeight="SemiBold" Margin="0,0,0,8" />
-
-                    <CheckBox Content="Run on the whole network"
+                    <CheckBox Content="Run on the whole network" Margin="0,0,0,8"
                               Visibility="{Binding LaunchVm.CanRunOnAllClientsOption, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding LaunchVm.UseAllClients}" />
 
-                    <ComboBox Margin="0,8,0,0"
-                              ItemsSource="{Binding LaunchVm.AvailableGroupNames}"
+                    <ComboBox ItemsSource="{Binding LaunchVm.AvailableGroupNames}"
                               SelectedItem="{Binding LaunchVm.SelectedGroupName}">
                         <ComboBox.Style>
-                            <Style TargetType="ComboBox">
+                            <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="IsEnabled" Value="True" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding LaunchVm.UseAllClients}" Value="True">
@@ -99,57 +111,57 @@
                         </ComboBox.Style>
                     </ComboBox>
                 </StackPanel>
-            </Border>
+            </GroupBox>
 
             <!-- V-Ray scanned materials (visible only when the scene uses them) -->
-            <Border Background="{DynamicResource Max.Brush.Panel}" BorderBrush="{DynamicResource Max.Brush.GroupBorder}"
-                    BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,10,0,0"
-                    Visibility="{Binding HasVRayScannedMaterials, Converter={StaticResource BoolToVis}}">
+            <GroupBox Header="V-RAY SCANNED MATERIALS" Margin="0,12,0,0"
+                      Visibility="{Binding HasVRayScannedMaterials, Converter={StaticResource BoolToVis}}">
                 <StackPanel>
-                    <TextBlock Text="V-Ray scanned materials" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <CheckBox Content="Bake scanned materials with local V-Ray before upload"
                               IsChecked="{Binding BakeVRayScannedMaterials}" />
-                    <TextBlock Margin="22,4,0,0" FontSize="11" TextWrapping="Wrap"
+                    <TextBlock Margin="23,5,0,0" FontSize="11" TextWrapping="Wrap"
                                Foreground="{DynamicResource Max.Brush.TextMuted}"
                                Text="Renders each scanned (.vrscan) material's surface into a texture on this machine before submitting (interactive 3ds Max only) — preserves fabric/suede detail the neutral export cannot carry, at the cost of extra local render time." />
                 </StackPanel>
-            </Border>
+            </GroupBox>
 
             <!-- Progress (during an active job) -->
-            <ProgressBar Margin="0,12,0,0" Height="4" Minimum="0" Maximum="1"
-                         Foreground="{DynamicResource Max.Brush.Accent}"
+            <ProgressBar Margin="0,14,0,0" Minimum="0" Maximum="1"
                          Value="{Binding RenderProgress, Mode=OneWay}"
                          Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
-        <!-- Footer -->
+        <!-- Footer: account/status on the left, one action set at a time on the right (mockup 4.1.3) -->
         <Border Grid.Row="2" Background="{DynamicResource Max.Brush.Footer}" Padding="14,10">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding CloudVm.UserDisplayName}" FontSize="11" />
-                    <TextBlock Text="{Binding StatusLine}" FontSize="11"
-                               Foreground="{DynamicResource Max.Brush.TextMuted}" />
-                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
 
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Details…" Padding="10,5" Margin="0,0,8,0" Command="{Binding DetailsCommand}" />
-                    <Button Content="Cancel" Padding="10,5" Margin="0,0,8,0" Command="{Binding CancelCommand}"
-                            IsEnabled="{Binding CanCancel}"
+                    <!-- Configuring / blocked / failed: Details + Render -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding ShowConfigActions, Converter={StaticResource BoolToVis}}">
+                        <Button Content="Details…" Margin="0,0,8,0" Command="{Binding DetailsCommand}" />
+                        <Button Content="Render" MinWidth="88" Style="{StaticResource Max.Button.Primary}"
+                                Command="{Binding RenderCommand}" IsEnabled="{Binding CanRender}" />
+                    </StackPanel>
+
+                    <!-- Active job: Cancel only (close ≠ cancel — the job keeps running) -->
+                    <Button Content="Cancel" MinWidth="88" Style="{StaticResource Max.Button.Danger}"
+                            Command="{Binding CancelCommand}" IsEnabled="{Binding CanCancel}"
                             Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
 
-                    <!-- Result actions (shown when a render has completed) -->
-                    <Button Content="Open" Padding="10,5" Margin="0,0,8,0" Command="{Binding OpenResultCommand}"
-                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
-                    <Button Content="Open folder" Padding="10,5" Margin="0,0,8,0" Command="{Binding OpenFolderCommand}"
-                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
-                    <Button Content="New render" Padding="10,5" Margin="0,0,8,0" Command="{Binding NewRenderCommand}"
-                            Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}" />
+                    <!-- Completed: result actions -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}">
+                        <Button Content="Open folder" Margin="0,0,8,0" Command="{Binding OpenFolderCommand}" />
+                        <Button Content="New render" MinWidth="88" Style="{StaticResource Max.Button.Primary}"
+                                Command="{Binding NewRenderCommand}" />
+                    </StackPanel>
+                </StackPanel>
 
-                    <Button Content="Render" Padding="14,5" Command="{Binding RenderCommand}"
-                            IsEnabled="{Binding CanRender}"
-                            Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}"
-                            FontWeight="SemiBold"
-                            Visibility="{Binding ShowRenderButton, Converter={StaticResource BoolToVis}}" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock Text="{Binding CloudVm.UserDisplayName}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding StatusLine}" FontSize="11" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Max.Brush.TextMuted}" />
                 </StackPanel>
             </DockPanel>
         </Border>

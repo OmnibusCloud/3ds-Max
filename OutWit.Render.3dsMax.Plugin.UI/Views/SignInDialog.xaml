@@ -15,6 +15,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
         </ResourceDictionary>
@@ -26,10 +27,10 @@
             <TextBlock Text="Signing in…" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
             <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
                        Text="We opened your browser. Complete sign-in there and return here — this window closes automatically." />
-            <ProgressBar Margin="0,14,0,0" Height="4" IsIndeterminate="True" Foreground="{DynamicResource Max.Brush.Accent}" />
+            <ProgressBar Margin="0,14,0,0" IsIndeterminate="True" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
-                <Button Content="Reopen browser" Padding="10,5" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}" />
-                <Button Content="Cancel" Padding="10,5" Command="{Binding CancelCommand}" />
+                <Button Content="Reopen browser" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" />
             </StackPanel>
         </StackPanel>
 
@@ -40,8 +41,8 @@
             <TextBlock Margin="0,8,0,0" HorizontalAlignment="Center" Text="{Binding UserDisplayName}" />
             <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
                        Text="Render and Export are now available." />
-            <Button Content="Done" Padding="14,5" HorizontalAlignment="Center" Margin="0,16,0,0" Command="{Binding DoneCommand}"
-                    Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}" FontWeight="SemiBold" />
+            <Button Content="Done" MinWidth="88" Style="{StaticResource Max.Button.Primary}" HorizontalAlignment="Center"
+                    Margin="0,16,0,0" Command="{Binding DoneCommand}" />
         </StackPanel>
 
         <!-- Failed / timeout -->
@@ -51,9 +52,9 @@
             <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
                        Text="{Binding StatusMessage}" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
-                <Button Content="Try again" Padding="14,5" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}"
-                        Background="{DynamicResource Max.Brush.Accent}" Foreground="{DynamicResource Max.Brush.OnAccent}" FontWeight="SemiBold" />
-                <Button Content="Cancel" Padding="10,5" Command="{Binding CancelCommand}" />
+                <Button Content="Try again" MinWidth="88" Style="{StaticResource Max.Button.Primary}" Margin="0,0,8,0"
+                        Command="{Binding ReopenBrowserCommand}" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" />
             </StackPanel>
         </StackPanel>
     </Grid>

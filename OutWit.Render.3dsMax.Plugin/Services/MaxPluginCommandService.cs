@@ -72,6 +72,22 @@ public sealed class MaxPluginCommandService
     }
 
     /// <summary>
+    /// Native 3ds Max main-window handle for WPF dialog ownership (MX-4: correct z-order and
+    /// minimize-with-host), or <see cref="IntPtr.Zero"/> when no Max host is available (e.g. tests).
+    /// </summary>
+    public IntPtr GetMaxWindowHandle()
+    {
+        try
+        {
+            return GlobalInterface.Instance.COREInterface.MAXHWnd;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    /// <summary>
     /// Creates the follow-Max theme service (MX-14), or the dark default when no Max host is available.
     /// </summary>
     public IMaxThemeService CreateThemeService()
