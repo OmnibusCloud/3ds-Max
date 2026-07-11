@@ -1,5 +1,27 @@
 # OmnibusCloud 3ds Max — Production-Readiness Plan
 
+> **STATUS (2026-07-11): functional scope of this plan is COMPLETE — the functional part is
+> closed as production-ready (plugin 0.7.47 + WitCloud v1.6.55); Milestone 3 (design/UI) is
+> the current work.**
+>
+> - **Milestones 1–2** shipped across plugin 0.7.2x–0.7.47: all five hard breaks (PLG-H1..H5),
+>   status-model, real settings, logging, light calibration overhaul (2.16/2.16b/2.16c/2.17/2.18
+>   — EV-12 neutral, photometric normalization, camera resolution, HDRI worlds), deformation
+>   memory governor (2.14), empty-mesh/zero-light degradation, capacity preflight.
+> - **Beyond this plan** (2026-07-09..11): full V-Ray support (VRayMtl/scanned+opt-in bake/
+>   lights/dome-HDRI/physical-camera exposure), binary mesh sidecar (conversion 28 min → 6 s;
+>   supersedes DCC-H1), bulk mesh capture + multi-core assembly (chair export 218 s → 1.8 s),
+>   mirrored-geometry support, an 8-gate production audit (wire version tolerance + MemoryPackOrder
+>   ≈ DCC-M1 done for Render.Model too, gzip cap, Blender watchdog ≈ 2.12 item, texture-name
+>   collisions, degradation re-validation, early session preflight) and the "honesty wave" —
+>   every approximation surfaces as a named diagnostic (closes the M7 "silent visual loss" class).
+> - **Milestone 4**: 4.2 docs — done 2026-07-11 (Dcc README real subset, plugin README/capabilities);
+>   4.3 publish/deploy — running continuously (latest pair: plugin 0.7.47 / WitCloud v1.6.55,
+>   full 21-scene corpus green); 4.1 packaging/signing and 4.4 final QA matrix → schedule with
+>   the UI milestone; plugin 1.0.0-beta remains the Milestone-3+4 exit version.
+> - **Still deferred:** DCC-H2 large-scene blob-ref path (sidecar covers farm-side cost; the
+>   inline submission payload remains), varying-topology sims, Corona family, full proxy geometry.
+
 **Date:** 2026-07-04. Based on three code audits run this day: (1) Render.Dcc controller audit (Controllers repo), (2) plugin functional audit, (3) design-compliance audit vs `@Design/` mockups. Versions audited: plugin @ `eedb911` (2026-06-14), Render.Dcc 1.4.0 / Dcc.Model 1.4.0 / Dcc.Scripts 1.1.0, against production Render 1.23.10 / Render.Model 1.6.1 / Render.Scripts 1.4.0 / Grid 1.1.1 (WitCloud v1.6.35-beta).
 
 ---

@@ -5,14 +5,20 @@ network: the plugin exports the open scene into a neutral DCC payload, uploads i
 texture assets, and the network renders it across many machines — stills, frame ranges,
 tiled stills, or encoded video.
 
-> **Status: public alpha.** Stills and video render end-to-end from real `.max` scenes:
-> skinned character animation, Scanline and PBR materials, raytraced glass and mirrors,
-> motion blur, HDRI / procedural / screen-mapped environments — validated scene-by-scene
-> against native 3ds Max renders and blind-tested on scenes the pipeline has never seen.
+> **Status: public alpha — functionally complete for a first production release.**
+> Stills and video render end-to-end from real `.max` scenes: skinned character
+> animation, Scanline and PBR materials, **V-Ray materials, lights, environments and
+> physical-camera exposure** (including an opt-in local bake for scanned materials),
+> raytraced glass and mirrors, mirrored geometry, motion blur, HDRI / procedural /
+> screen-mapped environments — validated scene-by-scene against native 3ds Max renders
+> and blind-tested on scenes the pipeline has never seen. Scene capture is bulk-read and
+> multi-core (heavy scenes export in seconds), and everything the exporter approximates
+> leaves a **named diagnostic** instead of failing silently. The Export dialog can also
+> return the scene as a self-contained **`.blend` file** with all textures packed.
 > See **[Capabilities & Known Limitations](docs/capabilities-and-limitations.md)** for the
 > honest feature matrix: what transfers faithfully, what is approximated, what is not
-> supported yet, and what is planned. The in-Max UI is minimal for now (sign-in, launch
-> settings, and job tracking are being built — see the sibling
+> supported yet, and what is planned. The in-Max UI is minimal for now (a proper
+> submission/monitoring/settings experience is the current work — see the sibling
 > [Blender integration](https://github.com/OutWitLab/OmnibusCloud-Blender) for the UX this
 > repo is converging on) — functional feedback is what this alpha is for.
 
@@ -38,13 +44,16 @@ The plugin never ships `.max` files to render nodes. Instead it converts the sce
 Authoring is Windows-only (3ds Max), rendering is cross-platform — the neutral contract is
 what makes the heterogeneous network possible.
 
-What travels well today: meshes with full smoothing fidelity, skinned/deforming animation
-on a frame-exact timeline, Standard/Blinn and PBR materials (plus Raytrace glass and
-mirrors), bitmap and baked procedural textures with authored tiling, standard and
+What travels well today: meshes with full smoothing fidelity (including mirrored
+objects), skinned/deforming animation on a frame-exact timeline, Standard/Blinn and PBR
+materials (plus Raytrace glass and mirrors), **V-Ray**: VRayMtl, scanned materials (with
+an opt-in local bake), VRayLight/VRaySun/dome-HDRI environments and physical-camera
+exposure, bitmap and baked procedural textures with authored tiling, standard and
 photometric lights with their real decay semantics, motion blur, HDRI / procedural /
 screen-mapped environments, and cameras (including a synthetic camera from the active
 perspective viewport when the scene has no render camera). The full matrix — including
-approximations and unsupported families — lives in
+approximations and unsupported families, each of which now surfaces as a named
+diagnostic at export — lives in
 [Capabilities & Known Limitations](docs/capabilities-and-limitations.md).
 
 ---

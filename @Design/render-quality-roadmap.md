@@ -1,5 +1,14 @@
 # OmnibusCloud 3ds Max — Render-Quality Roadmap
 
+> **STATUS (2026-07-11): the quality bar is met — this roadmap is COMPLETE and retired to
+> regression duty.** The corpus grew from 10 to 21 scenes (classics + blind tests + 2 videos +
+> 3 V-Ray) and the full sweep is green end-to-end on plugin 0.7.47 + WitCloud v1.6.55:
+> 21/21 RENDERED, all five criteria passing on Tier A (validated side-by-side against native
+> renders; V-Ray Automotive within a third of a stop of native exposure). Export side: the
+> heaviest scene captures in 1.8 s (was 218 s), farm conversion runs 6–8 s (was 20+ min).
+> The sweep harness + comparison pages live on — rerun after every wave. Remaining fidelity
+> items moved to `docs/capabilities-and-limitations.md` → "Planned next".
+
 **Date:** 2026-07-05. Goal: turn the plugin into a **working tool** — a user opens a typical 3ds Max scene, signs in, hits Render, and gets back an image that faithfully represents that scene. This roadmap is the plan we execute against; it sits under Milestone 2 of `omnibuscloud-3dsmax-production-plan.md` and drives the render-fidelity items (2.13, 2.16–2.18) plus the robustness gaps found on 2026-07-05.
 
 **Why a dedicated roadmap:** the 2026-07-05 live renders (hardwood_hdri, Maxine) showed the render path has several *compounding* collector/mapper gaps — overexposure, aborts on empty meshes, wrong camera framing, under-lit HDRI. "Make scenes look normal" is therefore not a single tweak but a measured workstream with a quality bar and a regression corpus. Everything here is **client-side** (the plugin's collector + `MaxSceneDccSceneMapper`), so fixes ship in a plugin release with **no server deploy**, and are validated on this dev box via `3dsmaxbatch` + the live farm.

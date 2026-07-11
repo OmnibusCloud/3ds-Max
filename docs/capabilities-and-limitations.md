@@ -32,6 +32,9 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
 ### Geometry
 - Meshes with full smoothing-group fidelity, including vertices split across smoothing
   groups (hard/soft edge boundaries).
+- **Mirrored objects** (the Mirror tool's negative scale): the reflection is folded into
+  the exported geometry, so mirrored halves render exactly where Max puts them —
+  verified against Max's own world-space ground truth.
 - UV channels, including authored map tiling and offsets — taken from the map's actual
   UV transform matrix, so fractional tilings land on the same repeat phases as in Max.
 - Multi/Sub-Object materials and per-face material assignment.
@@ -39,6 +42,9 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
 - Backface-culling semantics of the Scanline renderer (one-sided geometry renders as
   authored; enclosed detail objects stay opaque).
 - Objects without materials render with their wireframe color, as in the viewport.
+- Scene preparation is fast: mesh data is read in bulk and assembled on all CPU cores
+  (a scene that took minutes to capture in early alphas exports in seconds), and static
+  meshes are never re-sampled per frame.
 
 ### Animation
 - Frame-exact timeline on the scene's native frame numbering and frame rate.
@@ -108,6 +114,22 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
 ### Farm pipeline
 - Distributed still and video (H.264) rendering, resolution/samples/denoise controls,
   automatic texture/asset upload, job caching.
+- Robust asset handling: two textures sharing a filename from different folders stay
+  distinct; a texture whose source file is missing degrades that one texture with a
+  named warning instead of failing the submission (matching Max's own behavior), and
+  the degraded scene is re-validated before upload so it can never fail late on the farm.
+
+### Export to Blender (.blend)
+- The Export dialog can build the scene **server-side into a `.blend` file** and hand it
+  back — all textures (including baked ones) packed inside, so the file is
+  self-contained. The same neutral contract drives it, so everything in this document
+  applies to the exported file as well.
+
+### Honest diagnostics
+- Everything the exporter approximates or cannot carry leaves a **named warning** in the
+  export/launch diagnostics: which feature, which objects (by name), and what to do
+  about it. A scene with V-Ray proxies, animated visibility, or custom normals tells
+  you so up front — silent wrongness is treated as a bug.
 
 ## Approximate / best-effort today
 
@@ -125,7 +147,15 @@ These transfer with documented approximations. Expect a faithful read, not an ex
   - **VRayScannedMtl** carries a measured BRDF that cannot be reconstructed; the exporter
     approximates it from the paint/filter overrides and the scan's own type and color
     naming (a red car-paint scan renders as glossy red metallic paint, not as its exact
-    measured response).
+    measured response). For fabric-like scans (cloth, suede, leather) an opt-in
+    **local bake** renders the scan's surface into a texture with your local V-Ray
+    before upload, preserving weave and nap detail — the checkbox appears in the Render
+    and Export dialogs only when the scene actually carries scanned materials
+    (interactive 3ds Max only; specular-dominant scans like car paint keep the
+    parametric look, where the bake cannot help; objects without a usable unwrap are
+    skipped with a diagnostic). The bake runs under a stripped-down render preset and
+    is capped at two minutes per material; your scene's render settings and
+    render-to-texture setup are restored afterwards.
   - **V-Ray lights and environment**: VRayLight plane/disc/sphere map to area/point
     lights with their authored colour, multiplier, and physical units; a dome light
     becomes the world environment (its HDRI travels as the world image and suppresses
@@ -156,6 +186,18 @@ These transfer with documented approximations. Expect a faithful read, not an ex
   than the native render.
 - **Ambient light** — the scene ambient color is not yet transferred; deeply shadowed
   areas can read slightly darker than native.
+- **Third-party proxy geometry (VRayProxy, CoronaProxy…)** — exports whatever the
+  viewport shows: a proxy in full-mesh display mode transfers that mesh; one in
+  box/preview mode transfers the preview. VRayPlane (infinite plane) does not convert
+  and is **missing** from the render. Every case is named in the diagnostics.
+- **Texture map-channel routing** — maps sample the primary UV channel; a map authored
+  on channel 2/3 (lightmap/detail workflows) renders with the wrong coordinates and is
+  flagged per material.
+- **Explicit (custom) normals** — Edit Normals data is approximated from smoothing
+  groups; imported CAD/FBX assets with weighted normals may show shading seams (flagged
+  per object).
+- **Mirrored cameras and lights** — position and aim survive; the reflection itself
+  cannot be represented (flagged; mirrored *geometry* is fully supported).
 
 ## Not yet supported
 
@@ -167,20 +209,30 @@ These transfer with documented approximations. Expect a faithful read, not an ex
 - Scripted/plugin materials and DirectX/viewport shaders.
 - Radiosity-baked lighting solutions.
 - IES photometric web profiles (intensity transfers; the web pattern does not).
+- **Animated object visibility** — the visibility track is not exported; keyed objects
+  stay visible in every frame (flagged per object).
+- **XRef scene files** — content referenced through XRef *scenes* is not exported (XRef
+  *objects* transfer fine); flagged with the file count.
 
 ## Planned next (v2 direction, feedback-driven)
 
-1. **Procedural material graph transfer** — translating or lit-baking deep map trees so
+1. **In-Max UI/UX overhaul** — the diagnostics described above already carry names and
+   suggested actions; surfacing them in a proper Details view, plus a full submission,
+   monitoring, and settings experience, is the current work.
+2. **Full proxy geometry** — loading VRayProxy/CoronaProxy meshes instead of their
+   viewport previews.
+3. **Procedural material graph transfer** — translating or lit-baking deep map trees so
    showcase shaders survive.
-2. **V-Ray refinements** — tone-mapping curves, environment intensity multipliers,
-   colour-correction layers on environments (exposure, materials, and lighting
-   shipped; Corona and other renderers to follow).
-3. **Attenuation fade windows and UV rotation** — closing the two known approximation
-   gaps.
-4. **Ambient light transfer and sky bake fidelity.**
-5. **In-Max UI/UX overhaul** — the current alpha UI is minimal; a proper submission,
-   monitoring, and settings experience is in progress.
-6. Whatever the feedback ranks higher than the list above.
+4. **V-Ray refinements** — glossiness *maps* (with inversion), tone-mapping curves,
+   environment intensity multipliers, colour-correction layers on environments, mesh
+   lights (exposure, materials, and lighting shipped; Corona and other renderers to
+   follow).
+5. **Attenuation fade windows, UV rotation, map-channel routing, explicit normals** —
+   closing the known approximation gaps, roughly in feedback order.
+6. **Ambient light transfer and sky bake fidelity.**
+7. **Instance-aware payloads** — heavy instancing currently re-ships each copy's mesh;
+   output is correct, upload size is not optimal.
+8. Whatever the feedback ranks higher than the list above.
 
 ## Reporting feedback
 
