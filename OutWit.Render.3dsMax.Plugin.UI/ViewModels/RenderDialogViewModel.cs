@@ -31,6 +31,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private MaxConnectedRenderJobState? m_activeJobState;
 
+    private DateTime m_renderStartedUtc;
+
+    private SynchronizationContext? m_uiContext;
+
     #endregion
 
     #region Constructors
@@ -81,6 +85,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         OpenResultCommand = new RelayCommand(_ => OpenResult(), _ => File.Exists(ResultPath));
         OpenFolderCommand = new RelayCommand(_ => OpenResultFolder(), _ => !string.IsNullOrWhiteSpace(ResultPath));
         NewRenderCommand = new RelayCommand(_ => NewRender());
+        CopyLogCommand = new RelayCommand(_ => CopyLog());
         UpdateStatus();
     }
 
@@ -132,6 +137,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     private async Task RenderAsync()
     {
         m_cancelRequested = false;
+        m_renderStartedUtc = DateTime.UtcNow;
+        m_uiContext = SynchronizationContext.Current;
         ResultPath = string.Empty;
         PushAxesToRenderMode();
         PersistRenderSettings();
@@ -261,6 +268,40 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus();
     }
 
+    private void CopyLog()
+    {
+        var text = $"{Status.StatusLine}\nJob: {LaunchVm.JobId}\n\n{DiagnosticsVm.LogText}";
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch
+        {
+            // Clipboard access can fail when another app holds it — never break the dialog.
+        }
+    }
+
+    /// <summary>
+    /// Upload progress from the submission transport, marshalled to the UI thread (command
+    /// CanExecute updates must not fire from a worker continuation).
+    /// </summary>
+    private void ReportUploadProgress(double fraction)
+    {
+        if (m_uiContext != null && SynchronizationContext.Current != m_uiContext)
+        {
+            m_uiContext.Post(_ => ReportUploadProgress(fraction), null);
+            return;
+        }
+
+        // The poll loop takes over once the job exists — never regress a later phase to Uploading.
+        if (!Status.IsActiveJob || Status.Phase is MaxRenderPhase.Running or MaxRenderPhase.Finalizing or MaxRenderPhase.Cancelling)
+            return;
+
+        Status = MaxRenderStatus.Uploading(fraction);
+        UpdateStatus();
+    }
+
     private void ShowDetails()
     {
         // Details surface (MX-12): refresh validation + preflight, then let the host open the
@@ -309,7 +350,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             TileOverlap = TileOverlap,
             VideoPreset = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset),
             VideoCrf = Settings.VideoCrf,
-            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
+            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials,
+            UploadProgress = ReportUploadProgress
         };
     }
 
@@ -330,7 +372,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         ShowImageFormat = IsImageOutput || AnimationResult == RenderAnimationResult.Sequence;
         ShowVideoOptions = IsAnimationOutput && AnimationResult == RenderAnimationResult.Video;
         ShowResultActions = Status.Phase == MaxRenderPhase.Completed && !string.IsNullOrWhiteSpace(ResultPath);
-        ShowConfigActions = !Status.IsActiveJob && !ShowResultActions;
+        ShowFailedActions = Status.Phase == MaxRenderPhase.Failed;
+        ShowConfigActions = !Status.IsActiveJob && !ShowResultActions && !ShowFailedActions;
+
+        // Work-area swap (design 4.1.3): exactly one view at a time.
+        ShowConfigView = ShowConfigActions;
+        ShowActiveView = Status.IsActiveJob;
+        FooterLine = Status.IsActiveJob ? "Close to keep working — render continues" : StatusLine;
+        UpdatePhasePresentation();
 
         OpenResultCommand.RaiseCanExecuteChanged();
         OpenFolderCommand.RaiseCanExecuteChanged();
@@ -340,6 +389,78 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         // a terminal message persists in the prompt (the status bar service is shared/long-lived).
         if (Status.IsActiveJob || Status.IsTerminal)
             StatusBar.Report(Status);
+    }
+
+    /// <summary>
+    /// Presentation of the active/terminal phases for the swapped work area (design 4.1.3):
+    /// title + counter + sub-line + icon flags, and the completed/failed view content.
+    /// </summary>
+    private void UpdatePhasePresentation()
+    {
+        var percent = Status.Progress is { } fraction ? $"{(int)Math.Round(fraction * 100d)}%" : string.Empty;
+
+        (PhaseTitle, PhaseCounter, PhaseSubline) = Status.Phase switch
+        {
+            MaxRenderPhase.Submitting => ("Submitting scene", string.Empty, "packing scene & assets"),
+            MaxRenderPhase.Uploading => ("Uploading scene", percent, "sending textures & payload to OmnibusCloud"),
+            MaxRenderPhase.Running => ("Rendering", percent, "the farm is rendering — progress from the server"),
+            MaxRenderPhase.Finalizing => ("Finalizing", percent, "assembling the result"),
+            MaxRenderPhase.Cancelling => ("Cancelling…", string.Empty, "finishing the current task on the farm"),
+            _ => (string.Empty, string.Empty, string.Empty)
+        };
+
+        IsPhaseIndeterminate = Status.IsActiveJob && Status.Progress is null;
+        IsUploadPhase = Status.Phase is MaxRenderPhase.Submitting or MaxRenderPhase.Uploading;
+        IsRenderPhase = Status.Phase == MaxRenderPhase.Running;
+        IsFinishPhase = Status.Phase == MaxRenderPhase.Finalizing;
+        IsCancelPhase = Status.Phase == MaxRenderPhase.Cancelling;
+
+        if (ShowResultActions)
+        {
+            ResultFileName = Path.GetFileName(ResultPath);
+            var elapsed = DateTime.UtcNow - m_renderStartedUtc;
+            CompletedMeta = m_renderStartedUtc == default
+                ? string.Empty
+                : elapsed.TotalHours >= 1
+                    ? $"finished in {(int)elapsed.TotalHours} h {elapsed.Minutes} min"
+                    : elapsed.TotalMinutes >= 1
+                        ? $"finished in {(int)elapsed.TotalMinutes} min {elapsed.Seconds} s"
+                        : $"finished in {elapsed.Seconds} s";
+            ResultThumbnail = TryLoadThumbnail(ResultPath);
+        }
+
+        if (Status.Phase == MaxRenderPhase.Failed)
+        {
+            FailedMessage = Status.StatusLine;
+            FailedDetail = string.IsNullOrWhiteSpace(LaunchVm.JobId) ? string.Empty : $"job {LaunchVm.JobId}";
+        }
+    }
+
+    /// <summary>Small preview of an image result (video/archives get no thumbnail).</summary>
+    private static System.Windows.Media.ImageSource? TryLoadThumbnail(string resultPath)
+    {
+        try
+        {
+            var extension = Path.GetExtension(resultPath).ToLowerInvariant();
+            if (extension is not (".png" or ".jpg" or ".jpeg" or ".webp" or ".tif" or ".tiff" or ".bmp"))
+                return null;
+
+            if (!File.Exists(resultPath))
+                return null;
+
+            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(resultPath, UriKind.Absolute);
+            bitmap.DecodePixelWidth = 160;
+            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void PushAxesToRenderMode()
@@ -402,7 +523,15 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             return MaxRenderStatus.Completed();
 
         var fraction = Math.Clamp(jobState.ProgressPercent / 100d, 0d, 1d);
-        return fraction < 0.1d ? MaxRenderStatus.Submitting() : MaxRenderStatus.Running((int)(fraction * 100), 100);
+
+        if (fraction < 0.1d)
+            return MaxRenderStatus.Submitting();
+
+        // The server sits near 100% while it stitches/encodes/uploads the result — show that
+        // honestly as Finalizing instead of a stuck "Rendering 99%".
+        return fraction >= 0.99d
+            ? MaxRenderStatus.Finalizing()
+            : MaxRenderStatus.Running((int)(fraction * 100), 100);
     }
 
     private static bool IsFailed(MaxConnectedRenderJobState jobState)
@@ -524,9 +653,61 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public bool ShowResultActions { get; set; }
 
     // Footer shows exactly one action set at a time: config (Details + Render), active (Cancel),
-    // or result (Open folder + New render) — never a pile-up of all buttons at once.
+    // result (Open + Open folder + New render) or failed (Copy log + Retry).
     [Notify]
     public bool ShowConfigActions { get; set; } = true;
+
+    [Notify]
+    public bool ShowFailedActions { get; set; }
+
+    // Work-area swap (design 4.1.3): config / active-phase / completed / failed views.
+    [Notify]
+    public bool ShowConfigView { get; set; } = true;
+
+    [Notify]
+    public bool ShowActiveView { get; set; }
+
+    [Notify]
+    public string FooterLine { get; set; } = string.Empty;
+
+    [Notify]
+    public string PhaseTitle { get; set; } = string.Empty;
+
+    [Notify]
+    public string PhaseCounter { get; set; } = string.Empty;
+
+    [Notify]
+    public string PhaseSubline { get; set; } = string.Empty;
+
+    [Notify]
+    public bool IsPhaseIndeterminate { get; set; }
+
+    [Notify]
+    public bool IsUploadPhase { get; set; }
+
+    [Notify]
+    public bool IsRenderPhase { get; set; }
+
+    [Notify]
+    public bool IsFinishPhase { get; set; }
+
+    [Notify]
+    public bool IsCancelPhase { get; set; }
+
+    [Notify]
+    public string ResultFileName { get; set; } = string.Empty;
+
+    [Notify]
+    public string CompletedMeta { get; set; } = string.Empty;
+
+    [Notify]
+    public System.Windows.Media.ImageSource? ResultThumbnail { get; set; }
+
+    [Notify]
+    public string FailedMessage { get; set; } = string.Empty;
+
+    [Notify]
+    public string FailedDetail { get; set; } = string.Empty;
 
     [Notify]
     public string ResultPath { get; set; } = string.Empty;
@@ -552,6 +733,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public RelayCommand OpenFolderCommand { get; private set; } = null!;
 
     public ICommand NewRenderCommand { get; private set; } = null!;
+
+    public ICommand CopyLogCommand { get; private set; } = null!;
 
     #endregion
 

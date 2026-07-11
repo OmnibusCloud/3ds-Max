@@ -38,8 +38,10 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Body (no in-window header — the OS title bar already says Render; scene line per mockup 4.1.1) -->
-        <StackPanel Grid.Row="0" Margin="16,14,16,12">
+        <!-- Body: one work-area view at a time (design 4.1.3) — config, active phase, completed, failed -->
+        <Grid Grid.Row="0" Margin="16,14,16,12" MinHeight="340">
+
+        <StackPanel Visibility="{Binding ShowConfigView, Converter={StaticResource BoolToVis}}">
 
             <!-- Scene line: file — resolution · frames (read-only, from the scene) -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
@@ -191,11 +193,103 @@
                 </StackPanel>
             </GroupBox>
 
-            <!-- Progress (during an active job) -->
-            <ProgressBar Margin="0,16,0,0" Minimum="0" Maximum="1"
-                         Value="{Binding RenderProgress, Mode=OneWay}"
-                         Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
+
+        <!-- Active phase: centered icon + title/counter + bar + sub-line (mockup 4.1.3 cards) -->
+        <StackPanel VerticalAlignment="Center" Margin="28,0"
+                    Visibility="{Binding ShowActiveView, Converter={StaticResource BoolToVis}}">
+            <Border Width="44" Height="44" CornerRadius="22" Margin="0,0,0,14" HorizontalAlignment="Left"
+                    Background="{DynamicResource Max.Brush.ItemSelected}">
+                <Grid>
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.SeverityOk}" Data="{StaticResource Max.Icon.Up}"
+                          Visibility="{Binding IsUploadPhase, Converter={StaticResource BoolToVis}}" />
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.SeverityOk}" Data="{StaticResource Max.Icon.Film}"
+                          Visibility="{Binding IsRenderPhase, Converter={StaticResource BoolToVis}}" />
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.SeverityOk}" Data="{StaticResource Max.Icon.Spinner}"
+                          Visibility="{Binding IsFinishPhase, Converter={StaticResource BoolToVis}}" />
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.SeverityWarning}" Data="{StaticResource Max.Icon.X}"
+                          Visibility="{Binding IsCancelPhase, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+            </Border>
+
+            <DockPanel Margin="0,0,0,9">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding PhaseCounter}" FontSize="12.5"
+                           VerticalAlignment="Bottom" Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                <TextBlock Text="{Binding PhaseTitle}" FontSize="14" FontWeight="SemiBold" />
+            </DockPanel>
+
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding RenderProgress, Mode=OneWay}"
+                         IsIndeterminate="{Binding IsPhaseIndeterminate}" />
+
+            <TextBlock Text="{Binding PhaseSubline}" FontSize="11.5" Margin="0,9,0,0"
+                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+        </StackPanel>
+
+        <!-- Completed: check head + result row with thumbnail (mockup Completed card) -->
+        <StackPanel VerticalAlignment="Center" Margin="28,0"
+                    Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                <Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource Max.Brush.ItemSelected}">
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.SeverityOk}" Data="{StaticResource Max.Icon.Check}" />
+                </Border>
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Render complete" FontSize="13.5" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding CompletedMeta}" FontSize="11"
+                               Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal">
+                <Border Width="74" Height="55" CornerRadius="6" Background="{DynamicResource Max.Brush.Input}"
+                        BorderBrush="{DynamicResource Max.Brush.Border}" BorderThickness="1">
+                    <Image Source="{Binding ResultThumbnail}" Stretch="UniformToFill" />
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ResultFileName}" FontSize="13" FontWeight="SemiBold"
+                               MaxWidth="300" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding LaunchVm.RenderResolutionText}" FontSize="11" Margin="0,3,0,0"
+                               Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Failed: alert + message + job reference (mockup Failed card) -->
+        <StackPanel VerticalAlignment="Center" Margin="28,0"
+                    Visibility="{Binding ShowFailedActions, Converter={StaticResource BoolToVis}}">
+            <StackPanel Orientation="Horizontal">
+                <Border Width="34" Height="34" CornerRadius="17" VerticalAlignment="Top"
+                        Background="{DynamicResource Max.Brush.DangerFace}">
+                    <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                          Stroke="{DynamicResource Max.Brush.DangerText}" Data="{StaticResource Max.Icon.Alert}" />
+                </Border>
+                <StackPanel Margin="12,0,0,0" MaxWidth="340">
+                    <TextBlock Text="Render failed" FontSize="13.5" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding FailedMessage}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                    <Border Margin="0,10,0,0" CornerRadius="4" Padding="8,5" HorizontalAlignment="Left"
+                            Background="{DynamicResource Max.Brush.Input}"
+                            BorderBrush="{DynamicResource Max.Brush.Border}" BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FailedDetail}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding FailedDetail}" FontSize="10.5" FontFamily="Consolas"
+                                   Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+        </Grid>
 
         <!-- Footer: account/status on the left, one action set at a time on the right (mockup 4.1.3) -->
         <Border Grid.Row="1" Background="{DynamicResource Max.Brush.Footer}" Padding="16,10">
@@ -252,6 +346,24 @@
                             </StackPanel>
                         </Button>
                     </StackPanel>
+
+                    <!-- Failed: Copy log + Retry (mockup Failed card) -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding ShowFailedActions, Converter={StaticResource BoolToVis}}">
+                        <Button Margin="0,0,8,0" Command="{Binding CopyLogCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Copy}" />
+                                <TextBlock Text="Copy log" />
+                            </StackPanel>
+                        </Button>
+                        <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}"
+                                Command="{Binding RenderCommand}" IsEnabled="{Binding CanRender}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
+                                <TextBlock Text="Retry" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
@@ -270,7 +382,7 @@
                         </Ellipse>
                         <TextBlock Text="{Binding CloudVm.UserDisplayName}" FontSize="11" TextTrimming="CharacterEllipsis" />
                     </StackPanel>
-                    <TextBlock Text="{Binding StatusLine}" FontSize="11" Margin="12,2,0,0" TextTrimming="CharacterEllipsis"
+                    <TextBlock Text="{Binding FooterLine}" FontSize="11" Margin="12,2,0,0" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource Max.Brush.TextMuted}" />
                 </StackPanel>
             </DockPanel>

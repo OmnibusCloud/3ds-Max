@@ -49,5 +49,11 @@ public sealed class MaxSceneLaunchPackageRequest
     // of the export runs on the user's machine, which the UI states explicitly.
     public bool BakeVRayScannedMaterials { get; set; }
 
+    /// <summary>
+    /// Optional UI callback reporting upload progress as a 0..1 fraction (attachments + scene
+    /// submission). Purely local — never serialized or sent anywhere.
+    /// </summary>
+    public Action<double>? UploadProgress { get; set; }
+
     #endregion
 }

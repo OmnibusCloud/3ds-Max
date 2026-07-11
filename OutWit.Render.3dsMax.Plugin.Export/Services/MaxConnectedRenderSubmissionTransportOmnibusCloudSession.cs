@@ -101,10 +101,23 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         {
             var scene = package.Scene;
 
+            // Upload progress (design 4.1.3 Uploading card): each attachment advances the fraction;
+            // the final scene submission tops it off. The asset count is an upper bound (skipped
+            // attachments just make the bar finish early) — honest enough for a progress bar.
+            var uploadSteps = (scene.ImageAssets?.Count ?? 0) + 1;
+            var uploadedSteps = 0;
+            request.UploadProgress?.Invoke(0d);
+
             diagnostics.AddRange(await m_sceneAttachmentService.UploadImageAssetAttachmentsAsync(
                 scene,
                 package.SceneFilePath,
-                (filePath, ct) => client.Blobs.UploadBlobFromFileAsync(filePath, ct: ct),
+                async (filePath, ct) =>
+                {
+                    var blobId = await client.Blobs.UploadBlobFromFileAsync(filePath, ct: ct);
+                    var done = Interlocked.Increment(ref uploadedSteps);
+                    request.UploadProgress?.Invoke((double)done / uploadSteps);
+                    return blobId;
+                },
                 cancellationToken));
 
             // The attachment pass may have DEGRADED the scene (missing textures removed) after
@@ -118,6 +131,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
             var submission = CreateSubmission(request, scene, clientGroupId);
             var handle = await client.Scripts.SubmitAsync(submission, cancellationToken);
+            request.UploadProgress?.Invoke(1d);
 
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Submitted OmnibusCloud job '{handle.JobId}' for script '{submission.ScriptName}'."));
 
