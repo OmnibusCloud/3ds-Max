@@ -391,7 +391,15 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         // the same proven approach as the live distributed tests.
         var frameBlobIds = await FetchFrameBlobIdsAsync(client, jobId, cancellationToken);
         if (frameBlobIds.Count == 0)
+        {
+            // A COMPLETED frames job whose result shape cannot be read must not present as a
+            // silent success with zero frames — that reads as "the service lost my render".
+            jobState.Diagnostics.Add(CreateDiagnostic(
+                MaxSceneDiagnosticSeverity.Error,
+                $"Job '{jobId}' completed but its frame result payload could not be read — no frames were downloaded. Refresh retries; report this job id if it persists."));
+            jobState.StatusText = "Completed, but the frame results could not be read.";
             return;
+        }
 
         jobState.ResultFrameBlobIds = frameBlobIds;
         jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Job completed with {frameBlobIds.Count} frame result blobs."));

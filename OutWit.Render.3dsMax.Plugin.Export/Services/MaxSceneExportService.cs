@@ -214,9 +214,56 @@ public sealed class MaxSceneExportService
         };
     }
 
+    // Human wording per approximation category — the recorder's keys are stable codes; the
+    // user-facing message must say what the RENDER will show and what to do about it.
+    private static readonly (string Prefix, string Message, string Action)[] APPROXIMATION_MESSAGES =
+    [
+        ("foreign-geometry-preview-exported", "Third-party geometry exported from its VIEWPORT preview (proxies render simplified or as boxes)", "Convert proxies to meshes (or set full-mesh display) before submitting for a faithful render."),
+        ("foreign-geometry-not-exported", "Third-party geometry could not be converted — these objects are MISSING from the render", "Convert the object to an editable mesh before submitting."),
+        ("visibility-animation-not-exported", "Animated object visibility is not exported — these objects stay visible in every frame", "Delete/scale objects per shot, or keep visibility static for farm renders."),
+        ("explicit-normals-approximated", "Explicit (custom) normals are approximated from smoothing groups — shading seams may differ", "Collapse custom normals into geometry or accept the approximation."),
+        ("texture-map-channel-approximated", "Texture map-channel routing is not carried — these maps sample the primary UV channel", "Move the map to channel 1 or re-bake it onto the primary unwrap."),
+        ("xref-scene-not-exported", "XRef scene files are not exported — their content is missing from the render", "Merge XRef scenes into the main file before submitting."),
+        ("mirrored-node-approximated", "A mirrored camera/light keeps position and aim, but its reflection cannot be represented", "Un-mirror the camera/light if the framing looks flipped."),
+        ("material-approximated", "Measured (.vrscan) material approximated parametrically", "Enable the scanned-material bake for fabric-like scans to keep surface detail."),
+        ("texmap-bake-skipped-headless", "Scanned-material bake skipped (interactive 3ds Max only)", "Run the export from an interactive 3ds Max session to bake scans."),
+        ("texmap-bake-skipped-specular-scan", "Specular-dominant scan kept its parametric look (bake would flatten it)", ""),
+        ("texmap-bake-degenerate-uv", "Scanned-material bake skipped: the object's unwrap is collapsed", "Unwrap the object (channel 1) to enable the bake."),
+        ("deformation-sampling-skipped-too-large", "Per-frame deformation skipped for a very heavy animated mesh (kept its base pose)", "Reduce the animation range or mesh density to export the deformation."),
+        ("mesh-bulk-read-fallback", "Mesh read through the compatibility path (slower, output identical)", ""),
+        ("mesh-assembly-degraded-dropped", "A mesh failed to assemble and was excluded from the render", "Report this scene — it should not happen."),
+        ("texmap-bake-failed", "A scanned-material bake failed; the flat approximation is used", ""),
+        ("texmap", "Unsupported texture map type (rendered without it)", ""),
+    ];
+
+    private static void AddUnmappedClassDiagnostics(MaxSceneSummaryData summary, List<MaxSceneDiagnosticItem> diagnostics)
+    {
+        foreach (var (key, count) in summary.UnmappedPluginClasses.OrderBy(me => me.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var (_, message, action) = APPROXIMATION_MESSAGES.FirstOrDefault(me => key.StartsWith(me.Prefix, StringComparison.OrdinalIgnoreCase));
+            message ??= "Scene feature approximated or unsupported";
+
+            var className = key.Contains(':') ? key[(key.IndexOf(':') + 1)..] : key;
+            summary.UnmappedPluginClassExamples.TryGetValue(key, out var examples);
+            var subjects = string.IsNullOrWhiteSpace(examples) ? className : $"{className}: {examples}";
+
+            diagnostics.Add(new MaxSceneDiagnosticItem
+            {
+                Severity = MaxSceneDiagnosticSeverity.Warning,
+                Message = $"{message} — {subjects}" + (count > 1 ? $" (×{count})" : "") + ".",
+                SuggestedAction = string.IsNullOrWhiteSpace(action) ? null : action
+            });
+        }
+    }
+
     private static void AddSummaryDiagnostics(MaxSceneSummaryData summary, List<MaxSceneDiagnosticItem> diagnostics)
     {
         const double MIN_SUSPICIOUS_LIGHT_RANGE = 0.01d;
+
+        // The silent-wrongness ledger first: everything the capture approximated or dropped,
+        // named per category with offender objects — an open service must say "this scene
+        // contains V-Ray proxies, they render simplified" instead of rendering a box quietly.
+        AddUnmappedClassDiagnostics(summary, diagnostics);
 
         if (string.IsNullOrWhiteSpace(summary.SceneFilePath))
         {

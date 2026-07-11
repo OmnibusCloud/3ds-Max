@@ -31,6 +31,23 @@ public sealed class MaxConnectedRenderDownloadService
             };
         }
 
+        // Until the job completes, PrimaryArtifactPath still points at the INPUT launch archive
+        // — handing that back as "the downloaded artifact" told users their result was ready
+        // when it wasn't (and for ExportBlend the file wasn't even a .blend). The placeholder
+        // local flow keeps its explicit archive behaviour and its own warning below.
+        if (!jobState.IsPlaceholderLocalSubmission
+            && (!jobState.IsCompleted
+                || string.Equals(jobState.PrimaryArtifactPath, jobState.PackageArchivePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "The job has not produced a downloadable result yet — wait for it to complete (refresh retries the result download)."));
+            return new MaxConnectedRenderDownloadResult
+            {
+                IsSuccess = false,
+                StatusText = "Connected render result is not ready to download.",
+                Diagnostics = diagnostics
+            };
+        }
+
         var jobFolderName = string.IsNullOrWhiteSpace(jobState.JobId)
             ? $"download-{Guid.NewGuid():N}"
             : SanitizePathPart(jobState.JobId);

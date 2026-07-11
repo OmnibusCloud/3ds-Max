@@ -83,6 +83,7 @@ internal sealed class MaxSceneSnapshotCollector
 
     public void Collect(IINode rootNode)
     {
+        RecordXRefSceneDiagnostics();
         CollectSceneContent(rootNode, rootNode, null);
         JoinPendingMeshAssemblies();
         BakeQueuedScannedMaterials();
@@ -455,9 +456,32 @@ internal sealed class MaxSceneSnapshotCollector
             // Shape (spline) objects go through GetRenderMesh inside ExtractMesh: the TriObject
             // conversion yields a FILLED planar disc while Max renders the "Render Thickness"
             // tube (Maxine's rig circles are 0.1-unit threads, not discs).
-            if (sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject)
+            // Foreign-renderer GEOMETRY needs a trace whether it converts or not: a VRayProxy in
+            // preview mode converts to its viewport box, a VRayPlane does not convert at all —
+            // both silently misrender without this.
+            var convertsToMesh = sceneObject.CanConvertToType(m_global.TriObjectClassID) == 1 && sceneObject is not IHelperObject;
+            if (sceneObject is not ICameraObject && sceneObject is not ILightObject)
+            {
+                try
+                {
+                    var geometryClassName = sceneObject.ClassName(false);
+                    if (IsForeignPluginClass(geometryClassName))
+                    {
+                        RecordUnmappedPluginClass(
+                            convertsToMesh ? "foreign-geometry-preview-exported" : "foreign-geometry-not-exported",
+                            geometryClassName,
+                            childNode.Name);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            if (convertsToMesh)
             {
                 var meshId = $"mesh:{childNode.Handle}";
+                RecordSilentApproximationDiagnostics(childNode, sceneObject);
                 ReportNativeProgress($"OmnibusCloud: extracting '{childNode.Name}'…");
 
                 // A mirrored node (Mirror tool → negative scale, det < 0) cannot ride the TRS
@@ -554,6 +578,67 @@ internal sealed class MaxSceneSnapshotCollector
             // root regardless of what was emitted above.
             _ = added;
             CollectSceneContent(childNode, effectiveParentNode, null);
+        }
+    }
+
+    // The dangerous failure mode for an open service is SILENT wrongness: a scene feature we
+    // approximate or drop without a trace reads as "the render is broken" with an empty
+    // diagnostics list. Detection is cheap; fixing each is a feature — record loudly, render on.
+    private void RecordSilentApproximationDiagnostics(IINode node, IObject sceneObject)
+    {
+        // The node visibility TRACK (animated visibility/fade) is not exported — a prop keyed to
+        // appear at frame 50 renders in every frame.
+        try
+        {
+            var visibilityController = node.VisController;
+            if (visibilityController is not null
+                && (visibilityController.IsAnimated || visibilityController.NumKeys > 0))
+                RecordUnmappedPluginClass("visibility-animation-not-exported", "Node", node.Name);
+        }
+        catch
+        {
+        }
+
+        // Explicit normals (Edit Normals modifier) are resolved from smoothing groups instead —
+        // weighted/custom normals show shading seams the native render does not have.
+        try
+        {
+            var current = node.ObjectRef;
+            while (current is IIDerivedObject derivedObject)
+            {
+                for (var modifierIndex = 0; modifierIndex < derivedObject.NumModifiers; modifierIndex++)
+                {
+                    var modifier = derivedObject.GetModifier(modifierIndex);
+                    var className = modifier?.ClassName(false);
+                    if (className?.Contains("edit normals", StringComparison.OrdinalIgnoreCase) == true
+                        || className?.Contains("editnormals", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        RecordUnmappedPluginClass("explicit-normals-approximated", className!, node.Name);
+                        return;
+                    }
+                }
+
+                current = derivedObject.ObjRef;
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    // XRef SCENES hang off separate scene roots the walk never reaches (XRef OBJECTS resolve
+    // through EvalWorldState and export fine) — an arch-viz set assembled from XRef scenes
+    // exports without its environment geometry.
+    private void RecordXRefSceneDiagnostics()
+    {
+        try
+        {
+            var raw = TryEvaluateScriptString("((xrefs.getXRefFileCount()) as string)");
+            if (int.TryParse(raw, out var xrefSceneCount) && xrefSceneCount > 0)
+                RecordUnmappedPluginClass("xref-scene-not-exported", "Scene", $"{xrefSceneCount} XRef scene file(s)");
+        }
+        catch
+        {
         }
     }
 
@@ -1332,6 +1417,19 @@ internal sealed class MaxSceneSnapshotCollector
                 continue;
 
             var (uvScaleX, uvScaleY, uvOffsetX, uvOffsetY) = ReadBitmapUvTiling(bitmap);
+
+            // Map-channel routing is not carried: only channel 1 (Uv0) reaches the generator's
+            // texture sampling — a bitmap authored on channel 2/3 (lightmap/detail workflows)
+            // textures with the wrong coordinates. Loud trace instead of silent wrongness.
+            try
+            {
+                if (bitmap.TheUVGen is IStdUVGen slotUvGen && slotUvGen.MapChannel != 1)
+                    RecordUnmappedPluginClass("texture-map-channel-approximated", $"map channel {slotUvGen.MapChannel}", material.Name);
+            }
+            catch
+            {
+            }
+
             materialSnapshot.TextureSlots.Add(new MaxSceneTextureSlotSnapshotData
             {
                 Slot = slotKind.Value,
@@ -2298,6 +2396,17 @@ internal sealed class MaxSceneSnapshotCollector
         var key = $"{kind}:{className ?? "unknown"}";
         m_summary.UnmappedPluginClasses.TryGetValue(key, out var count);
         m_summary.UnmappedPluginClasses[key] = count + 1;
+
+        // Keep a few offender NAMES per category — "the render is wrong" support conversations
+        // need "which object", not just "how many".
+        if (string.IsNullOrWhiteSpace(objectName))
+            return;
+
+        m_summary.UnmappedPluginClassExamples.TryGetValue(key, out var examples);
+        if (examples is null)
+            m_summary.UnmappedPluginClassExamples[key] = objectName;
+        else if (examples.Split(", ").Length < 3 && !examples.Contains(objectName, StringComparison.Ordinal))
+            m_summary.UnmappedPluginClassExamples[key] = $"{examples}, {objectName}";
     }
 
     // V-Ray wrapper materials delegate their base look to a sub-material — slot 0 is the

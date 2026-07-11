@@ -159,6 +159,17 @@ public sealed class VRayScannedMaterialReaderTests
     }
 
     [Test]
+    public void CommaDecimalTokensFromNonEnglishWorkstationsStillParseTest()
+    {
+        // A comma-decimal locale printing '255,0' must not silently degrade every V-Ray read
+        // to the fallback — tokens are single numbers, so normalization is unambiguous.
+        var snapshot = Apply(BuildPayload(usePaint: "1,0", paint: "255,0|16,0|16,0"));
+
+        Assert.That(snapshot.BaseColor.R, Is.EqualTo(1d).Within(1e-9));
+        Assert.That(snapshot.BaseColor.G, Is.EqualTo(16d / 255d).Within(1e-9));
+    }
+
+    [Test]
     public void SpecularDominantScansAreNotDiffuseBakeCandidatesTest()
     {
         // Car paint / carbon / metal scans carry their look in the specular response — the RTT

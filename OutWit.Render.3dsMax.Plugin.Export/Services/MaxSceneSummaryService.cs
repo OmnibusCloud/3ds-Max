@@ -90,6 +90,7 @@ public sealed class MaxSceneSummaryService
             EnvironmentIsScreenMapped = snapshot.EnvironmentIsScreenMapped,
             EnvironmentIsLightSource = snapshot.EnvironmentIsLightSource,
             UnmappedPluginClasses = snapshot.UnmappedPluginClasses,
+            UnmappedPluginClassExamples = snapshot.UnmappedPluginClassExamples,
             MotionBlur = snapshot.MotionBlur,
             ImageMotionBlurObjectCount = snapshot.ImageMotionBlurObjectCount,
             ObjectMotionBlurObjectCount = snapshot.ObjectMotionBlurObjectCount,

@@ -111,7 +111,9 @@ internal static class VRayScannedMaterialReader
             if (token == MISSING_TOKEN)
                 continue;
 
-            if (!double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            // Comma-decimal safety for non-English workstations: tokens are single numbers, so a
+            // locale that prints '0,5' parses after normalization and never poisons the payload.
+            if (!double.TryParse(token.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
                 || !double.IsFinite(value))
                 return false;
 

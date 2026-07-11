@@ -99,6 +99,10 @@ public sealed class MaxSceneSnapshotData
     // a beta user (and us) exactly which families a scene relies on.
     public Dictionary<string, int> UnmappedPluginClasses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    // Up to three offender object names per unmapped-class category (key matches
+    // UnmappedPluginClasses) so diagnostics can NAME what was approximated.
+    public Dictionary<string, string> UnmappedPluginClassExamples { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     // Whether any renderable node has 3ds Max motion blur enabled (drives scene-level motion blur).
     public bool MotionBlur { get; set; }
 
