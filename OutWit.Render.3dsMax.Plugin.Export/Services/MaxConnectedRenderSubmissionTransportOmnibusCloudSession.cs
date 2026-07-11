@@ -48,6 +48,24 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
     #region IMaxConnectedRenderSubmissionTransport
 
     /// <summary>
+    /// Session probe run BEFORE the heavy scene capture: an expired sign-in used to surface only
+    /// after minutes of synchronous main-thread capture work — exactly the late failure the
+    /// preflight/prepare split exists to prevent.
+    /// </summary>
+    /// <param name="request">The launch request about to be prepared.</param>
+    /// <param name="cancellationToken">Cancels the probe.</param>
+    /// <returns>Null when a signed-in session is available; the blocking reason otherwise.</returns>
+    public async Task<string?> ProbeSubmissionBlockerAsync(MaxSceneLaunchPackageRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var client = await m_connectionService.GetClientAsync(request.CloudUrl, cancellationToken);
+        return client == null
+            ? "Sign in to OmnibusCloud before launching a connected render."
+            : null;
+    }
+
+    /// <summary>
     /// Submits one prepared launch package to OmnibusCloud through the signed-in user session.
     /// </summary>
     /// <param name="request">The launch request the package was prepared from.</param>

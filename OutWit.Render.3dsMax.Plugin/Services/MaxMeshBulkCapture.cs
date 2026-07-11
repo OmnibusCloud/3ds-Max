@@ -203,7 +203,11 @@ internal static class MaxMeshBulkCapture
                 var wrapperPointer = wrapperErn is null ? IntPtr.Zero : PointerOf(wrapperErn);
                 if (wrapperPointer != ernPointer)
                     return false;
-                ernOffsetVerified = true;
+
+                // A null==null match proves nothing about the offset — only a NON-ZERO pointer
+                // confirmed against the wrapper earns trust; until then every split vertex is
+                // re-checked (a wrong offset here would dereference garbage and crash Max).
+                ernOffsetVerified = ernPointer != IntPtr.Zero;
             }
 
             if (ernPointer == IntPtr.Zero)

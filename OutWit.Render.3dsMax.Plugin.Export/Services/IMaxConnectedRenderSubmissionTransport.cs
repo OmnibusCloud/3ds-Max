@@ -10,6 +10,19 @@ public interface IMaxConnectedRenderSubmissionTransport
     #region Functions
 
     /// <summary>
+    /// Cheap submission-readiness probe run BEFORE the heavy scene capture: an expired session
+    /// must surface immediately, not after minutes of synchronous main-thread capture work.
+    /// Transports without a session concept keep the default (never blocked).
+    /// </summary>
+    /// <param name="request">The launch request about to be prepared.</param>
+    /// <param name="cancellationToken">Cancels the probe.</param>
+    /// <returns>Null when submission can proceed; a user-facing blocking reason otherwise.</returns>
+    Task<string?> ProbeSubmissionBlockerAsync(MaxSceneLaunchPackageRequest request, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<string?>(null);
+    }
+
+    /// <summary>
     /// Submits one prepared launch package through the current transport implementation.
     /// </summary>
     /// <param name="request">The launch request the package was prepared from.</param>

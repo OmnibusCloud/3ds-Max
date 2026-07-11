@@ -59,6 +59,25 @@ public sealed class MaxConnectedRenderService
             };
         }
 
+        // The session probe is cheap and async — run it BEFORE Prepare, whose synchronous scene
+        // capture holds the Max main thread for minutes on heavy scenes. An expired sign-in must
+        // block here, not after all that work.
+        var submissionBlocker = await m_submissionService.ProbeSubmissionBlockerAsync(request, cancellationToken);
+        if (submissionBlocker is not null)
+        {
+            return new MaxConnectedRenderJobState
+            {
+                JobId = $"blocked-{Guid.NewGuid():N}",
+                StatusText = submissionBlocker,
+                ProgressPercent = 0d,
+                IsCompleted = false,
+                IsPlaceholderLocalSubmission = true,
+                SubmittedUtc = now,
+                UpdatedUtc = DateTime.UtcNow,
+                Diagnostics = [new MaxSceneDiagnosticItem { Severity = MaxSceneDiagnosticSeverity.Error, Message = submissionBlocker }]
+            };
+        }
+
         var package = m_launchPreparationService.Prepare(request);
         return await m_submissionService.SubmitAsync(request, package, cancellationToken);
     }

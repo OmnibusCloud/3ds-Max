@@ -25,6 +25,17 @@ public sealed class MaxConnectedRenderSubmissionService
     #region Functions
 
     /// <summary>
+    /// Cheap submission-readiness probe (see the transport contract) — run before the heavy capture.
+    /// </summary>
+    /// <param name="request">The launch request about to be prepared.</param>
+    /// <param name="cancellationToken">Cancels the probe.</param>
+    /// <returns>Null when submission can proceed; a user-facing blocking reason otherwise.</returns>
+    public Task<string?> ProbeSubmissionBlockerAsync(MaxSceneLaunchPackageRequest request, CancellationToken cancellationToken = default)
+    {
+        return m_transport.ProbeSubmissionBlockerAsync(request, cancellationToken);
+    }
+
+    /// <summary>
     /// Submits the prepared launch package and returns a trackable connected render job state.
     /// </summary>
     /// <param name="request">The launch request the package was prepared from.</param>

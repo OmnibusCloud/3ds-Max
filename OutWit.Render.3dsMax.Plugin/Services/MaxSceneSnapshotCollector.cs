@@ -28,12 +28,18 @@ internal sealed class MaxSceneSnapshotCollector
     private readonly bool m_reportNativeProgress;
     // Worker-thread mesh assemblies in flight (bulk-captured buffers → snapshot lists). Joined
     // before anything reads mesh geometry: deformation sampling per mesh, and Collect() before
-    // the bake pass / returning to the caller.
-    private readonly List<Task> m_pendingMeshAssemblies = new();
+    // the bake pass / returning to the caller. The mesh/node ids ride along so a worker that
+    // degraded to an empty mesh (OOM guard) can be dropped from the summary at the join.
+    private readonly List<(Task Assembly, MaxSceneMeshSnapshotData Mesh, string NodeId)> m_pendingMeshAssemblies = new();
     // Scanned materials queued for the post-walk RTT bake: material snapshot id -> the first
     // node wearing it (the bake renders on that node's UVs).
     private readonly Dictionary<string, (IMtl Material, IINode Node)> m_scannedMaterialBakeQueue = new(StringComparer.Ordinal);
     private IINode? m_currentMaterialNode;
+    // Per-capture bake directory: a stable path would resurrect stale bakes across sessions
+    // (the old GetHashCode-keyed names could collide with a weeks-old temp file), while WITHIN
+    // one capture File.Exists dedup is exactly right (the double Json+MPackGz export must not
+    // re-render). Old session folders are swept on first use.
+    private string? m_bakeSessionDirectory;
     private readonly HashSet<object> m_materials;
     private readonly HashSet<object> m_textures;
     private readonly SortedSet<string> m_materialNames;
@@ -889,6 +895,7 @@ internal sealed class MaxSceneSnapshotCollector
         }
 
         IMesh? mesh;
+        IObject? convertedTriObject;
         {
             var convertedObject = sceneObject;
 
@@ -897,6 +904,7 @@ internal sealed class MaxSceneSnapshotCollector
 
             if (convertedObject is not ITriObject triObject)
             {
+                TryReleaseTemporaryConversion(sceneObject, convertedObject);
                 return new MeshExtraction(new MaxSceneMeshSnapshotData
                 {
                     Id = meshId,
@@ -904,6 +912,7 @@ internal sealed class MaxSceneSnapshotCollector
                 }, false, null);
             }
 
+            convertedTriObject = convertedObject;
             mesh = triObject.Mesh;
         }
 
@@ -950,7 +959,8 @@ internal sealed class MaxSceneSnapshotCollector
                     if (mirrorBake)
                         MaxMeshBulkAssembler.ApplyMirrorBake(meshData);
                 });
-                m_pendingMeshAssemblies.Add(assembly);
+                m_pendingMeshAssemblies.Add((assembly, meshData, $"node:{node.Handle}"));
+                TryReleaseTemporaryConversion(sceneObject, convertedTriObject);
                 return new MeshExtraction(meshData, true, assembly, mirrorBake);
             }
 
@@ -987,7 +997,60 @@ internal sealed class MaxSceneSnapshotCollector
         if (mirrorBake)
             MaxMeshBulkAssembler.ApplyMirrorBake(meshData);
 
+        TryReleaseTemporaryConversion(sceneObject, convertedTriObject);
         return new MeshExtraction(meshData, meshData.Positions.Count > 0, null, mirrorBake);
+    }
+
+    // Lazily creates this capture's bake folder and sweeps session folders older than three
+    // days (bakes must outlive the capture only until the attachment upload reads them).
+    private string ResolveBakeSessionDirectory()
+    {
+        if (m_bakeSessionDirectory is not null)
+            return m_bakeSessionDirectory;
+
+        var bakesRoot = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
+        try
+        {
+            if (Directory.Exists(bakesRoot))
+            {
+                foreach (var oldDirectory in Directory.GetDirectories(bakesRoot))
+                {
+                    if (Directory.GetLastWriteTimeUtc(oldDirectory) < DateTime.UtcNow.AddDays(-3))
+                        Directory.Delete(oldDirectory, recursive: true);
+                }
+            }
+        }
+        catch
+        {
+            // Sweeping stale sessions is housekeeping — never let it break a capture.
+        }
+
+        m_bakeSessionDirectory = Path.Combine(bakesRoot, $"{Guid.NewGuid():N}");
+        Directory.CreateDirectory(m_bakeSessionDirectory);
+        return m_bakeSessionDirectory;
+    }
+
+    // ConvertToType returns a TEMPORARY object the caller owns whenever a conversion actually
+    // happened (maxsdk contract) — the managed facade never frees it, which leaked one full mesh
+    // copy per converted node and one PER SAMPLED FRAME in the deformation path. MaybeAutoDelete
+    // is the SDK-sanctioned release: it deletes only when nothing else references the object.
+    private static void TryReleaseTemporaryConversion(IObject original, IObject? converted)
+    {
+        try
+        {
+            if (converted is null || ReferenceEquals(converted, original))
+                return;
+
+            if (converted is INativeObject convertedNative && original is INativeObject originalNative
+                && convertedNative.NativePointer == originalNative.NativePointer)
+                return;
+
+            converted.MaybeAutoDelete();
+        }
+        catch
+        {
+            // Releasing a temporary is best-effort — never take the capture down over it.
+        }
     }
 
     // A mesh handed back by ExtractMesh: the snapshot's MaterialIndices are always filled, but
@@ -1004,9 +1067,24 @@ internal sealed class MaxSceneSnapshotCollector
 
         // Wait in slices, refreshing the native progress title — the join is where a heavy
         // scene's remaining assembly time is spent, and the moving title keeps Max visibly alive.
-        var all = Task.WhenAll(m_pendingMeshAssemblies);
+        var all = Task.WhenAll(m_pendingMeshAssemblies.Select(me => me.Assembly));
         while (!all.Wait(TimeSpan.FromMilliseconds(250)))
             ReportNativeProgress("OmnibusCloud: assembling meshes…");
+
+        // A worker that degraded to an empty mesh (the OOM belt-and-braces in AssembleGuarded)
+        // must not reach Dcc validation — "mesh requires positions" would abort the WHOLE scene.
+        // Drop the mesh and its node like the synchronous empty-mesh skip does.
+        foreach (var (_, meshSnapshot, nodeId) in m_pendingMeshAssemblies)
+        {
+            if (meshSnapshot.Positions.Count > 0)
+                continue;
+
+            m_summary.Meshes.RemoveAll(me => ReferenceEquals(me, meshSnapshot));
+            m_summary.Nodes.RemoveAll(me => me.Id == nodeId);
+            m_summary.MeshesCount = Math.Max(0, m_summary.MeshesCount - 1);
+            m_summary.SkippedEmptyMeshCount++;
+            RecordUnmappedPluginClass("mesh-assembly-degraded-dropped", "Mesh", meshSnapshot.Name);
+        }
 
         m_pendingMeshAssemblies.Clear();
     }
@@ -1743,8 +1821,7 @@ internal sealed class MaxSceneSnapshotCollector
                     continue;
                 }
 
-                var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
-                Directory.CreateDirectory(bakeDirectory);
+                var bakeDirectory = ResolveBakeSessionDirectory();
                 var bakePath = Path.Combine(bakeDirectory, $"{SanitizeId(materialSnapshot.Name)}_vrscan_{entry.Material.GetHashCode():x8}.png");
 
                 if (!File.Exists(bakePath) && !TryRenderScannedMaterialToTexture(entry.Node, bakePath))
@@ -1826,9 +1903,16 @@ internal sealed class MaxSceneSnapshotCollector
                 "local ok = \"0\"; " +
                 "local prevSel = selection as array; " +
                 fastBakeOverrides +
+                // The node's own Render-To-Texture setup is USER STATE: removeAllBakeElements
+                // used to wipe an artist's authored bake elements and leave our channel/dilation
+                // settings behind. Save everything up front, restore after — success or failure.
+                "local bp = n.INodeBakeProperties; " +
+                "local prevElems = (try (for i = 1 to bp.numBakeElements() collect (bp.getBakeElement i)) catch (#())); " +
+                "local prevBakeEnabled = (try (bp.bakeEnabled) catch (undefined)); " +
+                "local prevBakeChannel = (try (bp.bakeChannel) catch (undefined)); " +
+                "local prevDilations = (try (bp.nDilations) catch (undefined)); " +
                 "try (" +
                 "select n; " +
-                "local bp = n.INodeBakeProperties; " +
                 "bp.removeAllBakeElements(); " +
                 "local be = VRayDiffuseFilterMap(); " +
                 "be.outputSzX = 1024; be.outputSzY = 1024; " +
@@ -1840,9 +1924,12 @@ internal sealed class MaxSceneSnapshotCollector
                 "bp.bakeChannel = 1; " +
                 "bp.nDilations = 4; " +
                 "render rendertype:#bakeSelected vfb:false progressBar:false outputSize:[1024,1024]; " +
-                "bp.bakeEnabled = false; " +
                 "ok = \"1\"" +
                 ") catch (ok = \"0\"); " +
+                "try (bp.removeAllBakeElements(); for e in prevElems do bp.addBakeElement e) catch (); " +
+                "try (if prevBakeEnabled != undefined then bp.bakeEnabled = prevBakeEnabled) catch (); " +
+                "try (if prevBakeChannel != undefined then bp.bakeChannel = prevBakeChannel) catch (); " +
+                "try (if prevDilations != undefined then bp.nDilations = prevDilations) catch (); " +
                 fastBakeRestores +
                 // The bake runs from inside the user's Render click — leave their selection as we found it.
                 "try (if prevSel.count > 0 then (select prevSel) else (max select none)) catch (); " +
@@ -2663,8 +2750,7 @@ internal sealed class MaxSceneSnapshotCollector
 
         try
         {
-            var bakeDirectory = Path.Combine(Path.GetTempPath(), "OutWitRender", "bakes");
-            Directory.CreateDirectory(bakeDirectory);
+            var bakeDirectory = ResolveBakeSessionDirectory();
             var fileName = $"{SanitizeId(bakeName)}_{texmap.GetHashCode():x8}.png";
             var bakePath = Path.Combine(bakeDirectory, fileName);
 
@@ -3674,6 +3760,18 @@ internal sealed class MaxSceneSnapshotCollector
             return;
 
         var baseCornerCount = meshSnapshot.Positions.Count;
+
+        // Resource governor: every sampled frame allocates one snapshot object per corner and
+        // they are ALL held until the anyDeformation gate — a 3M-corner character over a 100-frame
+        // range is ~14 GB before serialization even starts. Past the budget the mesh keeps its
+        // base pose and the skip is recorded instead of grinding Max into an OOM.
+        const long maxDeformationCornerSamples = 100_000_000;
+        var frameCount = (long)frameEnd - frameStart + 1;
+        if (baseCornerCount * frameCount > maxDeformationCornerSamples)
+        {
+            RecordUnmappedPluginClass("deformation-sampling-skipped-too-large", "Mesh", node.Name);
+            return;
+        }
         var frames = new List<MaxSceneMeshDeformationFrameSnapshotData>();
         var anyDeformation = false;
 
@@ -3742,13 +3840,16 @@ internal sealed class MaxSceneSnapshotCollector
 
     private List<MaxSceneVector3SnapshotData>? SampleMeshCornerPositionsAtTime(IINode node, int time, int expectedCornerCount)
     {
+        IObject? sceneObject = null;
+        ITriObject? triObject = null;
         try
         {
-            var sceneObject = node.EvalWorldState(time, true).Obj;
+            sceneObject = node.EvalWorldState(time, true).Obj;
             if (sceneObject is null || sceneObject.CanConvertToType(m_global.TriObjectClassID) != 1)
                 return null;
 
-            if (sceneObject.ConvertToType(time, m_global.TriObjectClassID) is not ITriObject triObject)
+            triObject = sceneObject.ConvertToType(time, m_global.TriObjectClassID) as ITriObject;
+            if (triObject is null)
                 return null;
 
             var mesh = triObject.Mesh;
@@ -3789,6 +3890,13 @@ internal sealed class MaxSceneSnapshotCollector
         catch
         {
             return null;
+        }
+        finally
+        {
+            // The sampler runs once per frame — an unreleased temporary conversion here leaked
+            // one full mesh copy per frame of the animation range.
+            if (sceneObject is not null)
+                TryReleaseTemporaryConversion(sceneObject, triObject);
         }
     }
 
