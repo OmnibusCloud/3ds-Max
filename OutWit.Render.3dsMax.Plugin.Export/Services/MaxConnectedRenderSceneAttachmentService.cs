@@ -37,6 +37,8 @@ public sealed class MaxConnectedRenderSceneAttachmentService
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(uploadFileAsync);
 
+        UniquifyImageAssetRelativePaths(scene);
+
         var diagnostics = new List<MaxSceneDiagnosticItem>();
         var referencedImageAssetIds = scene.Materials
             .SelectMany(me => me.TextureSlots)
@@ -104,6 +106,67 @@ public sealed class MaxConnectedRenderSceneAttachmentService
         return diagnostics;
     }
 
+    // Two textures both named 'diffuse.jpg' from different folders used to collapse onto the
+    // same 'textures/diffuse.jpg' attachment: the second file was never uploaded (the dedup
+    // matched by RelativePath) and both materials rendered with the FIRST texture, silently.
+    // Distinct source paths therefore get distinct relative paths — a collision keeps its
+    // filename stem and gains a suffix derived from the full source path, deterministic across
+    // sessions (unlike object hash codes) so re-exports stay byte-identical.
+    private static void UniquifyImageAssetRelativePaths(DccSceneData scene)
+    {
+        var ownerSourcePathsByRelativePath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var imageAsset in scene.ImageAssets)
+        {
+            if (string.IsNullOrWhiteSpace(imageAsset.RelativePath))
+            {
+                var fileName = TryGetFileName(imageAsset.SourcePath);
+                if (string.IsNullOrWhiteSpace(fileName))
+                    continue; // No path to key on — the upload loop degrades it as missing.
+
+                imageAsset.RelativePath = $"textures/{fileName}";
+            }
+
+            if (!ownerSourcePathsByRelativePath.TryGetValue(imageAsset.RelativePath, out var ownerSourcePath))
+            {
+                ownerSourcePathsByRelativePath[imageAsset.RelativePath] = imageAsset.SourcePath;
+                continue;
+            }
+
+            // The same file referenced twice SHOULD share one attachment.
+            if (string.Equals(ownerSourcePath, imageAsset.SourcePath, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var stem = Path.GetFileNameWithoutExtension(imageAsset.RelativePath);
+            var extension = Path.GetExtension(imageAsset.RelativePath);
+            var candidate = $"textures/{stem}_{ComputeStablePathSuffix(imageAsset.SourcePath)}{extension}";
+            for (var attempt = 2; ownerSourcePathsByRelativePath.ContainsKey(candidate); attempt++)
+                candidate = $"textures/{stem}_{ComputeStablePathSuffix(imageAsset.SourcePath)}_{attempt}{extension}";
+
+            imageAsset.RelativePath = candidate;
+            ownerSourcePathsByRelativePath[candidate] = imageAsset.SourcePath;
+        }
+    }
+
+    private static string ComputeStablePathSuffix(string sourcePath)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes((sourcePath ?? string.Empty).ToLowerInvariant()));
+        return Convert.ToHexString(bytes.AsSpan(0, 4)).ToLowerInvariant();
+    }
+
+    private static string? TryGetFileName(string? path)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(path) ? null : Path.GetFileName(path.Replace('\\', '/'));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static void RemoveMissingImageAssetReferences(DccSceneData scene, HashSet<string> missingImageAssetIds)
     {
         scene.ImageAssets.RemoveAll(me => missingImageAssetIds.Contains(me.Id));
@@ -115,6 +178,28 @@ public sealed class MaxConnectedRenderSceneAttachmentService
             && !string.IsNullOrWhiteSpace(scene.World.EnvironmentImageId)
             && missingImageAssetIds.Contains(scene.World.EnvironmentImageId))
             scene.World.EnvironmentImageId = null;
+
+        // Removing a slot can orphan dependent material state the server-side contract rejects
+        // ("custom normal strength only when a normal texture slot is present") — reset it to
+        // the contract defaults so the degraded scene stays VALID, not just consistent.
+        foreach (var material in scene.Materials)
+        {
+            var hasNormalTextureSlot = material.TextureSlots.Any(me => me.Slot is DccTextureSlotKind.Normal or DccTextureSlotKind.Bump);
+            if (!hasNormalTextureSlot && (material.NormalStrength != 1d || material.NormalStrengthKeyframes.Count > 0))
+            {
+                material.NormalStrength = 1d;
+                material.NormalStrengthKeyframes.Clear();
+            }
+
+            var hasOpacitySource = material.Opacity != 1d
+                                   || material.OpacityKeyframes.Count > 0
+                                   || material.TextureSlots.Any(me => me.Slot == DccTextureSlotKind.Opacity);
+            if (!hasOpacitySource && material.AlphaMode is DccMaterialAlphaMode.Clip or DccMaterialAlphaMode.Hashed)
+            {
+                material.AlphaMode = DccMaterialAlphaMode.Blend;
+                material.AlphaClipThreshold = 0.5d;
+            }
+        }
     }
 
     private static bool HasMaterializedAttachment(DccSceneData scene, DccImageAssetData imageAsset)

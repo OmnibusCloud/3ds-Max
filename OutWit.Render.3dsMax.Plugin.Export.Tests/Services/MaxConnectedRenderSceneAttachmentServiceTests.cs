@@ -208,5 +208,143 @@ public sealed class MaxConnectedRenderSceneAttachmentServiceTests
         });
     }
 
+    [Test]
+    public async Task UploadImageAssetAttachmentsAsyncKeepsSameNamedTexturesFromDifferentFoldersDistinctTest()
+    {
+        // Two textures both named 'diffuse.png' from different folders used to collapse onto one
+        // 'textures/diffuse.png' attachment: the second file was never uploaded and both
+        // materials rendered with the FIRST texture, silently.
+        var service = new MaxConnectedRenderSceneAttachmentService();
+        var exportService = MaxSceneExportTestData.CreateService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+        var scene = exportService.ValidateCurrentScene().Scene!;
+
+        var woodDirectory = Path.Combine(m_tempDirectoryPath, "wood");
+        var metalDirectory = Path.Combine(m_tempDirectoryPath, "metal");
+        Directory.CreateDirectory(woodDirectory);
+        Directory.CreateDirectory(metalDirectory);
+        var woodTexturePath = Path.Combine(woodDirectory, "diffuse.png");
+        var metalTexturePath = Path.Combine(metalDirectory, "diffuse.png");
+        File.WriteAllBytes(woodTexturePath, [1, 1, 1, 1]);
+        File.WriteAllBytes(metalTexturePath, [2, 2, 2, 2]);
+
+        scene.ImageAssets[0].SourcePath = woodTexturePath;
+        scene.ImageAssets[0].RelativePath = "textures/diffuse.png";
+        scene.ImageAssets.Add(new OutWit.Controller.Render.Dcc.Model.DccImageAssetData
+        {
+            Id = "image:metal_diffuse",
+            Name = "diffuse",
+            SourcePath = metalTexturePath,
+            RelativePath = "textures/diffuse.png",
+            AssetKind = "ImageAsset"
+        });
+        scene.Materials[0].TextureSlots.Add(new OutWit.Controller.Render.Dcc.Model.DccTextureSlotData
+        {
+            Slot = OutWit.Controller.Render.Dcc.Model.DccTextureSlotKind.Metallic,
+            ImageAssetId = "image:metal_diffuse"
+        });
+
+        var uploadedFilePaths = new List<string>();
+
+        await service.UploadImageAssetAttachmentsAsync(
+            scene,
+            string.Empty,
+            (filePath, _) =>
+            {
+                uploadedFilePaths.Add(filePath);
+                return Task.FromResult(Guid.NewGuid());
+            },
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(uploadedFilePaths, Is.EquivalentTo(new[] { woodTexturePath, metalTexturePath }), "both files must upload");
+            Assert.That(scene.AttachedFiles, Has.Count.EqualTo(2));
+            var relativePaths = scene.ImageAssets.Select(me => me.RelativePath).ToArray();
+            Assert.That(relativePaths.Distinct(StringComparer.OrdinalIgnoreCase).Count(), Is.EqualTo(2), "colliding names must be uniquified");
+            Assert.That(scene.ImageAssets[0].RelativePath, Is.EqualTo("textures/diffuse.png"), "first asset keeps its name");
+            Assert.That(scene.ImageAssets[1].RelativePath, Does.Match("^textures/diffuse_[0-9a-f]{8}\\.png$"), "collision gains a stable path-derived suffix");
+            Assert.That(scene.AttachedFiles.Select(me => me.RelativePath), Is.EquivalentTo(relativePaths), "attachments follow the uniquified paths");
+        });
+    }
+
+    [Test]
+    public async Task DegradingAMissingNormalTextureResetsTheOrphanedNormalStrengthTest()
+    {
+        // Removing the Normal slot used to leave NormalStrength ≠ 1 behind — a combination the
+        // server-side contract rejects AFTER the whole upload ("custom normal strength only when
+        // a normal texture slot is present"). The degraded scene must stay VALID.
+        var service = new MaxConnectedRenderSceneAttachmentService();
+        var exportService = MaxSceneExportTestData.CreateService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+        var scene = exportService.ValidateCurrentScene().Scene!;
+
+        scene.ImageAssets[0].SourcePath = Path.Combine(m_tempDirectoryPath, "missing_bump.png"); // never written
+        scene.Materials[0].TextureSlots.Add(new OutWit.Controller.Render.Dcc.Model.DccTextureSlotData
+        {
+            Slot = OutWit.Controller.Render.Dcc.Model.DccTextureSlotKind.Normal,
+            ImageAssetId = scene.ImageAssets[0].Id
+        });
+        scene.Materials[0].NormalStrength = 0.3d;
+
+        var diagnostics = await service.UploadImageAssetAttachmentsAsync(
+            scene,
+            string.Empty,
+            (_, _) => Task.FromResult(Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scene.Materials[0].TextureSlots.Any(me => me.Slot == OutWit.Controller.Render.Dcc.Model.DccTextureSlotKind.Normal), Is.False);
+            Assert.That(scene.Materials[0].NormalStrength, Is.EqualTo(1d), "orphaned normal strength resets to the contract default");
+            Assert.That(diagnostics.Any(me => me.Message.Contains("was not found", StringComparison.OrdinalIgnoreCase)), Is.True);
+            Assert.DoesNotThrow(() => OutWit.Controller.Render.Dcc.Services.DccSceneValidationService.Validate(scene), "the degraded scene must pass the server contract");
+        });
+    }
+
+    [Test]
+    public async Task UploadImageAssetAttachmentsAsyncStillSharesOneAttachmentForTheSameSourceFileTest()
+    {
+        // The SAME file referenced by two assets is a legitimate dedup — one upload, one attachment.
+        var service = new MaxConnectedRenderSceneAttachmentService();
+        var exportService = MaxSceneExportTestData.CreateService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+        var scene = exportService.ValidateCurrentScene().Scene!;
+        var texturePath = Path.Combine(m_tempDirectoryPath, "shared.png");
+        File.WriteAllBytes(texturePath, [1, 2, 3, 4]);
+
+        scene.ImageAssets[0].SourcePath = texturePath;
+        scene.ImageAssets[0].RelativePath = "textures/shared.png";
+        scene.ImageAssets.Add(new OutWit.Controller.Render.Dcc.Model.DccImageAssetData
+        {
+            Id = "image:shared_again",
+            Name = "shared",
+            SourcePath = texturePath,
+            RelativePath = "textures/shared.png",
+            AssetKind = "ImageAsset"
+        });
+        scene.Materials[0].TextureSlots.Add(new OutWit.Controller.Render.Dcc.Model.DccTextureSlotData
+        {
+            Slot = OutWit.Controller.Render.Dcc.Model.DccTextureSlotKind.Metallic,
+            ImageAssetId = "image:shared_again"
+        });
+
+        var uploadedFilePaths = new List<string>();
+
+        await service.UploadImageAssetAttachmentsAsync(
+            scene,
+            string.Empty,
+            (filePath, _) =>
+            {
+                uploadedFilePaths.Add(filePath);
+                return Task.FromResult(Guid.NewGuid());
+            },
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(uploadedFilePaths, Is.EqualTo(new[] { texturePath }), "one upload for one file");
+            Assert.That(scene.AttachedFiles, Has.Count.EqualTo(1));
+            Assert.That(scene.ImageAssets.Select(me => me.RelativePath).Distinct().Count(), Is.EqualTo(1), "same file keeps one shared relative path");
+        });
+    }
+
     #endregion
 }

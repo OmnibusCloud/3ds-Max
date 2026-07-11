@@ -177,6 +177,46 @@ internal static class MaxMeshBulkAssembler
         return positions;
     }
 
+    /// <summary>
+    /// Folds a mirror (diag(-1,1,1) in the node basis) into already-assembled mesh data: X of
+    /// every position/normal is negated and the corner order of each triangle flips (1↔2) so the
+    /// winding stays consistent with the negated normals. The node transform is decomposed from
+    /// D·TM by the collector, so the composition reproduces the exact original world placement —
+    /// this is how mirrored nodes survive a TRS contract that cannot carry reflections.
+    /// </summary>
+    public static void ApplyMirrorBake(MaxSceneMeshSnapshotData meshData)
+    {
+        SwapCornerTriples(meshData.Positions);
+        SwapCornerTriples(meshData.Normals);
+        SwapCornerTriples(meshData.Uv0);
+        SwapCornerTriples(meshData.Uv1);
+        SwapCornerTriples(meshData.Colors);
+
+        foreach (var position in meshData.Positions)
+            position.X = -position.X;
+        foreach (var normal in meshData.Normals)
+            normal.X = -normal.X;
+
+        foreach (var frame in meshData.DeformationFrames)
+            ApplyMirrorBakeToCornerPositions(frame.Positions);
+    }
+
+    /// <summary>Positions-only variant for per-frame deformation samples.</summary>
+    public static void ApplyMirrorBakeToCornerPositions(List<MaxSceneVector3SnapshotData> positions)
+    {
+        SwapCornerTriples(positions);
+        foreach (var position in positions)
+            position.X = -position.X;
+    }
+
+    private static void SwapCornerTriples<T>(List<T> corners)
+    {
+        for (var corner = 0; corner + 2 < corners.Count; corner += 3)
+        {
+            (corners[corner + 1], corners[corner + 2]) = (corners[corner + 2], corners[corner + 1]);
+        }
+    }
+
     #endregion
 
     #region Tools

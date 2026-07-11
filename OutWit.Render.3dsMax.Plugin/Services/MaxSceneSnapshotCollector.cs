@@ -377,6 +377,12 @@ internal sealed class MaxSceneSnapshotCollector
                 // for free, target and parented cameras alike.
                 ComposeCameraLightAxisCorrection(localTransform, transformKeyframes);
 
+                // A mirrored camera cannot be represented in the TRS contract (the image would
+                // flip); the decomposition keeps position and look direction but drops the
+                // reflection — surface it instead of failing silently.
+                if (IsNodeMirrored(childNode))
+                    RecordUnmappedPluginClass("mirrored-node-approximated", "Camera", childNode.Name);
+
                 m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                 {
                     Id = nodeId,
@@ -411,6 +417,12 @@ internal sealed class MaxSceneSnapshotCollector
                     // cancelling RotX(+90°) so spot/sun directions survive exactly (see camera above).
                     ComposeCameraLightAxisCorrection(localTransform, transformKeyframes);
 
+                    // Mirrored lights keep position and aim through the decomposition; only the
+                    // handedness of the local frame is lost (irrelevant for symmetric emitters) —
+                    // record it so an unexpected look has a trace.
+                    if (IsNodeMirrored(childNode))
+                        RecordUnmappedPluginClass("mirrored-node-approximated", "Light", childNode.Name);
+
                     m_summary.Nodes.Add(new MaxSceneNodeSnapshotData
                     {
                         Id = nodeId,
@@ -441,7 +453,20 @@ internal sealed class MaxSceneSnapshotCollector
             {
                 var meshId = $"mesh:{childNode.Handle}";
                 ReportNativeProgress($"OmnibusCloud: extracting '{childNode.Name}'…");
-                var extraction = ExtractMesh(childNode, sceneObject, meshId);
+
+                // A mirrored node (Mirror tool → negative scale, det < 0) cannot ride the TRS
+                // contract: fold diag(-1,1,1) into the mesh data and decompose D·TM instead —
+                // the composition reproduces the exact original world placement.
+                var isMirrored = IsNodeMirrored(childNode);
+                var meshLocalTransform = localTransform;
+                var meshTransformKeyframes = transformKeyframes;
+                if (isMirrored)
+                {
+                    meshLocalTransform = ExtractLocalTransform(childNode, effectiveParentNode, foldMirrorIntoBasis: true);
+                    meshTransformKeyframes = SampleTransformKeyframes(childNode, effectiveParentNode, foldMirrorIntoBasis: true);
+                }
+
+                var extraction = ExtractMesh(childNode, sceneObject, meshId, isMirrored);
                 var meshSnapshot = extraction.Snapshot;
 
                 // A mesh with no vertices (a helper/degenerate object that still converts to a
@@ -499,8 +524,8 @@ internal sealed class MaxSceneSnapshotCollector
                         Name = childNode.Name,
                         ParentId = parentId,
                         Kind = DccNodeKind.Mesh,
-                        LocalTransform = localTransform,
-                        TransformKeyframes = transformKeyframes,
+                        LocalTransform = meshLocalTransform,
+                        TransformKeyframes = meshTransformKeyframes,
                         MeshId = meshId,
                         MaterialBindingId = materialBindingId,
                         Visible = !childNode.IsNodeHidden(false),
@@ -834,7 +859,7 @@ internal sealed class MaxSceneSnapshotCollector
         return null;
     }
 
-    private MeshExtraction ExtractMesh(IINode node, IObject sceneObject, string meshId)
+    private MeshExtraction ExtractMesh(IINode node, IObject sceneObject, string meshId, bool mirrorBake = false)
     {
         // Dialog-open profile: the summary UI needs counts and bindings, not the bulk arrays —
         // extracting a heavy scene's vertices synchronously froze the Render dialog for minutes.
@@ -856,7 +881,11 @@ internal sealed class MaxSceneSnapshotCollector
         {
             var shapeMesh = TryExtractShapeRenderMesh(node, shapeObject, sceneObject, meshId);
             if (shapeMesh != null)
-                return new MeshExtraction(shapeMesh, shapeMesh.Positions.Count > 0, null);
+            {
+                if (mirrorBake)
+                    MaxMeshBulkAssembler.ApplyMirrorBake(shapeMesh);
+                return new MeshExtraction(shapeMesh, shapeMesh.Positions.Count > 0, null, mirrorBake);
+            }
         }
 
         IMesh? mesh;
@@ -915,9 +944,14 @@ internal sealed class MaxSceneSnapshotCollector
             if (bulkData is not null)
             {
                 MaxMeshBulkAssembler.AppendMaterialIndices(bulkData, meshData.MaterialIndices);
-                var assembly = Task.Run(() => MaxMeshBulkAssembler.AssembleGuarded(bulkData, meshData));
+                var assembly = Task.Run(() =>
+                {
+                    MaxMeshBulkAssembler.AssembleGuarded(bulkData, meshData);
+                    if (mirrorBake)
+                        MaxMeshBulkAssembler.ApplyMirrorBake(meshData);
+                });
                 m_pendingMeshAssemblies.Add(assembly);
-                return new MeshExtraction(meshData, true, assembly);
+                return new MeshExtraction(meshData, true, assembly, mirrorBake);
             }
 
             RecordUnmappedPluginClass("mesh-bulk-read-fallback", "Mesh", node.Name);
@@ -950,14 +984,18 @@ internal sealed class MaxSceneSnapshotCollector
             meshData.MaterialIndices.Add(mesh.GetFaceMtlIndex(faceIndex));
         }
 
-        return new MeshExtraction(meshData, meshData.Positions.Count > 0, null);
+        if (mirrorBake)
+            MaxMeshBulkAssembler.ApplyMirrorBake(meshData);
+
+        return new MeshExtraction(meshData, meshData.Positions.Count > 0, null, mirrorBake);
     }
 
     // A mesh handed back by ExtractMesh: the snapshot's MaterialIndices are always filled, but
     // the corner lists may still be assembling on a worker thread (Assembly non-null). Nothing
     // reads the corner lists before waiting on the task; JoinPendingMeshAssemblies() at the end
-    // of the walk is the global barrier.
-    private sealed record MeshExtraction(MaxSceneMeshSnapshotData Snapshot, bool HasGeometry, Task? Assembly);
+    // of the walk is the global barrier. MirrorBaked meshes need every deformation frame folded
+    // through the same mirror so the corners stay aligned with the base mesh.
+    private sealed record MeshExtraction(MaxSceneMeshSnapshotData Snapshot, bool HasGeometry, Task? Assembly, bool MirrorBaked = false);
 
     private void JoinPendingMeshAssemblies()
     {
@@ -2924,12 +2962,12 @@ internal sealed class MaxSceneSnapshotCollector
 
 
 
-    private MaxSceneTransformSnapshotData ExtractLocalTransform(IINode node, IINode parentNode)
+    private MaxSceneTransformSnapshotData ExtractLocalTransform(IINode node, IINode parentNode, bool foldMirrorIntoBasis = false)
     {
-        return ExtractLocalTransformAtTime(node, parentNode, m_coreInterface.Time);
+        return ExtractLocalTransformAtTime(node, parentNode, m_coreInterface.Time, foldMirrorIntoBasis);
     }
 
-    private MaxSceneTransformSnapshotData ExtractLocalTransformAtTime(IINode node, IINode parentNode, int time)
+    private MaxSceneTransformSnapshotData ExtractLocalTransformAtTime(IINode node, IINode parentNode, int time, bool foldMirrorIntoBasis = false)
     {
         try
         {
@@ -2946,7 +2984,7 @@ internal sealed class MaxSceneSnapshotCollector
                 localTm = resultTm;
             }
 
-            return ConvertMatrixToTransform(localTm);
+            return ConvertMatrixToTransform(localTm, foldMirrorIntoBasis);
         }
         catch
         {
@@ -2954,7 +2992,32 @@ internal sealed class MaxSceneSnapshotCollector
         }
     }
 
-    private List<MaxSceneTransformKeyframeSnapshotData> SampleTransformKeyframes(IINode node, IINode parentNode)
+    // det of the 3x3 part; < 0 means the node is MIRRORED (Max's Mirror tool writes a negative
+    // scale into the TM). The TRS decomposition cannot represent a reflection, so mirrored mesh
+    // nodes fold diag(-1,1,1) into the mesh data and decompose D·TM instead.
+    private static double ComputeDeterminant3x3(IMatrix3 matrix)
+    {
+        var row0 = matrix.GetRow(0);
+        var row1 = matrix.GetRow(1);
+        var row2 = matrix.GetRow(2);
+        return (double)row0.X * ((double)row1.Y * row2.Z - (double)row1.Z * row2.Y)
+               - (double)row0.Y * ((double)row1.X * row2.Z - (double)row1.Z * row2.X)
+               + (double)row0.Z * ((double)row1.X * row2.Y - (double)row1.Y * row2.X);
+    }
+
+    private bool IsNodeMirrored(IINode node)
+    {
+        try
+        {
+            return ComputeDeterminant3x3(node.GetNodeTM(m_coreInterface.Time, m_global.Interval.Create())) < 0d;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private List<MaxSceneTransformKeyframeSnapshotData> SampleTransformKeyframes(IINode node, IINode parentNode, bool foldMirrorIntoBasis = false)
     {
         var keyframes = new List<MaxSceneTransformKeyframeSnapshotData>();
 
@@ -2971,7 +3034,7 @@ internal sealed class MaxSceneSnapshotCollector
             samples.Add(new MaxSceneTransformKeyframeSnapshotData
             {
                 Frame = frame,
-                Transform = ExtractLocalTransformAtTime(node, parentNode, frame * ticksPerFrame)
+                Transform = ExtractLocalTransformAtTime(node, parentNode, frame * ticksPerFrame, foldMirrorIntoBasis)
             });
         }
 
@@ -3016,12 +3079,21 @@ internal sealed class MaxSceneSnapshotCollector
             && Math.Abs(a.Z - b.Z) < epsilon && Math.Abs(a.W - b.W) < epsilon;
     }
 
-    private MaxSceneTransformSnapshotData ConvertMatrixToTransform(IMatrix3 matrix)
+    private MaxSceneTransformSnapshotData ConvertMatrixToTransform(IMatrix3 matrix, bool foldMirrorIntoBasis = false)
     {
         var translation = matrix.Trans;
         var row0 = matrix.GetRow(0);
         var row1 = matrix.GetRow(1);
         var row2 = matrix.GetRow(2);
+
+        // A mirrored TM (det < 0) cannot be decomposed into T·R·S with positive scale — the
+        // normalized rows form a REFLECTION that Quat.Create silently mangles. For mesh nodes the
+        // caller folds diag(-1,1,1) into the vertex data instead and we decompose D·TM here
+        // (row 0 negated), which is a proper rotation again: v' = v·D and D·TM compose back to
+        // the exact original world placement.
+        if (foldMirrorIntoBasis)
+            row0 = m_global.Point3.Create(-row0.X, -row0.Y, -row0.Z);
+
         var scaleX = m_global.Length(row0);
         var scaleY = m_global.Length(row1);
         var scaleZ = m_global.Length(row2);
@@ -3610,6 +3682,10 @@ internal sealed class MaxSceneSnapshotCollector
             var positions = SampleMeshCornerPositionsAtTime(node, frame * ticksPerFrame, baseCornerCount);
             if (positions is null)
                 return; // topology changed or read failed → skip deformation entirely
+
+            // The base mesh of a mirrored node carries the folded mirror — every frame must too.
+            if (extraction.MirrorBaked)
+                MaxMeshBulkAssembler.ApplyMirrorBakeToCornerPositions(positions);
 
             frames.Add(new MaxSceneMeshDeformationFrameSnapshotData { Frame = frame, Positions = positions });
 

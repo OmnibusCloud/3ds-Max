@@ -2,6 +2,7 @@ using System.Text.Json;
 using OutWit.Cloud.Data.Processing;
 using OutWit.Cloud.SDK;
 using OutWit.Controller.Render.Dcc.Model;
+using OutWit.Controller.Render.Dcc.Services;
 using OutWit.Controller.Render.Model;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
@@ -86,6 +87,11 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 package.SceneFilePath,
                 (filePath, ct) => client.Blobs.UploadBlobFromFileAsync(filePath, ct: ct),
                 cancellationToken));
+
+            // The attachment pass may have DEGRADED the scene (missing textures removed) after
+            // the deep validation in Prepare — re-validate so a contract violation fails right
+            // here with a readable message instead of on the farm after the whole upload.
+            DccSceneValidationService.Validate(scene);
 
             var clientGroupId = await ResolveClientGroupIdAsync(client, request, diagnostics, cancellationToken);
             if (!request.UseAllClients && !string.IsNullOrWhiteSpace(request.SelectedGroupName) && clientGroupId == null)

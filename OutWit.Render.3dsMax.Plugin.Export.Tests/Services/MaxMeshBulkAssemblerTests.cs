@@ -257,6 +257,50 @@ public sealed class MaxMeshBulkAssemblerTests
     }
 
     [Test]
+    public void MirrorBakeNegatesXAndFlipsWindingKeepingCornerDataAlignedTest()
+    {
+        var data = BuildSingleTriangle(smoothingGroup: 0);
+        data.TvFaces = [0, 1, 2];
+        data.TVerts = [0.1f, 0.1f, 0f, 0.9f, 0.1f, 0f, 0.5f, 0.9f, 0f];
+        var mesh = new MaxSceneMeshSnapshotData();
+        MaxMeshBulkAssembler.Assemble(data, mesh);
+
+        MaxMeshBulkAssembler.ApplyMirrorBake(mesh);
+
+        // Corner order flips 0,1,2 -> 0,2,1 and X negates; each corner keeps ITS uv.
+        Assert.That(mesh.Positions[0].X, Is.EqualTo(0d));
+        Assert.That(mesh.Positions[1].Y, Is.EqualTo(1d));   // was corner 2 (0,1,0)
+        Assert.That(mesh.Positions[2].X, Is.EqualTo(-1d));  // was corner 1 (1,0,0), X negated
+        Assert.That(mesh.Uv0[1].Y, Is.EqualTo(0.9f));       // uv followed its corner
+        Assert.That(mesh.Uv0[2].X, Is.EqualTo(0.9f));
+        Assert.That(mesh.Normals.All(me => me.Z == 1d), Is.True); // face normal Z untouched
+        Assert.That(mesh.TriangleIndices, Is.EqualTo(new[] { 0, 1, 2 }));
+    }
+
+    [Test]
+    public void MirrorBakeReproducesTheOriginalWorldPositionsUnderTheFoldedTransformTest()
+    {
+        // v·TM == v'·(D·TM) with v' = v·D: emulate the collector's contract numerically for a
+        // mirrored TM (negative X scale + translation).
+        var data = BuildSingleTriangle();
+        var mesh = new MaxSceneMeshSnapshotData();
+        MaxMeshBulkAssembler.Assemble(data, mesh);
+        var originalWorld = mesh.Positions
+            .Select(me => (X: me.X * -2d + 5d, Y: me.Y * 3d, Z: me.Z))  // TM = scale(-2,3,1) + translate(5,0,0)
+            .ToArray();
+
+        MaxMeshBulkAssembler.ApplyMirrorBake(mesh);
+        var foldedWorld = mesh.Positions
+            .Select(me => (X: me.X * 2d + 5d, Y: me.Y * 3d, Z: me.Z))   // D·TM = scale(+2,3,1) + translate(5,0,0)
+            .ToArray();
+
+        // Same world triangle, corners re-ordered 0,2,1 by the winding flip.
+        Assert.That(foldedWorld[0], Is.EqualTo(originalWorld[0]));
+        Assert.That(foldedWorld[1], Is.EqualTo(originalWorld[2]));
+        Assert.That(foldedWorld[2], Is.EqualTo(originalWorld[1]));
+    }
+
+    [Test]
     public void CornerPositionsMatchAssembledPositionsTest()
     {
         var data = BuildSingleTriangle();
