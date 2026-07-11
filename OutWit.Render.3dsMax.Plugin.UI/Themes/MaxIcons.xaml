@@ -1,0 +1,53 @@
+<!--
+  Icon geometries lifted verbatim from the design mockups' 24×24 SVG symbols (stroke-styled,
+  fill-none). Rendered via Path with the Max.ButtonIcon / Max.SidebarIcon styles in
+  MaxControls.xaml, which scale the 24-unit canvas down with a LayoutTransform so proportions
+  and stroke weight match the mockups exactly.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <PathGeometry x:Key="Max.Icon.Bolt" Figures="M13 3L5 13h5l-1 8 8-11h-5z" />
+    <PathGeometry x:Key="Max.Icon.X" Figures="M6 6l12 12M18 6L6 18" />
+    <PathGeometry x:Key="Max.Icon.Folder" Figures="M3 7h6l2 2h10v9H3z" />
+    <PathGeometry x:Key="Max.Icon.Refresh" Figures="M5 8a8 8 0 0 1 13-2l2 2M20 5v3h-3M19 16a8 8 0 0 1-13 2l-2-2M4 19v-3h3" />
+    <PathGeometry x:Key="Max.Icon.Up" Figures="M12 20V8M6 12l6-6 6 6" />
+    <PathGeometry x:Key="Max.Icon.FileText" Figures="M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 16h6" />
+    <PathGeometry x:Key="Max.Icon.Cloud" Figures="M7 18a4 4 0 0 1 0.5,-8 5 5 0 0 1 9.5 1 3.5 3.5 0 0 1 -0.5,7z" />
+    <PathGeometry x:Key="Max.Icon.Spinner" Figures="M12 3a9 9 0 1 0 9 9" />
+    <PathGeometry x:Key="Max.Icon.Copy" Figures="M8 8h12v12H8zM16 8V6a2 2 0 0 0 -2,-2H6a2 2 0 0 0 -2,2v8a2 2 0 0 0 2,2h2" />
+
+    <GeometryGroup x:Key="Max.Icon.User">
+        <EllipseGeometry Center="12,8" RadiusX="3.2" RadiusY="3.2" />
+        <PathGeometry Figures="M5 20a7 7 0 0 1 14 0" />
+    </GeometryGroup>
+
+    <GeometryGroup x:Key="Max.Icon.World">
+        <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9" />
+        <PathGeometry Figures="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0 -18" />
+    </GeometryGroup>
+
+    <GeometryGroup x:Key="Max.Icon.Photo">
+        <RectangleGeometry Rect="4,5,16,14" RadiusX="2" RadiusY="2" />
+        <EllipseGeometry Center="9,10" RadiusX="1.4" RadiusY="1.4" />
+        <PathGeometry Figures="M5 17l5-4 4 3 3-2 3 3" />
+    </GeometryGroup>
+
+    <GeometryGroup x:Key="Max.Icon.Film">
+        <RectangleGeometry Rect="4,5,16,14" RadiusX="2" RadiusY="2" />
+        <PathGeometry Figures="M9 5v14M15 5v14M4 9h5M15 9h5M4 15h5M15 15h5" />
+    </GeometryGroup>
+
+    <GeometryGroup x:Key="Max.Icon.Sliders">
+        <PathGeometry Figures="M4 6h12M4 12h7M4 18h10" />
+        <EllipseGeometry Center="19,6" RadiusX="2" RadiusY="2" />
+        <EllipseGeometry Center="15,12" RadiusX="2" RadiusY="2" />
+        <EllipseGeometry Center="17,18" RadiusX="2" RadiusY="2" />
+    </GeometryGroup>
+
+    <GeometryGroup x:Key="Max.Icon.Info">
+        <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9" />
+        <PathGeometry Figures="M12 11v5M12 8h0.01" />
+    </GeometryGroup>
+
+</ResourceDictionary>

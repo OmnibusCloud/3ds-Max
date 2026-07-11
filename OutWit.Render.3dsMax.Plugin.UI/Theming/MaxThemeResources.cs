@@ -1,14 +1,15 @@
 using System;
+using System.Linq;
 using System.Windows;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
 
 /// <summary>
-/// Applies the follow-Max theme to a dialog (MX-14). The dialogs merge the dark palette
-/// (<c>MaxPalette.xaml</c>) in XAML as the default; when Max is in light mode this appends the light
-/// palette over it. Both dictionaries declare the same brush keys and all brushes are referenced via
-/// <c>DynamicResource</c>, so the later (light) dictionary simply wins. Applied host-side (the View
-/// stays code-behind-free).
+/// Applies the plugin theme to a dialog (MX-14). The dialogs merge the dark palette
+/// (<c>MaxPalette.xaml</c>) in XAML as the default; light mode appends the light palette over it and
+/// dark mode removes it again. Both dictionaries declare the same brush keys and all brushes are
+/// referenced via <c>DynamicResource</c>, so the last dictionary wins and the switch is live — safe to
+/// re-apply to an open window. Applied host-side (the View stays code-behind-free).
 /// </summary>
 public static class MaxThemeResources
 {
@@ -20,16 +21,21 @@ public static class MaxThemeResources
 
     #region Functions
 
-    /// <summary>Appends the light palette over a dialog's default (dark) one when the theme is light.</summary>
+    /// <summary>Toggles the light palette overlay to match the requested theme (idempotent).</summary>
     public static void Apply(Window window, MaxUiTheme theme)
     {
-        if (window is null || theme != MaxUiTheme.Light)
+        if (window is null)
             return;
 
-        window.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
-            Source = new Uri(LIGHT_PALETTE_URI, UriKind.Relative)
-        });
+        var dictionaries = window.Resources.MergedDictionaries;
+        var lightPalette = dictionaries.FirstOrDefault(dictionary =>
+            dictionary.Source != null &&
+            dictionary.Source.OriginalString.EndsWith("MaxPaletteLight.xaml", StringComparison.OrdinalIgnoreCase));
+
+        if (theme == MaxUiTheme.Light && lightPalette is null)
+            dictionaries.Add(new ResourceDictionary { Source = new Uri(LIGHT_PALETTE_URI, UriKind.Relative) });
+        else if (theme != MaxUiTheme.Light && lightPalette != null)
+            dictionaries.Remove(lightPalette);
     }
 
     #endregion

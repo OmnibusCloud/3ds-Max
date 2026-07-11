@@ -48,7 +48,7 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         AvailableExportTargets = ["Blend", "DccJson"];
         AvailableVideoContainers = ["mp4", "mov", "webm"];
         AvailableLogLevels = ["Information", "Debug", "Warning", "Error"];
-        PluginVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+        PluginVersion = ResolvePluginVersion();
         HostVersion = "3ds Max 2027";
     }
 
@@ -166,6 +166,23 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
 
     private static string Coalesce(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    /// <summary>
+    /// The version CI stamped into the build (tag-derived, incl. the -beta suffix), trimmed of any
+    /// +metadata. The numeric assembly version alone would read "1.0.0" forever.
+    /// </summary>
+    private static string ResolvePluginVersion()
+    {
+        var informational = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+
+        if (string.IsNullOrWhiteSpace(informational))
+            return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+
+        var plusIndex = informational.IndexOf('+');
+        return plusIndex > 0 ? informational[..plusIndex] : informational;
+    }
 
     #endregion
 

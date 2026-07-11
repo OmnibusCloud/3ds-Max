@@ -99,10 +99,12 @@ if (-not (Test-Path $packageTemplateRoot))
 }
 
 # 1. Build (via the solution so the x64-only plugin project produces bin/x64 output).
+#    -p:Version stamps the assemblies (AssemblyVersion from the numeric part, InformationalVersion
+#    with the full suffix) so the About tab / sidebar footer show the real tag version.
 if (-not $SkipBuild)
 {
-    Write-Host "Building $solutionPath ($Configuration)..."
-    dotnet build $solutionPath -c $Configuration --nologo
+    Write-Host "Building $solutionPath ($Configuration, version $Version)..."
+    dotnet build $solutionPath -c $Configuration --nologo -p:Version=$Version
     if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE." }
 }
 

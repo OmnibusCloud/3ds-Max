@@ -69,7 +69,7 @@ public sealed class MaxPluginBootstrap
         if (m_renderDialog is null || !m_renderDialog.IsLoaded)
         {
             m_renderDialog = m_commandService.CreateRenderDialog(EnsureApplicationViewModel());
-            MaxThemeResources.Apply(m_renderDialog, m_themeService.CurrentTheme);
+            MaxThemeResources.Apply(m_renderDialog, ResolveEffectiveTheme());
             AttachToHost(m_renderDialog);
             m_renderDialog.Closed += OnRenderDialogClosed;
             m_renderDialog.Show();
@@ -79,6 +79,7 @@ public sealed class MaxPluginBootstrap
         if (m_renderDialog.WindowState == WindowState.Minimized)
             m_renderDialog.WindowState = WindowState.Normal;
 
+        ApplyThemeToOpenDialogs();
         m_renderDialog.Activate();
         m_renderDialog.Focus();
     }
@@ -98,7 +99,7 @@ public sealed class MaxPluginBootstrap
         if (m_exportDialog is null || !m_exportDialog.IsLoaded)
         {
             m_exportDialog = m_commandService.CreateExportDialog(EnsureApplicationViewModel());
-            MaxThemeResources.Apply(m_exportDialog, m_themeService.CurrentTheme);
+            MaxThemeResources.Apply(m_exportDialog, ResolveEffectiveTheme());
             AttachToHost(m_exportDialog);
 
             // Wire the VM's close signal to the window here (host-side) so the View stays code-behind-free.
@@ -113,6 +114,7 @@ public sealed class MaxPluginBootstrap
         if (m_exportDialog.WindowState == WindowState.Minimized)
             m_exportDialog.WindowState = WindowState.Normal;
 
+        ApplyThemeToOpenDialogs();
         m_exportDialog.Activate();
         m_exportDialog.Focus();
     }
@@ -132,7 +134,7 @@ public sealed class MaxPluginBootstrap
         if (m_settingsDialog is null || !m_settingsDialog.IsLoaded)
         {
             m_settingsDialog = m_commandService.CreateSettingsDialog(EnsureApplicationViewModel());
-            MaxThemeResources.Apply(m_settingsDialog, m_themeService.CurrentTheme);
+            MaxThemeResources.Apply(m_settingsDialog, ResolveEffectiveTheme());
             AttachToHost(m_settingsDialog);
 
             if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
@@ -158,6 +160,9 @@ public sealed class MaxPluginBootstrap
         m_settingsDialog.Closed -= OnSettingsDialogClosed;
         (m_settingsDialog.DataContext as IDisposable)?.Dispose();
         m_settingsDialog = null;
+
+        // Settings may have changed ThemeMode — retint whatever is still open right away.
+        ApplyThemeToOpenDialogs();
     }
 
     public void ShowSignIn()
@@ -165,7 +170,7 @@ public sealed class MaxPluginBootstrap
         if (m_signInDialog is null || !m_signInDialog.IsLoaded)
         {
             m_signInDialog = m_commandService.CreateSignInDialog(EnsureApplicationViewModel());
-            MaxThemeResources.Apply(m_signInDialog, m_themeService.CurrentTheme);
+            MaxThemeResources.Apply(m_signInDialog, ResolveEffectiveTheme());
             AttachToHost(m_signInDialog);
 
             if (m_signInDialog.DataContext is SignInViewModel signInViewModel)
@@ -208,6 +213,39 @@ public sealed class MaxPluginBootstrap
     /// Whether a cloud session is active — drives the menu gate (Render/Export require sign-in).
     /// </summary>
     public bool IsSignedIn => m_applicationVm?.CloudSessionVm.IsSignedIn ?? false;
+
+    /// <summary>
+    /// Effective plugin theme (MX-14): the persisted ThemeMode setting wins ("Dark"/"Light");
+    /// "FollowMax" (and anything unrecognized) defers to the host color manager.
+    /// </summary>
+    private MaxUiTheme ResolveEffectiveTheme()
+    {
+        return EnsureApplicationViewModel().Settings.ThemeMode switch
+        {
+            "Dark" => MaxUiTheme.Dark,
+            "Light" => MaxUiTheme.Light,
+            _ => m_themeService.CurrentTheme
+        };
+    }
+
+    /// <summary>
+    /// Live theme switch: re-resolves the effective theme against every open dialog — called after
+    /// Settings closes (ThemeMode may have changed) and when re-activating an existing dialog
+    /// (the Max theme may have changed since it was opened).
+    /// </summary>
+    private void ApplyThemeToOpenDialogs()
+    {
+        var theme = ResolveEffectiveTheme();
+
+        if (m_renderDialog != null)
+            MaxThemeResources.Apply(m_renderDialog, theme);
+        if (m_exportDialog != null)
+            MaxThemeResources.Apply(m_exportDialog, theme);
+        if (m_settingsDialog != null)
+            MaxThemeResources.Apply(m_settingsDialog, theme);
+        if (m_signInDialog != null)
+            MaxThemeResources.Apply(m_signInDialog, theme);
+    }
 
     /// <summary>
     /// Owns a dialog by the 3ds Max main window (MX-4): keeps it above the host, minimizes with it,

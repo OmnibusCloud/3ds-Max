@@ -27,7 +27,25 @@
             <TextBlock Text="Signing in…" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
             <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource Max.Brush.TextMuted}"
                        Text="We opened your browser. Complete sign-in there and return here — this window closes automatically." />
-            <ProgressBar Margin="0,14,0,0" IsIndeterminate="True" />
+            <Path Data="{StaticResource Max.Icon.Spinner}" Stroke="{DynamicResource Max.Brush.Accent}"
+                  StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                  Width="24" Height="24" Margin="0,16,0,0" HorizontalAlignment="Center"
+                  RenderTransformOrigin="0.5,0.5">
+                <Path.RenderTransform>
+                    <RotateTransform x:Name="SpinnerRotation" />
+                </Path.RenderTransform>
+                <Path.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetName="SpinnerRotation"
+                                                 Storyboard.TargetProperty="Angle"
+                                                 From="0" To="360" Duration="0:0:1" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Path.Triggers>
+            </Path>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
                 <Button Content="Reopen browser" Margin="0,0,8,0" Command="{Binding ReopenBrowserCommand}" />
                 <Button Content="Cancel" Command="{Binding CancelCommand}" />
