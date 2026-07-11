@@ -33,7 +33,15 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private DateTime m_renderStartedUtc;
 
-    private SynchronizationContext? m_uiContext;
+    private System.Windows.Threading.Dispatcher? m_uiDispatcher;
+
+    private int m_sceneResolutionX;
+
+    private int m_sceneResolutionY;
+
+    private double m_lockedAspect;
+
+    private bool m_applyingAspect;
 
     #endregion
 
@@ -86,6 +94,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         OpenFolderCommand = new RelayCommand(_ => OpenResultFolder(), _ => !string.IsNullOrWhiteSpace(ResultPath));
         NewRenderCommand = new RelayCommand(_ => NewRender());
         CopyLogCommand = new RelayCommand(_ => CopyLog());
+        ResetResolutionCommand = new RelayCommand(_ => ResetResolution());
         UpdateStatus();
     }
 
@@ -127,6 +136,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         SummaryVm.Apply(summary);
         LaunchVm.ApplySceneDefaults(summary);
 
+        // Scene-authored resolution — the Reset button and the aspect lock anchor to it.
+        m_sceneResolutionX = LaunchVm.ResolutionX;
+        m_sceneResolutionY = LaunchVm.ResolutionY;
+        CaptureAspect();
+
         // The scanned-material bake option only makes sense when the scene actually carries
         // V-Ray scanned materials — the collector's diagnostics already name them.
         HasVRayScannedMaterials = summary.UnmappedPluginClasses.Keys
@@ -138,7 +152,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     {
         m_cancelRequested = false;
         m_renderStartedUtc = DateTime.UtcNow;
-        m_uiContext = SynchronizationContext.Current;
+        m_uiDispatcher = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread);
         ResultPath = string.Empty;
         PushAxesToRenderMode();
         PersistRenderSettings();
@@ -284,16 +298,24 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     /// <summary>
     /// Upload progress from the submission transport, marshalled to the UI thread (command
-    /// CanExecute updates must not fire from a worker continuation).
+    /// CanExecute updates must not fire from a worker continuation). Thread identity is checked via
+    /// Dispatcher.CheckAccess — NEVER by comparing SynchronizationContext instances: WPF creates a
+    /// fresh DispatcherSynchronizationContext per operation, so a reference compare re-posts forever
+    /// and the Normal-priority flood starves Render/Input (frozen "Uploading 0%" dialog).
     /// </summary>
     private void ReportUploadProgress(double fraction)
     {
-        if (m_uiContext != null && SynchronizationContext.Current != m_uiContext)
+        if (m_uiDispatcher != null && !m_uiDispatcher.CheckAccess())
         {
-            m_uiContext.Post(_ => ReportUploadProgress(fraction), null);
+            m_uiDispatcher.BeginInvoke(() => ApplyUploadProgress(fraction));
             return;
         }
 
+        ApplyUploadProgress(fraction);
+    }
+
+    private void ApplyUploadProgress(double fraction)
+    {
         // The poll loop takes over once the job exists — never regress a later phase to Uploading.
         if (!Status.IsActiveJob || Status.Phase is MaxRenderPhase.Running or MaxRenderPhase.Finalizing or MaxRenderPhase.Cancelling)
             return;
@@ -557,10 +579,58 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             if (ShowTiles && SelectedImageFormat == "PNG")
                 SelectedImageFormat = "EXR";
         }
+
+        // Engaging the lock freezes the CURRENT ratio.
+        if (e.PropertyName == nameof(LockAspectRatio) && LockAspectRatio)
+            CaptureAspect();
     }
 
     private void OnLaunchPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // Aspect lock: editing one resolution axis recomputes the other from the locked ratio.
+        if (LockAspectRatio && !m_applyingAspect && m_lockedAspect > 0)
+        {
+            m_applyingAspect = true;
+            try
+            {
+                if (e.PropertyName == nameof(RenderLaunchViewModel.ResolutionX) && LaunchVm.ResolutionX > 0)
+                    LaunchVm.ResolutionY = Math.Max(1, (int)Math.Round(LaunchVm.ResolutionX / m_lockedAspect));
+                else if (e.PropertyName == nameof(RenderLaunchViewModel.ResolutionY) && LaunchVm.ResolutionY > 0)
+                    LaunchVm.ResolutionX = Math.Max(1, (int)Math.Round(LaunchVm.ResolutionY * m_lockedAspect));
+            }
+            finally
+            {
+                m_applyingAspect = false;
+            }
+        }
+
+        UpdateStatus();
+    }
+
+    /// <summary>Locks the current width/height ratio for the aspect chain.</summary>
+    private void CaptureAspect()
+    {
+        if (LaunchVm.ResolutionX > 0 && LaunchVm.ResolutionY > 0)
+            m_lockedAspect = LaunchVm.ResolutionX / (double)LaunchVm.ResolutionY;
+    }
+
+    private void ResetResolution()
+    {
+        if (m_sceneResolutionX <= 0 || m_sceneResolutionY <= 0)
+            return;
+
+        m_applyingAspect = true;
+        try
+        {
+            LaunchVm.ResolutionX = m_sceneResolutionX;
+            LaunchVm.ResolutionY = m_sceneResolutionY;
+        }
+        finally
+        {
+            m_applyingAspect = false;
+        }
+
+        CaptureAspect();
         UpdateStatus();
     }
 
@@ -636,6 +706,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool ShowVideoOptions { get; set; }
+
+    /// <summary>Chains width↔height edits to the ratio captured when the lock was engaged.</summary>
+    [Notify]
+    public bool LockAspectRatio { get; set; }
 
     [Notify]
     public MaxRenderStatus Status { get; set; } = null!;
@@ -735,6 +809,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand NewRenderCommand { get; private set; } = null!;
 
     public ICommand CopyLogCommand { get; private set; } = null!;
+
+    public ICommand ResetResolutionCommand { get; private set; } = null!;
 
     #endregion
 

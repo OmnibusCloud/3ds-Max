@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
         Title="OmnibusCloud — Render"
-        Width="508"
+        Width="560"
         MinHeight="432"
         SizeToContent="Height"
         ResizeMode="NoResize"
@@ -88,14 +88,14 @@
                     <DockPanel Margin="0,11,0,0" Visibility="{Binding ShowTiles, Converter={StaticResource BoolToVis}}">
                         <TextBlock Style="{StaticResource RowLabel}" Text="Tiles" />
                         <StackPanel Orientation="Horizontal">
-                            <TextBox Width="44" Text="{Binding TilesX}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="×" Margin="6,0" VerticalAlignment="Center"
+                            <TextBox Width="60" Text="{Binding TilesX}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="×" Margin="7,0" VerticalAlignment="Center"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
-                            <TextBox Width="44" Text="{Binding TilesY}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="Overlap" Margin="14,0,6,0" VerticalAlignment="Center" FontSize="11"
+                            <TextBox Width="60" Text="{Binding TilesY}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="Overlap" Margin="16,0,7,0" VerticalAlignment="Center" FontSize="11"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
-                            <TextBox Width="44" Text="{Binding TileOverlap}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="px" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11"
+                            <TextBox Width="60" Text="{Binding TileOverlap}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="px" Margin="7,0,0,0" VerticalAlignment="Center" FontSize="11"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
                         </StackPanel>
                     </DockPanel>
@@ -134,24 +134,36 @@
                     <DockPanel Margin="0,11,0,0" Visibility="{Binding IsAnimationOutput, Converter={StaticResource BoolToVis}}">
                         <TextBlock Style="{StaticResource RowLabel}" Text="Range" />
                         <StackPanel Orientation="Horizontal">
-                            <TextBox Width="56" Text="{Binding LaunchVm.FrameStart}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="–" Margin="6,0" VerticalAlignment="Center"
+                            <TextBox Width="70" Text="{Binding LaunchVm.FrameStart}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="–" Margin="7,0" VerticalAlignment="Center"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
-                            <TextBox Width="56" Text="{Binding LaunchVm.FrameEnd}" HorizontalContentAlignment="Center" />
+                            <TextBox Width="70" Text="{Binding LaunchVm.FrameEnd}" HorizontalContentAlignment="Center" />
                             <TextBlock Text="from scene" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="10.5"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
                         </StackPanel>
                     </DockPanel>
 
-                    <!-- Resolution — seeded from the scene, editable -->
+                    <!-- Resolution — from the scene, editable; lock chains the aspect, reset restores the scene value -->
                     <DockPanel Margin="0,11,0,0">
                         <TextBlock Style="{StaticResource RowLabel}" Text="Size" />
                         <StackPanel Orientation="Horizontal">
-                            <TextBox Width="56" Text="{Binding LaunchVm.ResolutionX}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="×" Margin="6,0" VerticalAlignment="Center"
+                            <TextBox Width="70" Text="{Binding LaunchVm.ResolutionX}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="×" Margin="7,0" VerticalAlignment="Center"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
-                            <TextBox Width="56" Text="{Binding LaunchVm.ResolutionY}" HorizontalContentAlignment="Center" />
-                            <TextBlock Text="px · from scene" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="10.5"
+                            <TextBox Width="70" Text="{Binding LaunchVm.ResolutionY}" HorizontalContentAlignment="Center" />
+                            <ToggleButton Style="{StaticResource Max.Button.IconToggle}" Margin="10,0,0,0"
+                                          IsChecked="{Binding LockAspectRatio}"
+                                          ToolTip="Lock aspect ratio — editing one side recomputes the other">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Margin="0"
+                                      Data="{StaticResource Max.Icon.Link}" />
+                            </ToggleButton>
+                            <Button MinHeight="30" Width="30" Padding="0" Margin="6,0,0,0"
+                                    Command="{Binding ResetResolutionCommand}"
+                                    ToolTip="Reset to the scene resolution">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Margin="0"
+                                      Data="{StaticResource Max.Icon.Refresh}" />
+                            </Button>
+                            <TextBlock Text="px" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="10.5"
                                        Foreground="{DynamicResource Max.Brush.TextMuted}" />
                         </StackPanel>
                     </DockPanel>

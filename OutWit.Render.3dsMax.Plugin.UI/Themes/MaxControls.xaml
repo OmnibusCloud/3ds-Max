@@ -157,6 +157,7 @@
     <!-- ============ TextBox ============ -->
     <Style TargetType="TextBox">
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Validation.ErrorTemplate" Value="{x:Null}" />
         <Setter Property="Background" Value="{DynamicResource Max.Brush.Input}" />
         <Setter Property="Foreground" Value="{DynamicResource Max.Brush.Text}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Max.Brush.Border}" />
@@ -185,8 +186,45 @@
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
                             <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Max.Brush.Accent}" />
                         </Trigger>
+                        <!-- Invalid input (e.g. non-numeric in an int field) keeps a coral border until fixed -->
+                        <Trigger Property="Validation.HasError" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Max.Brush.SeverityError}" />
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Small square icon toggle (aspect-ratio lock): checked = accent-tinted -->
+    <Style x:Key="Max.Button.IconToggle" TargetType="ToggleButton">
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Max.FocusVisual}" />
+        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chrome" CornerRadius="5"
+                            Background="{DynamicResource Max.Brush.Panel}"
+                            BorderBrush="{DynamicResource Max.Brush.ButtonEdge}" BorderThickness="1">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Max.Brush.ControlHover}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Max.Brush.ItemSelected}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Max.Brush.Accent}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Max.Brush.Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
