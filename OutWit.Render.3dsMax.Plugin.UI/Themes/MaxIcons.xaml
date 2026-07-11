@@ -50,4 +50,9 @@
         <PathGeometry Figures="M12 11v5M12 8h0.01" />
     </GeometryGroup>
 
+    <PathGeometry x:Key="Max.Icon.Check" Figures="M5 12l4 4 10-11" />
+    <PathGeometry x:Key="Max.Icon.Alert" Figures="M12 4l9 16H3zM12 10v4M12 17h0.01" />
+    <PathGeometry x:Key="Max.Icon.Checklist" Figures="M10 6h10M10 12h10M10 18h10M4 6l1.4 1.4L8 4.6M4 12l1.4 1.4L8 10.6M4 18l1.4 1.4L8 16.6" />
+    <PathGeometry x:Key="Max.Icon.Chat" Figures="M4 5h16v11H10l-5 4v-4H4z" />
+
 </ResourceDictionary>

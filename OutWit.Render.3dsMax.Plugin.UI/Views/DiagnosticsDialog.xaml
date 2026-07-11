@@ -1,0 +1,232 @@
+<Window x:Class="OutWit.Render.ThreeDsMax.Plugin.UI.Views.DiagnosticsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.Export.Models;assembly=OutWit.Render.3dsMax.Plugin.Export"
+        Title="OmnibusCloud — Diagnostics"
+        Width="544"
+        Height="520"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Max.Brush.Window}"
+        TextElement.Foreground="{DynamicResource Max.Brush.Text}"
+        FontSize="12">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+            <!-- Section header with a rule line (mockup .sech) -->
+            <Style x:Key="SectionHeader" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="10.5" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <!-- Severity glyph inside a validation row: pick color + icon by item severity -->
+            <Style x:Key="SeverityText" TargetType="TextBlock">
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityOk}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static models:MaxSceneDiagnosticSeverity.Warning}">
+                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityWarning}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static models:MaxSceneDiagnosticSeverity.Unsupported}">
+                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityWarning}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static models:MaxSceneDiagnosticSeverity.Error}">
+                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityError}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="KvKey" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                <Setter Property="Margin" Value="0,0,16,7" />
+            </Style>
+            <Style x:Key="KvValue" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11.5" />
+                <Setter Property="Margin" Value="0,0,0,7" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" Margin="16,14,16,10" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- VALIDATION -->
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="VALIDATION" />
+                    <Border Grid.Column="1" Height="1" Margin="10,1,0,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Max.Brush.GroupBorder}" />
+                </Grid>
+
+                <TextBlock Text="No issues — the scene validates clean." FontSize="11.5"
+                           Foreground="{DynamicResource Max.Brush.TextMuted}" Margin="0,2,0,4">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DiagnosticsVm.Items.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <ItemsControl ItemsSource="{Binding DiagnosticsVm.Items}" Grid.IsSharedSizeScope="True">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource Max.Brush.Panel}" BorderThickness="0,0,0,1" Padding="0,7">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="96" SharedSizeGroup="Severity" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Action" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Style="{StaticResource SeverityText}" FontSize="11.5"
+                                               Text="{Binding Severity}" />
+
+                                    <StackPanel Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Message}" FontSize="11.5" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding ContextName}" FontSize="10.5"
+                                                   Foreground="{DynamicResource Max.Brush.TextMuted}"
+                                                   TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ContextName}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="2" FontSize="11" VerticalAlignment="Center"
+                                               MaxWidth="140" TextWrapping="Wrap" TextAlignment="Right"
+                                               Text="{Binding SuggestedAction}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.ActionHint}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding SuggestedAction}" Value="">
+                                                        <Setter Property="Text" Value="—" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- SCENE -->
+                <Grid Margin="0,18,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="SCENE" />
+                    <Border Grid.Column="1" Height="1" Margin="10,1,0,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Max.Brush.GroupBorder}" />
+                </Grid>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Style="{StaticResource KvKey}" Text="Scene" />
+                    <TextBlock Grid.Column="1" Style="{StaticResource KvValue}" Text="{Binding SummaryVm.SceneName}" />
+                    <TextBlock Grid.Row="1" Style="{StaticResource KvKey}" Text="Resolution" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KvValue}" Text="{Binding SummaryVm.RenderResolutionText}" />
+                    <TextBlock Grid.Row="2" Style="{StaticResource KvKey}" Text="Range" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource KvValue}" Text="{Binding SummaryVm.FrameRangeText}" />
+                    <TextBlock Grid.Row="3" Style="{StaticResource KvKey}" Text="Renders on" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource KvValue}" Text="Blender (Cycles) · OmnibusCloud farm" />
+                    <TextBlock Grid.Row="4" Style="{StaticResource KvKey}" Text="Output" />
+                    <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource KvValue}" FontSize="11" Text="{Binding OptionsVm.OutputFolder}" />
+                </Grid>
+
+                <!-- ABOUT -->
+                <Grid Margin="0,14,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="ABOUT" />
+                    <Border Grid.Column="1" Height="1" Margin="10,1,0,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Max.Brush.GroupBorder}" />
+                </Grid>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Style="{StaticResource KvKey}" Text="Plugin" />
+                    <TextBlock Grid.Column="1" Style="{StaticResource KvValue}" Text="{Binding PluginVersion, StringFormat=OmnibusCloud 3ds Max v{0}}" />
+                    <TextBlock Grid.Row="1" Style="{StaticResource KvKey}" Text="3ds Max" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KvValue}" Text="{Binding HostVersion}" />
+                </Grid>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer: Validate / Preflight on the left, Close on the right (mockup 4.1.5) -->
+        <Border Grid.Row="1" Background="{DynamicResource Max.Brush.Footer}" Padding="16,10">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Close" MinWidth="88" Command="{Binding CloseCommand}" />
+                <StackPanel Orientation="Horizontal">
+                    <Button Margin="0,0,8,0" Command="{Binding ValidateCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
+                            <TextBlock Text="Validate" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding PreflightCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Checklist}" />
+                            <TextBlock Text="Preflight" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -21,7 +21,8 @@
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Render.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_ExportScene.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Settings.mcr" />
-    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignInOut.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignIn.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignOut.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Portal.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Export.mcr" />
   </Components>

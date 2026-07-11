@@ -11,8 +11,8 @@ global OutWit_3dsMax_ShowSettings
 global OutWit_3dsMax_ShowSignIn
 global OutWit_3dsMax_SignOut
 global OutWit_3dsMax_OpenPortal
-global OutWit_3dsMax_ToggleSignInOut
 global OutWit_3dsMax_IsSignedIn
+global OutWit_3dsMax_WarmUpSession
 global OutWit_3dsMax_RegisterMenu
 
 dotNet.loadAssembly "System"
@@ -103,18 +103,20 @@ fn OutWit_3dsMax_OpenPortal =
     catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Portal" )
 )
 
--- Gate query for the Render/Export menu items. Must NOT create the bootstrap, so hovering the menu has
--- no side effects: no bootstrap yet means no session, hence not signed in.
+-- Gate query for the Render/Export/Sign-in-out menu items. Must NOT create the bootstrap, so hovering
+-- the menu has no side effects: no bootstrap yet means no session, hence not signed in.
 fn OutWit_3dsMax_IsSignedIn =
 (
     try ( if OutWit_3dsMax_Bootstrap == undefined then false else OutWit_3dsMax_Bootstrap.IsSignedIn )
     catch false
 )
 
--- Single "Sign in / out" item: sign out when a session is active, otherwise open the sign-in dialog.
-fn OutWit_3dsMax_ToggleSignInOut =
+-- Startup warm-up: creates the bootstrap and kicks the silent session restore in the background, so
+-- the menu gate reflects the persisted session without the user opening a dialog first.
+fn OutWit_3dsMax_WarmUpSession =
 (
-    if OutWit_3dsMax_IsSignedIn() then OutWit_3dsMax_SignOut() else OutWit_3dsMax_ShowSignIn()
+    try ( (OutWit_3dsMax_EnsureBootstrap()).WarmUpSession(); true )
+    catch ( false )
 )
 
 fn OutWit_3dsMax_RegisterMenu =
@@ -138,12 +140,18 @@ fn OutWit_3dsMax_RegisterMenu =
         sub = mainMenuBar.CreateSubMenu menuId "OmnibusCloud" beforeId:helpId
 
     -- macroScript actions live in the "Macros" action table (647394); the "Name`category" string
-    -- selects the macro. Render/Export grey out until signed in via each macro's own isEnabled handler.
+    -- selects the macro. Render/Export grey out until signed in; Sign in / Sign out are separate
+    -- items gated by their own isEnabled handlers (only the relevant one is active).
     sub.CreateAction "B5F1E2C0-0001-4E2B-9C3A-000000000001" 647394 "OutWitRender`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0002-4E2B-9C3A-000000000002" 647394 "OutWitExportScene`OmnibusCloud"
-    sub.CreateAction "B5F1E2C0-0003-4E2B-9C3A-000000000003" 647394 "OutWitSignInOut`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0003-4E2B-9C3A-000000000003" 647394 "OutWitSignIn`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0006-4E2B-9C3A-000000000006" 647394 "OutWitSignOut`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0004-4E2B-9C3A-000000000004" 647394 "OutWitSettings`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0005-4E2B-9C3A-000000000005" 647394 "OutWitPortal`OmnibusCloud"
+
+    -- The persisted session restores in the background right at startup (menu gate turns green
+    -- without a manual sign-in).
+    OutWit_3dsMax_WarmUpSession()
 
     true
 )

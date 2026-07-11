@@ -43,6 +43,10 @@ public class MaxPluginSettings : SettingsContainer
     [Setting("Output")]
     public virtual bool OpenFolderAfterExport { get; set; }
 
+    /// <summary>Default still/frames image format: "PNG" (default) / "JPEG" / "EXR" / "TIFF" / "WEBP".</summary>
+    [Setting("Output")]
+    public virtual string ImageFormat { get; set; } = null!;
+
     #endregion
 
     #region Render

@@ -107,6 +107,16 @@ stock Aero visible, no overlaps in any lifecycle state (forced via debug states)
 
 ### Wave 2 — Content: Diagnostics dialog + render lifecycle + upload progress
 *(M3.5, M3.2, M3.9, tail 2.8 · session goal 3 · fixes DSN-H4, DSN-H3)*
+**Partially delivered by the 0.7.50 feedback wave (2026-07-11):** DiagnosticsDialog 544×520
+shipped (M3.5 done — validation grid/scene/about + Validate/Preflight, opened from
+Details…); Output quick settings (M3.3 pulled forward: Format/Codec/Tiles/Range/Size, all
+honest — the request now carries ImageFormat/Tiles*/VideoPreset/VideoCrf to the wire);
+session restore at Max startup (WarmUpSession from Initialize.ms — the menu gate reflects
+the persisted session without a manual sign-in); menu Sign in/Sign out split into two
+gated items; whole-network checkbox no longer defaults visible; live theme preview;
+Settings friendly labels + ImageFormat default + About links; first real log lines
+(session service). **Remaining for wave 2:** the 7 lifecycle work-area templates +
+fixed-height swap, upload IProgress, status-bar phase wording.
 
 1. **Diagnostics/Details dialog (M3.5, first content priority)** — new
    `Views/DiagnosticsDialog.xaml` 544×520 per section 4.1.5: *Validation* grid

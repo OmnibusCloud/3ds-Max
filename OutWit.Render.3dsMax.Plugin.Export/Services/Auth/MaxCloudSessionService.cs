@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
@@ -80,7 +81,10 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
     {
         var storedSession = await m_sessionStore.LoadAsync(cancellationToken);
         if (storedSession == null || string.IsNullOrWhiteSpace(storedSession.RefreshToken) || string.IsNullOrWhiteSpace(storedSession.TokenEndpoint))
+        {
+            MaxPluginLogging.Logger.Information("Session restore: no stored session.");
             return false;
+        }
 
         m_refreshToken = storedSession.RefreshToken;
         m_tokenEndpoint = storedSession.TokenEndpoint;
@@ -90,12 +94,14 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
         var restored = await RefreshTokenAsync(cancellationToken);
         if (!restored)
         {
+            MaxPluginLogging.Logger.Warning("Session restore failed for {DisplayName}: {Error}", storedSession.DisplayName, m_lastError);
             await m_sessionStore.ClearAsync(cancellationToken);
             ClearRuntimeSession();
             return false;
         }
 
         await SaveCurrentSessionAsync(cancellationToken);
+        MaxPluginLogging.Logger.Information("Session restored silently as {DisplayName}.", m_displayName);
         return true;
     }
 
@@ -154,9 +160,13 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
 
             var exchanged = await ExchangeCodeForTokensAsync(code, redirectUri, codeVerifier, cancellationToken);
             if (!exchanged)
+            {
+                MaxPluginLogging.Logger.Warning("Interactive sign-in failed: {Error}", m_lastError);
                 return GetState();
+            }
 
             await SaveCurrentSessionAsync(cancellationToken);
+            MaxPluginLogging.Logger.Information("Interactive sign-in completed as {DisplayName}.", m_displayName);
             return GetState();
         }
         catch (Exception ex)
@@ -175,6 +185,7 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
         await m_sessionStore.ClearAsync(cancellationToken);
         ClearRuntimeSession();
         SetLastError("No active user session.");
+        MaxPluginLogging.Logger.Information("Signed out; persisted session cleared.");
     }
 
     /// <summary>

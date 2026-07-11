@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
         Title="OmnibusCloud — Render"
-        Width="452"
+        Width="508"
         MinHeight="432"
         SizeToContent="Height"
         ResizeMode="NoResize"
@@ -21,6 +21,14 @@
 
             <conv:EnumToBooleanConverter x:Key="EnumToBool" />
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+            <!-- Quick-settings row label (mockup .frow .k) -->
+            <Style x:Key="RowLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Width" Value="56" />
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -42,7 +50,7 @@
                            FontSize="11.5"><Run Text=" — " /><Run Text="{Binding SummaryVm.RenderResolutionText, Mode=OneWay}" /><Run Text=" · frames " /><Run Text="{Binding SummaryVm.FrameRangeText, Mode=OneWay}" /></TextBlock>
             </StackPanel>
 
-            <!-- Output (2 axes, segmented — design 4.1.2) -->
+            <!-- Output (2 axes + quick settings — design 4.1.2; every value travels in the launch request) -->
             <GroupBox Header="OUTPUT">
                 <StackPanel>
                     <Grid>
@@ -50,14 +58,22 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <RadioButton Style="{StaticResource Max.Radio.Segment}" GroupName="OutputAxis" Content="Image"
+                        <RadioButton Style="{StaticResource Max.Radio.Segment}" GroupName="OutputAxis"
                                      IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Image}">
                             <RadioButton.Tag><CornerRadius>5,0,0,5</CornerRadius></RadioButton.Tag>
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Photo}" />
+                                <TextBlock Text="Image" />
+                            </StackPanel>
                         </RadioButton>
                         <RadioButton Grid.Column="1" Margin="-1,0,0,0" Style="{StaticResource Max.Radio.Segment}"
-                                     GroupName="OutputAxis" Content="Animation"
+                                     GroupName="OutputAxis"
                                      IsChecked="{Binding OutputAxis, Converter={StaticResource EnumToBool}, ConverterParameter=Animation}">
                             <RadioButton.Tag><CornerRadius>0,5,5,0</CornerRadius></RadioButton.Tag>
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Film}" />
+                                <TextBlock Text="Animation" />
+                            </StackPanel>
                         </RadioButton>
                     </Grid>
 
@@ -65,6 +81,22 @@
                     <CheckBox Margin="0,12,0,0" Content="Split frame across machines (tiled)"
                               Visibility="{Binding IsImageOutput, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding SplitFrame}" />
+
+                    <!-- Tiled grid (mockup: Tiles 4 × 4 · Overlap 8 px) -->
+                    <DockPanel Margin="0,11,0,0" Visibility="{Binding ShowTiles, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Tiles" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="44" Text="{Binding TilesX}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="×" Margin="6,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                            <TextBox Width="44" Text="{Binding TilesY}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="Overlap" Margin="14,0,6,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                            <TextBox Width="44" Text="{Binding TileOverlap}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="px" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
 
                     <!-- Animation sub-axis -->
                     <Grid Margin="0,12,0,0"
@@ -83,6 +115,44 @@
                             <RadioButton.Tag><CornerRadius>0,5,5,0</CornerRadius></RadioButton.Tag>
                         </RadioButton>
                     </Grid>
+
+                    <!-- Format (stills / sequences) — defaults from Settings ▸ Output, editable per launch -->
+                    <DockPanel Margin="0,11,0,0" Visibility="{Binding ShowImageFormat, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Format" />
+                        <ComboBox ItemsSource="{Binding AvailableImageFormats}" SelectedItem="{Binding SelectedImageFormat}" />
+                    </DockPanel>
+
+                    <!-- Codec (video) -->
+                    <DockPanel Margin="0,11,0,0" Visibility="{Binding ShowVideoOptions, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Codec" />
+                        <ComboBox ItemsSource="{Binding AvailableVideoPresets}" SelectedItem="{Binding SelectedVideoPreset}" />
+                    </DockPanel>
+
+                    <!-- Range (animation) — seeded from the scene, editable -->
+                    <DockPanel Margin="0,11,0,0" Visibility="{Binding IsAnimationOutput, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Range" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="56" Text="{Binding LaunchVm.FrameStart}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="–" Margin="6,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                            <TextBox Width="56" Text="{Binding LaunchVm.FrameEnd}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="from scene" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="10.5"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Resolution — seeded from the scene, editable -->
+                    <DockPanel Margin="0,11,0,0">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Size" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="56" Text="{Binding LaunchVm.ResolutionX}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="×" Margin="6,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                            <TextBox Width="56" Text="{Binding LaunchVm.ResolutionY}" HorizontalContentAlignment="Center" />
+                            <TextBlock Text="px · from scene" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="10.5"
+                                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
                 </StackPanel>
             </GroupBox>
 
@@ -163,6 +233,12 @@
                     <!-- Completed: result actions -->
                     <StackPanel Orientation="Horizontal"
                                 Visibility="{Binding ShowResultActions, Converter={StaticResource BoolToVis}}">
+                        <Button Margin="0,0,8,0" Command="{Binding OpenResultCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Photo}" />
+                                <TextBlock Text="Open" />
+                            </StackPanel>
+                        </Button>
                         <Button Margin="0,0,8,0" Command="{Binding OpenFolderCommand}">
                             <StackPanel Orientation="Horizontal">
                                 <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Folder}" />

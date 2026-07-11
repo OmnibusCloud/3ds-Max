@@ -20,6 +20,21 @@ namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 /// </summary>
 public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
 {
+    #region Constants
+
+    private const string WEBSITE_URL = "https://omnibuscloud.io";
+
+    private const string COMMUNITY_URL = "https://www.reddit.com/r/OmnibusCloud/";
+
+    /// <summary>Persisted keys ↔ the friendly labels the combos show (design 4.3 Output).</summary>
+    private static readonly IReadOnlyList<KeyValuePair<string, string>> EXPORT_TARGETS =
+    [
+        new("Blend", "Blender scene (.blend)"),
+        new("DccJson", "DCC JSON (.json)")
+    ];
+
+    #endregion
+
     #region Events
 
     public event Action<bool>? DialogClosed;
@@ -45,10 +60,11 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     {
         Section = SettingsSection.General;
         AvailableThemes = ["FollowMax", "Dark", "Light"];
-        AvailableExportTargets = ["Blend", "DccJson"];
-        AvailableVideoContainers = ["mp4", "mov", "webm"];
+        AvailableExportTargets = new ObservableCollection<string>(EXPORT_TARGETS.Select(me => me.Value));
+        AvailableVideoPresets = new ObservableCollection<string>(MaxRenderOutputCatalog.VideoPresets.Select(me => me.Value));
+        AvailableImageFormats = new ObservableCollection<string>(MaxRenderOutputCatalog.ImageFormats);
         AvailableLogLevels = ["Information", "Debug", "Warning", "Error"];
-        PluginVersion = ResolvePluginVersion();
+        PluginVersion = MaxPluginVersionInfo.Resolve();
         HostVersion = "3ds Max 2027";
     }
 
@@ -66,6 +82,8 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         OpenLogsFolderCommand = new RelayCommand(_ => MaxDiagnosticsLauncher.OpenLogsFolder());
         OpenLastLogCommand = new RelayCommand(_ => MaxDiagnosticsLauncher.OpenLatestLog());
         OpenPortalCommand = new RelayCommand(_ => OpenPortal());
+        OpenWebsiteCommand = new RelayCommand(_ => OpenUrl(WEBSITE_URL));
+        OpenCommunityCommand = new RelayCommand(_ => OpenUrl(COMMUNITY_URL));
         UpdateStatus();
     }
 
@@ -79,9 +97,10 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         RememberLastRenderSettings = Settings.RememberLastRenderSettings;
         CloudUrl = CloudVm.CloudUrl;
         IdentityUrl = CloudVm.IdentityUrl;
-        SelectedExportTarget = Coalesce(Settings.ExportTarget, "Blend");
+        SelectedExportTarget = ExportTargetDisplay(Settings.ExportTarget);
         OutputFolder = Settings.OutputFolder;
-        SelectedVideoContainer = Coalesce(Settings.VideoContainer, "mp4");
+        SelectedVideoPreset = MaxRenderOutputCatalog.VideoPresetDisplay(Settings.VideoContainer);
+        SelectedImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(Settings.ImageFormat);
         SelectedLogLevel = Coalesce(Settings.LogLevel, "Information");
         UpdateStatus();
         return Task.CompletedTask;
@@ -91,9 +110,10 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     {
         Settings.ThemeMode = SelectedTheme;
         Settings.RememberLastRenderSettings = RememberLastRenderSettings;
-        Settings.ExportTarget = SelectedExportTarget;
+        Settings.ExportTarget = ExportTargetKey(SelectedExportTarget);
         Settings.OutputFolder = OutputFolder;
-        Settings.VideoContainer = SelectedVideoContainer;
+        Settings.VideoContainer = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset);
+        Settings.ImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(SelectedImageFormat);
         Settings.LogLevel = SelectedLogLevel;
         Settings.SettingsManager.Save();
 
@@ -167,21 +187,22 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     private static string Coalesce(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value;
 
-    /// <summary>
-    /// The version CI stamped into the build (tag-derived, incl. the -beta suffix), trimmed of any
-    /// +metadata. The numeric assembly version alone would read "1.0.0" forever.
-    /// </summary>
-    private static string ResolvePluginVersion()
+    private static string ExportTargetDisplay(string? key) =>
+        EXPORT_TARGETS.FirstOrDefault(me => me.Key == key, EXPORT_TARGETS[0]).Value;
+
+    private static string ExportTargetKey(string? display) =>
+        EXPORT_TARGETS.FirstOrDefault(me => me.Value == display, EXPORT_TARGETS[0]).Key;
+
+    private static void OpenUrl(string url)
     {
-        var informational = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-
-        if (string.IsNullOrWhiteSpace(informational))
-            return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
-
-        var plusIndex = informational.IndexOf('+');
-        return plusIndex > 0 ? informational[..plusIndex] : informational;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Best-effort — opening a link must never break Settings.
+        }
     }
 
     #endregion
@@ -240,19 +261,24 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public bool IsConnectionOk { get; set; }
 
-    // Output
+    // Output (combos show friendly display labels; the persisted keys are mapped on load/save)
     public ObservableCollection<string> AvailableExportTargets { get; private set; } = null!;
 
-    public ObservableCollection<string> AvailableVideoContainers { get; private set; } = null!;
+    public ObservableCollection<string> AvailableVideoPresets { get; private set; } = null!;
+
+    public ObservableCollection<string> AvailableImageFormats { get; private set; } = null!;
 
     [Notify]
-    public string SelectedExportTarget { get; set; } = "Blend";
+    public string SelectedExportTarget { get; set; } = string.Empty;
 
     [Notify]
     public string OutputFolder { get; set; } = string.Empty;
 
     [Notify]
-    public string SelectedVideoContainer { get; set; } = "mp4";
+    public string SelectedVideoPreset { get; set; } = string.Empty;
+
+    [Notify]
+    public string SelectedImageFormat { get; set; } = "PNG";
 
     // Diagnostics
     public ObservableCollection<string> AvailableLogLevels { get; private set; } = null!;
@@ -284,6 +310,10 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand OpenLastLogCommand { get; private set; } = null!;
 
     public ICommand OpenPortalCommand { get; private set; } = null!;
+
+    public ICommand OpenWebsiteCommand { get; private set; } = null!;
+
+    public ICommand OpenCommunityCommand { get; private set; } = null!;
 
     #endregion
 

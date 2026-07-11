@@ -51,5 +51,6 @@
     <SolidColorBrush x:Key="Max.Brush.CheckFace" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Max.Brush.CheckEdge" Color="#C9CCD2" />
     <SolidColorBrush x:Key="Max.Brush.ScrollThumb" Color="#C9CCD2" />
+    <SolidColorBrush x:Key="Max.Brush.ActionHint" Color="#3F76A6" />
 
 </ResourceDictionary>

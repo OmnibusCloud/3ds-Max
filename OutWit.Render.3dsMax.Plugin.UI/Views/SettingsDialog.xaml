@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.UI.Converters"
         Title="OmnibusCloud — Settings"
-        Width="432"
-        Height="408"
+        Width="470"
+        Height="430"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource Max.Brush.Window}"
@@ -32,10 +32,10 @@
                 <Setter Property="Margin" Value="0,0,0,13" />
             </Style>
             <Style x:Key="MiniLabel" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="9.5" />
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
-                <Setter Property="Margin" Value="0,14,0,8" />
-                <Setter Property="Typography.Capitals" Value="AllSmallCaps" />
+                <Setter Property="Margin" Value="0,16,0,8" />
             </Style>
             <Style x:Key="FieldLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11" />
@@ -172,22 +172,37 @@
                         <TextBlock Style="{StaticResource FieldLabel}" Text="Identity URL" />
                         <TextBox Text="{Binding IdentityUrl}" />
                     </DockPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
-                        <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11"
-                                   Text="{Binding ConnectionStatus}">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsConnectionOk}" Value="True">
-                                            <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityOk}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </StackPanel>
+                    <DockPanel Margin="0,14,0,0">
+                        <Button DockPanel.Dock="Left" Content="Test connection" Command="{Binding TestConnectionCommand}" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Ellipse Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
+                                     Fill="{DynamicResource Max.Brush.SeverityOk}">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnectionOk}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock FontSize="11" Text="{Binding ConnectionStatus}" MaxWidth="180"
+                                       TextTrimming="CharacterEllipsis">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource Max.Brush.TextMuted}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnectionOk}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource Max.Brush.SeverityOk}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </DockPanel>
                 </StackPanel>
 
                 <!-- Output -->
@@ -199,8 +214,12 @@
                         <ComboBox ItemsSource="{Binding AvailableExportTargets}" SelectedItem="{Binding SelectedExportTarget}" />
                     </DockPanel>
                     <DockPanel Margin="0,10,0,0">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Image format" />
+                        <ComboBox ItemsSource="{Binding AvailableImageFormats}" SelectedItem="{Binding SelectedImageFormat}" />
+                    </DockPanel>
+                    <DockPanel Margin="0,10,0,0">
                         <TextBlock Style="{StaticResource FieldLabel}" Text="Video preset" />
-                        <ComboBox ItemsSource="{Binding AvailableVideoContainers}" SelectedItem="{Binding SelectedVideoContainer}" />
+                        <ComboBox ItemsSource="{Binding AvailableVideoPresets}" SelectedItem="{Binding SelectedVideoPreset}" />
                     </DockPanel>
                     <DockPanel Margin="0,10,0,0">
                         <TextBlock Style="{StaticResource FieldLabel}" Text="Save to" />
@@ -257,10 +276,25 @@
                         <TextBlock Grid.Row="1" Text="3ds Max" FontSize="11" Foreground="{DynamicResource Max.Brush.TextMuted}" Margin="0,0,14,0" />
                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HostVersion}" FontSize="11.5" />
                     </Grid>
-                    <Button HorizontalAlignment="Left" Margin="0,16,0,0" Command="{Binding OpenPortalCommand}">
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button Margin="0,0,8,0" Command="{Binding OpenPortalCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Cloud}" />
+                                <TextBlock Text="Portal" />
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding OpenWebsiteCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.World}" />
+                                <TextBlock Text="Website" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <Button HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding OpenCommunityCommand}"
+                            ToolTip="r/OmnibusCloud on Reddit — community &amp; support">
                         <StackPanel Orientation="Horizontal">
-                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Cloud}" />
-                            <TextBlock Text="OmnibusCloud portal" />
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Chat}" />
+                            <TextBlock Text="Community &amp; support" />
                         </StackPanel>
                     </Button>
                 </StackPanel>

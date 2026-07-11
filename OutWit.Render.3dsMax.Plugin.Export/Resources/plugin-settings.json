@@ -5,7 +5,8 @@
   "Output": [
     { "key": "ExportTarget", "value": "Blend", "valueKind": "String" },
     { "key": "OutputFolder", "value": "", "valueKind": "String" },
-    { "key": "OpenFolderAfterExport", "value": "True", "valueKind": "Boolean" }
+    { "key": "OpenFolderAfterExport", "value": "True", "valueKind": "Boolean" },
+    { "key": "ImageFormat", "value": "PNG", "valueKind": "String" }
   ],
   "Render": [
     { "key": "RememberLastRenderSettings", "value": "True", "valueKind": "Boolean" },

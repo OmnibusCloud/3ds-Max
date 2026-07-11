@@ -18,6 +18,13 @@ namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 /// </summary>
 public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 {
+    #region Events
+
+    /// <summary>Raised when the user asks for the Details/Diagnostics dialog (host opens the window).</summary>
+    public event Action? DetailsRequested;
+
+    #endregion
+
     #region Fields
 
     private bool m_cancelRequested;
@@ -50,6 +57,13 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         ApplyRenderModeToAxes(Settings.LastRenderMode);
         SplitFrame = Settings.SplitFrame;
         BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
+
+        // Quick output settings (design 4.1.2), seeded from the persisted defaults.
+        SelectedImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(Settings.ImageFormat);
+        SelectedVideoPreset = MaxRenderOutputCatalog.VideoPresetDisplay(Settings.VideoContainer);
+        TilesX = Settings.TilesX > 0 ? Settings.TilesX : 2;
+        TilesY = Settings.TilesY > 0 ? Settings.TilesY : 2;
+        TileOverlap = Settings.TileOverlap > 0 ? Settings.TileOverlap : 8;
     }
 
     private void InitEvents()
@@ -249,10 +263,22 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void ShowDetails()
     {
-        // Details surface (MX-12): refresh validation + preflight diagnostics. The dedicated Details
-        // window is a follow-up; the data it shows is gathered here into DiagnosticsVm / SummaryVm.
-        ValidateScene();
+        // Details surface (MX-12): refresh validation + preflight, then let the host open the
+        // Diagnostics dialog over the freshly filled DiagnosticsVm / SummaryVm.
+        RefreshValidation();
+        RunPreflight();
+        DetailsRequested?.Invoke();
+    }
 
+    /// <summary>Re-runs scene validation (Diagnostics dialog's Validate button).</summary>
+    public void RefreshValidation()
+    {
+        ValidateScene();
+    }
+
+    /// <summary>Re-runs submission preflight (Diagnostics dialog's Preflight button).</summary>
+    public void RunPreflight()
+    {
         var preflight = Preflight.Run(BuildRequest());
         LaunchVm.ApplyPreflight(preflight);
         DiagnosticsVm.Apply(preflight.Diagnostics);
@@ -277,6 +303,12 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             UseAllClients = LaunchVm.UseAllClients,
             SelectedGroupName = LaunchVm.SelectedGroupName,
             OutputFolder = outputFolder,
+            ImageFormat = SelectedImageFormat,
+            TilesX = TilesX,
+            TilesY = TilesY,
+            TileOverlap = TileOverlap,
+            VideoPreset = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset),
+            VideoCrf = Settings.VideoCrf,
             BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
         };
     }
@@ -294,6 +326,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         StatusLine = Status.StatusLine;
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
+        ShowTiles = IsImageOutput && SplitFrame;
+        ShowImageFormat = IsImageOutput || AnimationResult == RenderAnimationResult.Sequence;
+        ShowVideoOptions = IsAnimationOutput && AnimationResult == RenderAnimationResult.Video;
         ShowResultActions = Status.Phase == MaxRenderPhase.Completed && !string.IsNullOrWhiteSpace(ResultPath);
         ShowConfigActions = !Status.IsActiveJob && !ShowResultActions;
 
@@ -353,6 +388,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.UseAllClients = LaunchVm.UseAllClients;
         Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
+        Settings.ImageFormat = SelectedImageFormat;
+        Settings.VideoContainer = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset);
+        Settings.TilesX = TilesX;
+        Settings.TilesY = TilesY;
+        Settings.TileOverlap = TileOverlap;
         Settings.SettingsManager.Save();
     }
 
@@ -383,6 +423,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         {
             PushAxesToRenderMode();
             UpdateStatus();
+
+            // Tiled stills stitch in EXR precision (mockup 4.1.2) — nudge the format when tiling on.
+            if (ShowTiles && SelectedImageFormat == "PNG")
+                SelectedImageFormat = "EXR";
         }
     }
 
@@ -433,6 +477,36 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool IsAnimationOutput { get; set; }
+
+    // Quick output settings (design 4.1.2) — every value here actually travels in the launch request.
+    public IReadOnlyList<string> AvailableImageFormats => MaxRenderOutputCatalog.ImageFormats;
+
+    public IReadOnlyList<string> AvailableVideoPresets { get; } =
+        MaxRenderOutputCatalog.VideoPresets.Select(me => me.Value).ToArray();
+
+    [Notify]
+    public string SelectedImageFormat { get; set; } = "PNG";
+
+    [Notify]
+    public string SelectedVideoPreset { get; set; } = string.Empty;
+
+    [Notify]
+    public int TilesX { get; set; } = 2;
+
+    [Notify]
+    public int TilesY { get; set; } = 2;
+
+    [Notify]
+    public int TileOverlap { get; set; } = 8;
+
+    [Notify]
+    public bool ShowTiles { get; set; }
+
+    [Notify]
+    public bool ShowImageFormat { get; set; }
+
+    [Notify]
+    public bool ShowVideoOptions { get; set; }
 
     [Notify]
     public MaxRenderStatus Status { get; set; } = null!;

@@ -1,3 +1,4 @@
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Views;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
@@ -18,6 +19,7 @@ public sealed class MaxPluginBootstrap
     private ExportDialog? m_exportDialog;
     private SettingsDialog? m_settingsDialog;
     private SignInDialog? m_signInDialog;
+    private DiagnosticsDialog? m_diagnosticsDialog;
 
     #endregion
 
@@ -71,6 +73,11 @@ public sealed class MaxPluginBootstrap
             m_renderDialog = m_commandService.CreateRenderDialog(EnsureApplicationViewModel());
             MaxThemeResources.Apply(m_renderDialog, ResolveEffectiveTheme());
             AttachToHost(m_renderDialog);
+
+            // Details… opens the dedicated Diagnostics dialog over the render VM's fresh data.
+            if (m_renderDialog.DataContext is RenderDialogViewModel renderViewModel)
+                renderViewModel.DetailsRequested += () => ShowDiagnostics(renderViewModel);
+
             m_renderDialog.Closed += OnRenderDialogClosed;
             m_renderDialog.Show();
             return;
@@ -138,7 +145,17 @@ public sealed class MaxPluginBootstrap
             AttachToHost(m_settingsDialog);
 
             if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
+            {
                 settingsViewModel.DialogClosed += _ => m_settingsDialog?.Close();
+
+                // Live theme preview: picking a theme retints every open dialog immediately;
+                // closing without Save reverts via OnSettingsDialogClosed (persisted setting wins).
+                settingsViewModel.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(SettingsViewModel.SelectedTheme))
+                        ApplyThemeToOpenDialogs(ResolveTheme(settingsViewModel.SelectedTheme));
+                };
+            }
 
             m_settingsDialog.Closed += OnSettingsDialogClosed;
             m_settingsDialog.Show();
@@ -195,6 +212,50 @@ public sealed class MaxPluginBootstrap
         m_signInDialog = null;
     }
 
+    /// <summary>
+    /// Shows the Details / Diagnostics dialog (design 4.1.5) over the render dialog's data.
+    /// </summary>
+    public void ShowDiagnostics(RenderDialogViewModel renderViewModel)
+    {
+        if (m_diagnosticsDialog is null || !m_diagnosticsDialog.IsLoaded)
+        {
+            var viewModel = new DiagnosticsViewModel(EnsureApplicationViewModel(),
+                renderViewModel.RefreshValidation, renderViewModel.RunPreflight);
+
+            m_diagnosticsDialog = new DiagnosticsDialog(viewModel);
+            MaxThemeResources.Apply(m_diagnosticsDialog, ResolveEffectiveTheme());
+            AttachToHost(m_diagnosticsDialog);
+
+            viewModel.DialogClosed += _ => m_diagnosticsDialog?.Close();
+            m_diagnosticsDialog.Closed += OnDiagnosticsDialogClosed;
+            m_diagnosticsDialog.Show();
+            return;
+        }
+
+        m_diagnosticsDialog.Activate();
+        m_diagnosticsDialog.Focus();
+    }
+
+    private void OnDiagnosticsDialogClosed(object? sender, EventArgs e)
+    {
+        if (m_diagnosticsDialog is null)
+            return;
+
+        m_diagnosticsDialog.Closed -= OnDiagnosticsDialogClosed;
+        m_diagnosticsDialog = null;
+    }
+
+    /// <summary>
+    /// Startup warm-up (called from Initialize.ms at menu registration): builds the shared
+    /// ApplicationViewModel, which kicks the silent session restore — so the menu gate reflects the
+    /// persisted session without the user having to open a dialog (or sign in) first.
+    /// </summary>
+    public void WarmUpSession()
+    {
+        MaxPluginLogging.Logger.Information("Plugin warm-up: restoring the persisted session.");
+        EnsureApplicationViewModel();
+    }
+
     public void SignOut()
     {
         var applicationVm = EnsureApplicationViewModel();
@@ -220,7 +281,12 @@ public sealed class MaxPluginBootstrap
     /// </summary>
     private MaxUiTheme ResolveEffectiveTheme()
     {
-        return EnsureApplicationViewModel().Settings.ThemeMode switch
+        return ResolveTheme(EnsureApplicationViewModel().Settings.ThemeMode);
+    }
+
+    private MaxUiTheme ResolveTheme(string? themeMode)
+    {
+        return themeMode switch
         {
             "Dark" => MaxUiTheme.Dark,
             "Light" => MaxUiTheme.Light,
@@ -235,8 +301,11 @@ public sealed class MaxPluginBootstrap
     /// </summary>
     private void ApplyThemeToOpenDialogs()
     {
-        var theme = ResolveEffectiveTheme();
+        ApplyThemeToOpenDialogs(ResolveEffectiveTheme());
+    }
 
+    private void ApplyThemeToOpenDialogs(MaxUiTheme theme)
+    {
         if (m_renderDialog != null)
             MaxThemeResources.Apply(m_renderDialog, theme);
         if (m_exportDialog != null)
@@ -245,6 +314,8 @@ public sealed class MaxPluginBootstrap
             MaxThemeResources.Apply(m_settingsDialog, theme);
         if (m_signInDialog != null)
             MaxThemeResources.Apply(m_signInDialog, theme);
+        if (m_diagnosticsDialog != null)
+            MaxThemeResources.Apply(m_diagnosticsDialog, theme);
     }
 
     /// <summary>

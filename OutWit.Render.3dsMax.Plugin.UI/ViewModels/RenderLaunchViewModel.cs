@@ -36,7 +36,8 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
         SelectedRenderMode = RENDER_MODE_OPTIONS[0];
         AvailableGroupNames = [];
         ExecutionScopeSummary = "Select group before connected launch";
-        CanRunOnAllClientsOption = true;
+        // Whole-network is a permission: hidden until the loaded execution scope confirms it (MX-10).
+        CanRunOnAllClientsOption = false;
         JobStatusText = "No active job";
         JobProgressText = "0%";
         ResultPath = string.Empty;

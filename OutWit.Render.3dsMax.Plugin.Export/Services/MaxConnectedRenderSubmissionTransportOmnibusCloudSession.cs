@@ -4,6 +4,7 @@ using OutWit.Cloud.SDK;
 using OutWit.Controller.Render.Dcc.Model;
 using OutWit.Controller.Render.Dcc.Services;
 using OutWit.Controller.Render.Model;
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
 
@@ -279,14 +280,17 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         // DccScene parameter); the *Packed scripts expand it server-side before the build.
         var packedScene = MaxScenePayloadPacker.Pack(scene);
 
+        var tilesX = request.TilesX > 0 ? request.TilesX : DEFAULT_TILES_X;
+        var tilesY = request.TilesY > 0 ? request.TilesY : DEFAULT_TILES_Y;
+
         var (scriptName, parameters) = request.RenderMode switch
         {
             "RenderStillTiled" => ("RenderDccSceneStillTiledPacked",
-                JobParametersSnapshot.Create(packedScene, request.FrameStart, DEFAULT_TILES_X, DEFAULT_TILES_Y, options, CreateTileOptions())),
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, tilesX, tilesY, options, CreateTileOptions(request))),
             "RenderFrames" => ("RenderDccSceneFramesPacked",
                 JobParametersSnapshot.Create(packedScene, request.FrameStart, request.FrameEnd, options)),
             "RenderVideo" => ("RenderDccSceneVideoPacked",
-                JobParametersSnapshot.Create(packedScene, request.FrameStart, request.FrameEnd, options, CreateVideoOptions(scene))),
+                JobParametersSnapshot.Create(packedScene, request.FrameStart, request.FrameEnd, options, CreateVideoOptions(request, scene))),
             "ExportBlend" => ("RenderDccSceneExportBlendPacked",
                 JobParametersSnapshot.Create(packedScene)),
             _ => ("RenderDccSceneStillPacked",
@@ -305,7 +309,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
     {
         return new RenderOptionsData
         {
-            Format = RenderFormat.PNG,
+            Format = MaxRenderOutputCatalog.ParseImageFormat(request.ImageFormat),
             Engine = scene.RenderSettings?.TargetEngine ?? RenderEngine.Cycles,
             Samples = request.Samples > 0 ? request.Samples : scene.RenderSettings?.Samples ?? 64,
             ResolutionX = request.ResolutionX > 0 ? request.ResolutionX : 1920,
@@ -314,21 +318,22 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         };
     }
 
-    private static TileOptionsData CreateTileOptions()
+    private static TileOptionsData CreateTileOptions(MaxSceneLaunchPackageRequest request)
     {
         return new TileOptionsData
         {
-            OverlapPx = 8,
+            OverlapPx = request.TileOverlap > 0 ? request.TileOverlap : 8,
             BlendMode = TileBlendMode.CenterPriorityCrop
         };
     }
 
-    private static VideoOptionsData CreateVideoOptions(DccSceneData scene)
+    private static VideoOptionsData CreateVideoOptions(MaxSceneLaunchPackageRequest request, DccSceneData scene)
     {
         return new VideoOptionsData
         {
             FrameRate = scene.RenderSettings?.Fps > 0 ? scene.RenderSettings.Fps : 24,
-            ConstantRateFactor = 23
+            ConstantRateFactor = request.VideoCrf > 0 ? request.VideoCrf : 23,
+            Format = MaxRenderOutputCatalog.ParseVideoPreset(request.VideoPreset)
         };
     }
 
