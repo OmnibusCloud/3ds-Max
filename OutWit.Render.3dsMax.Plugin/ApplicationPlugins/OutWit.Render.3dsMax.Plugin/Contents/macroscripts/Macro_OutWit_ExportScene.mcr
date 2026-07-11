@@ -2,6 +2,7 @@ macroScript OutWitExportScene
 category:"OmnibusCloud"
 tooltip:"Export the scene for OmnibusCloud"
 buttonText:"Export Scene…"
+iconName:"OmnibusCloud/ExportScene"
 (
     -- Greyed out until a cloud session is active (design MX-17). Evaluated each time the menu opens.
     on isEnabled return

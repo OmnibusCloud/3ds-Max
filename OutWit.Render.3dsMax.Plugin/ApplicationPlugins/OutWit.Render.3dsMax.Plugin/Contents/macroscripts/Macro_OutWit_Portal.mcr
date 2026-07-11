@@ -2,6 +2,7 @@ macroScript OutWitPortal
 category:"OmnibusCloud"
 tooltip:"Open the OmnibusCloud portal in your browser"
 buttonText:"Open Portal…"
+iconName:"OmnibusCloud/Portal"
 (
     on execute do
     (

@@ -14,7 +14,6 @@ public sealed class MaxPluginBootstrap
     private readonly MaxPluginCommandService m_commandService;
     private readonly IMaxThemeService m_themeService;
     private ApplicationViewModel? m_applicationVm;
-    private ExportWindow? m_exportWindow;
     private RenderDialog? m_renderDialog;
     private ExportDialog? m_exportDialog;
     private SettingsDialog? m_settingsDialog;
@@ -34,37 +33,6 @@ public sealed class MaxPluginBootstrap
     #endregion
 
     #region Functions
-
-    public ExportWindow CreateExportWindow()
-    {
-        return m_commandService.CreateExportWindow();
-    }
-
-    public void ShowExportWindow()
-    {
-        if (m_exportWindow is null || !m_exportWindow.IsLoaded)
-        {
-            m_exportWindow = CreateExportWindow();
-            m_exportWindow.Closed += OnExportWindowClosed;
-            m_exportWindow.Show();
-            return;
-        }
-
-        if (m_exportWindow.WindowState == WindowState.Minimized)
-            m_exportWindow.WindowState = WindowState.Normal;
-
-        m_exportWindow.Activate();
-        m_exportWindow.Focus();
-    }
-
-    private void OnExportWindowClosed(object? sender, EventArgs e)
-    {
-        if (m_exportWindow is null)
-            return;
-
-        m_exportWindow.Closed -= OnExportWindowClosed;
-        m_exportWindow = null;
-    }
 
     public void ShowRenderDialog()
     {
@@ -138,6 +106,17 @@ public sealed class MaxPluginBootstrap
 
     public void ShowSettings()
     {
+        ShowSettingsSection(SettingsSection.General);
+    }
+
+    /// <summary>About menu item (design 1.2): the same Settings dialog, opened on the About tab.</summary>
+    public void ShowAbout()
+    {
+        ShowSettingsSection(SettingsSection.About);
+    }
+
+    private void ShowSettingsSection(SettingsSection section)
+    {
         if (m_settingsDialog is null || !m_settingsDialog.IsLoaded)
         {
             m_settingsDialog = m_commandService.CreateSettingsDialog(EnsureApplicationViewModel());
@@ -146,6 +125,7 @@ public sealed class MaxPluginBootstrap
 
             if (m_settingsDialog.DataContext is SettingsViewModel settingsViewModel)
             {
+                settingsViewModel.Section = section;
                 settingsViewModel.DialogClosed += _ => m_settingsDialog?.Close();
 
                 // Live theme preview: picking a theme retints every open dialog immediately;
@@ -164,6 +144,9 @@ public sealed class MaxPluginBootstrap
 
         if (m_settingsDialog.WindowState == WindowState.Minimized)
             m_settingsDialog.WindowState = WindowState.Normal;
+
+        if (m_settingsDialog.DataContext is SettingsViewModel openViewModel)
+            openViewModel.Section = section;
 
         m_settingsDialog.Activate();
         m_settingsDialog.Focus();

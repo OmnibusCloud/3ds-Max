@@ -2,6 +2,7 @@ macroScript OutWitSettings
 category:"OmnibusCloud"
 tooltip:"OmnibusCloud settings"
 buttonText:"Settings…"
+iconName:"OmnibusCloud/Settings"
 (
     on execute do
     (

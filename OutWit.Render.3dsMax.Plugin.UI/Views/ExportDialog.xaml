@@ -93,12 +93,34 @@
             </StackPanel>
 
             <!-- Failed -->
-            <StackPanel VerticalAlignment="Center" Visibility="{Binding IsFailed, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="Export failed" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"
-                           Foreground="{DynamicResource Max.Brush.SeverityError}" />
-                <TextBlock Text="{Binding ErrorMessage}" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,6,0,0" />
-                <Button Content="New export" Style="{StaticResource Max.Button.Primary}" HorizontalAlignment="Center"
-                        Margin="0,14,0,0" Command="{Binding NewExportCommand}" />
+            <StackPanel VerticalAlignment="Center" Margin="28,0"
+                        Visibility="{Binding IsFailed, Converter={StaticResource BoolToVis}}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Border Width="34" Height="34" CornerRadius="17" VerticalAlignment="Top"
+                            Background="{DynamicResource Max.Brush.DangerFace}">
+                        <Path Style="{StaticResource Max.InlineIcon}" Margin="0" HorizontalAlignment="Center"
+                              Stroke="{DynamicResource Max.Brush.DangerText}" Data="{StaticResource Max.Icon.Alert}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" MaxWidth="320">
+                        <TextBlock Text="Export failed" FontSize="13.5" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding ErrorMessage}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <Button Margin="0,0,8,0" Command="{Binding CopyLogCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Copy}" />
+                            <TextBlock Text="Copy log" />
+                        </StackPanel>
+                    </Button>
+                    <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}" Command="{Binding RetryCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
+                            <TextBlock Text="Retry" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </StackPanel>
         </Grid>
 

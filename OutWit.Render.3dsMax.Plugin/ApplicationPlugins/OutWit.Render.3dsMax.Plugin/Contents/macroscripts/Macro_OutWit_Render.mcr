@@ -2,6 +2,7 @@ macroScript OutWitRender
 category:"OmnibusCloud"
 tooltip:"Render on OmnibusCloud"
 buttonText:"Render on OmnibusCloud…"
+iconName:"OmnibusCloud/Render"
 (
     -- Greyed out until a cloud session is active (design MX-17). Evaluated each time the menu opens.
     on isEnabled return

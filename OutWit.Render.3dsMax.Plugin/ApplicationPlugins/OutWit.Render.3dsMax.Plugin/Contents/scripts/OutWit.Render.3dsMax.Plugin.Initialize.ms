@@ -4,12 +4,12 @@ global OutWit_3dsMax_ResolveAssemblyPath
 global OutWit_3dsMax_EnsurePluginLoaded
 global OutWit_3dsMax_EnsureBootstrap
 global OutWit_3dsMax_ReportFailure
-global OutWit_3dsMax_ShowExportWindow
 global OutWit_3dsMax_ShowRenderDialog
 global OutWit_3dsMax_ShowExportDialog
 global OutWit_3dsMax_ShowSettings
 global OutWit_3dsMax_ShowSignIn
 global OutWit_3dsMax_SignOut
+global OutWit_3dsMax_ShowAbout
 global OutWit_3dsMax_OpenPortal
 global OutWit_3dsMax_IsSignedIn
 global OutWit_3dsMax_WarmUpSession
@@ -61,12 +61,6 @@ fn OutWit_3dsMax_ReportFailure title =
     false
 )
 
-fn OutWit_3dsMax_ShowExportWindow =
-(
-    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowExportWindow(); true )
-    catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Export" )
-)
-
 fn OutWit_3dsMax_ShowRenderDialog =
 (
     try ( (OutWit_3dsMax_EnsureBootstrap()).ShowRenderDialog(); true )
@@ -101,6 +95,13 @@ fn OutWit_3dsMax_OpenPortal =
 (
     try ( (OutWit_3dsMax_EnsureBootstrap()).OpenPortal(); true )
     catch ( OutWit_3dsMax_ReportFailure "OmnibusCloud Portal" )
+)
+
+-- About menu item: the same Settings dialog, opened straight on the About tab (design 1.2).
+fn OutWit_3dsMax_ShowAbout =
+(
+    try ( (OutWit_3dsMax_EnsureBootstrap()).ShowAbout(); true )
+    catch ( OutWit_3dsMax_ReportFailure "About OmnibusCloud" )
 )
 
 -- Gate query for the Render/Export/Sign-in-out menu items. Must NOT create the bootstrap, so hovering
@@ -140,14 +141,18 @@ fn OutWit_3dsMax_RegisterMenu =
         sub = mainMenuBar.CreateSubMenu menuId "OmnibusCloud" beforeId:helpId
 
     -- macroScript actions live in the "Macros" action table (647394); the "Name`category" string
-    -- selects the macro. Render/Export grey out until signed in; Sign in / Sign out are separate
-    -- items gated by their own isEnabled handlers (only the relevant one is active).
+    -- selects the macro. Canon (design 1.1): scene actions | account/config | external — three
+    -- groups split by separators. Render/Export grey out until signed in; Sign in / Sign out are
+    -- separate items gated by their own isEnabled handlers (only the relevant one is active).
     sub.CreateAction "B5F1E2C0-0001-4E2B-9C3A-000000000001" 647394 "OutWitRender`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0002-4E2B-9C3A-000000000002" 647394 "OutWitExportScene`OmnibusCloud"
+    try ( sub.CreateSeparator "B5F1E2C0-00A1-4E2B-9C3A-0000000000A1" ) catch ()
     sub.CreateAction "B5F1E2C0-0003-4E2B-9C3A-000000000003" 647394 "OutWitSignIn`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0006-4E2B-9C3A-000000000006" 647394 "OutWitSignOut`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0004-4E2B-9C3A-000000000004" 647394 "OutWitSettings`OmnibusCloud"
+    try ( sub.CreateSeparator "B5F1E2C0-00A2-4E2B-9C3A-0000000000A2" ) catch ()
     sub.CreateAction "B5F1E2C0-0005-4E2B-9C3A-000000000005" 647394 "OutWitPortal`OmnibusCloud"
+    sub.CreateAction "B5F1E2C0-0007-4E2B-9C3A-000000000007" 647394 "OutWitAbout`OmnibusCloud"
 
     -- The persisted session restores in the background right at startup (menu gate turns green
     -- without a manual sign-in).

@@ -2,6 +2,7 @@ macroScript OutWitSignOut
 category:"OmnibusCloud"
 tooltip:"Sign out of OmnibusCloud"
 buttonText:"Sign out"
+iconName:"OmnibusCloud/SignOut"
 (
     -- Enabled only while a session is active.
     on isEnabled return

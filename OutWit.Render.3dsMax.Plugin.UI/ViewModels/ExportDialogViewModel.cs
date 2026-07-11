@@ -73,6 +73,8 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         BrowseCommand = new RelayCommand(_ => Browse());
         OpenFolderCommand = new RelayCommand(_ => OpenFolder());
         NewExportCommand = new RelayCommand(_ => NewExport());
+        RetryCommand = new RelayCommandAsync(RetryAsync);
+        CopyLogCommand = new RelayCommand(_ => CopyLog());
         UpdateStatus();
     }
 
@@ -160,7 +162,9 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             OutputFolder = outputFolder,
             // The server packs every attachment into the .blend (pack_all), so a baked scanned
             // material travels inside the returned file like any authored texture.
-            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
+            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials,
+            // Scalar text-only binding — safe to set from a worker continuation.
+            UploadProgress = fraction => StatusLine = $"Uploading scene… {(int)Math.Round(fraction * 100d)}%"
         };
 
         // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
@@ -199,6 +203,10 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
                 jobState = await ConnectedRender.RefreshJobAsync(jobState);
                 m_activeJobState = jobState;
                 DiagnosticsVm.Apply(jobState.Diagnostics);
+
+                StatusLine = m_cancelRequested
+                    ? "Cancelling…"
+                    : $"Converting to Blender on the server… {jobState.ProgressPercent:0}%";
             }
         }
         finally
@@ -276,6 +284,26 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         ErrorMessage = string.Empty;
         StatusLine = string.Empty;
         UpdateStatus();
+    }
+
+    private async Task RetryAsync()
+    {
+        NewExport();
+        await ExportAsync();
+    }
+
+    private void CopyLog()
+    {
+        var text = $"{ErrorMessage}\n\n{DiagnosticsVm.LogText}";
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch
+        {
+            // Clipboard access can fail when another app holds it — never break the dialog.
+        }
     }
 
     #endregion
@@ -384,6 +412,10 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand OpenFolderCommand { get; private set; } = null!;
 
     public ICommand NewExportCommand { get; private set; } = null!;
+
+    public ICommand RetryCommand { get; private set; } = null!;
+
+    public ICommand CopyLogCommand { get; private set; } = null!;
 
     #endregion
 

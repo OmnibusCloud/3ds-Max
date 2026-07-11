@@ -115,8 +115,14 @@ session restore at Max startup (WarmUpSession from Initialize.ms — the menu ga
 the persisted session without a manual sign-in); menu Sign in/Sign out split into two
 gated items; whole-network checkbox no longer defaults visible; live theme preview;
 Settings friendly labels + ImageFormat default + About links; first real log lines
-(session service). **Remaining for wave 2:** the 7 lifecycle work-area templates +
-fixed-height swap, upload IProgress, status-bar phase wording.
+(session service). **Wave 2 COMPLETE (plugin-v0.7.51-beta, 2026-07-11):** lifecycle work-area views (config /
+active-phase card with icon+title+counter+bar+sub-line / Completed with duration + image
+thumbnail / Failed with Copy log + Retry), real upload progress (request-carried callback →
+transport reports per-attachment → VM emits Uploading, UI-thread marshalled), Finalizing
+mapped from the server's ~100% plateau, footer "Close to keep working" hint. Height note:
+the swap container has MinHeight=340 and the window keeps SizeToContent — a hard-fixed
+height would clip the V-Ray-scan config state; jump between states is now minimal.
+**Awaiting user visual check of a live render walk.**
 
 1. **Diagnostics/Details dialog (M3.5, first content priority)** — new
    `Views/DiagnosticsDialog.xaml` 544×520 per section 4.1.5: *Validation* grid

@@ -2,6 +2,7 @@ macroScript OutWitSignIn
 category:"OmnibusCloud"
 tooltip:"Sign in to OmnibusCloud"
 buttonText:"Sign in…"
+iconName:"OmnibusCloud/SignIn"
 (
     -- Greyed out while a session is already active (the Sign out item takes over).
     on isEnabled return

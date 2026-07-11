@@ -24,6 +24,6 @@
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignIn.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_SignOut.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Portal.mcr" />
-    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Export.mcr" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_About.mcr" />
   </Components>
 </ApplicationPackage>
