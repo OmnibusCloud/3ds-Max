@@ -153,6 +153,20 @@ shows a moving percentage before the server responds.
 
 ### Wave 3 — Surfaces & polish: Output, menu, toolbar, Settings/Export
 *(M3.3, M3.4, M3.6, M3.7, M3.8, M3.11 · session goal 1)*
+**Delivered (plugin-v0.7.52-beta, 2026-07-11):** menu per canon 1.1 (separator groups:
+scene | account/config | external; About item → Settings▸About via ShowAbout; Sign in/out
+split landed in 0.7.50); legacy retired (ExportWindow view + Macro_OutWit_Export deleted,
+bootstrap/command-service entry points removed; ExportMainViewModel kept as sub-VM root);
+macroscript icons — PNGs generated from the mockup SVG geometries into
+Contents/Icons/OmnibusCloud (Render = lime bolt), wired via iconName:.
+Export polish (M3.8): upload % + server-conversion % in the status line, Failed card with
+Copy log + Retry. M3.3/M3.7 landed earlier (0.7.50).
+**Needs live-Max verification:** (a) menu separators (`CreateSeparator` guarded by try —
+harmless if absent), (b) whether the package's Contents/Icons dir is on the icon search
+path (fallback: text-only buttons), (c) About switching an already-open Settings.
+**Deferred:** dynamic account header in the menu (new menu system may not support runtime
+label rebuild — needs live experimentation); auto-registered default toolbar (users can
+place the now-iconed macros via Customize UI meanwhile).
 
 1. **Output quick settings (M3.3)** — Format / Tiles ×+overlap / Codec / FPS / Range
    rows per section 4.1.2, bound to existing persisted settings (TilesX/Y, TileOverlap,
