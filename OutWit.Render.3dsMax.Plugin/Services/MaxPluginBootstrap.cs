@@ -314,6 +314,14 @@ public sealed class MaxPluginBootstrap
 
         _ = new WindowInteropHelper(dialog) { Owner = handle };
         dialog.ShowInTaskbar = false;
+
+        // Suspend 3ds Max keyboard accelerators while our dialog is focused. Without this Max eats
+        // single-key shortcuts (digits select sub-object levels, Backspace/Delete, etc.) before WPF
+        // gets them, so text fields silently drop those keystrokes. Balanced per window: disabled on
+        // Activated, re-enabled on Deactivated (user clicked back into Max) and on Closed.
+        dialog.Activated += (_, _) => m_commandService.SetMaxAcceleratorsEnabled(false);
+        dialog.Deactivated += (_, _) => m_commandService.SetMaxAcceleratorsEnabled(true);
+        dialog.Closed += (_, _) => m_commandService.SetMaxAcceleratorsEnabled(true);
     }
 
     private ApplicationViewModel EnsureApplicationViewModel()

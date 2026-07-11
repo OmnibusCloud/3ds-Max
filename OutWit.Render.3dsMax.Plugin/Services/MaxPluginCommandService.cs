@@ -85,6 +85,26 @@ public sealed class MaxPluginCommandService
     }
 
     /// <summary>
+    /// Suspends or restores 3ds Max keyboard accelerators (single-key viewport shortcuts) so text
+    /// fields in our WPF dialogs receive every keystroke while focused. No-op without a Max host.
+    /// </summary>
+    public void SetMaxAcceleratorsEnabled(bool enabled)
+    {
+        try
+        {
+            var global = GlobalInterface.Instance;
+            if (enabled)
+                global.EnableAccelerators();
+            else
+                global.DisableAccelerators();
+        }
+        catch
+        {
+            // Best-effort — accelerator toggling must never break showing a dialog.
+        }
+    }
+
+    /// <summary>
     /// Creates the follow-Max theme service (MX-14), or the dark default when no Max host is available.
     /// </summary>
     public IMaxThemeService CreateThemeService()
