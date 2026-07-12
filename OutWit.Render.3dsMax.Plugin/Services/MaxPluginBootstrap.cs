@@ -2,10 +2,8 @@ using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Views;
 using OutWit.Render.ThreeDsMax.Plugin.UI.Theming;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Threading;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Services;
 
@@ -15,7 +13,6 @@ public sealed class MaxPluginBootstrap
 
     private readonly MaxPluginCommandService m_commandService;
     private readonly IMaxThemeService m_themeService;
-    private readonly Dispatcher m_uiDispatcher;
     private ApplicationViewModel? m_applicationVm;
     private RenderDialog? m_renderDialog;
     private ExportDialog? m_exportDialog;
@@ -29,10 +26,6 @@ public sealed class MaxPluginBootstrap
 
     public MaxPluginBootstrap()
     {
-        // Created from MAXScript on the Max main thread. Session-state changes can surface on
-        // worker threads (silent restore continuations); the dispatcher brings AccountStateChanged
-        // back to the main thread, where the MAXScript handler touches the menu API.
-        m_uiDispatcher = Dispatcher.CurrentDispatcher;
         m_commandService = new MaxPluginCommandService();
         m_themeService = m_commandService.CreateThemeService();
     }
@@ -266,39 +259,6 @@ public sealed class MaxPluginBootstrap
     public bool IsSignedIn => m_applicationVm?.CloudSessionVm.IsSignedIn ?? false;
 
     /// <summary>
-    /// Raised on the Max UI thread whenever the signed-in state or the account display name
-    /// changes; Initialize.ms refreshes the menu's account header title from it (design 1.1).
-    /// </summary>
-    public event EventHandler? AccountStateChanged;
-
-    /// <summary>
-    /// Display name of the signed-in account; empty when signed out (menu account header).
-    /// </summary>
-    public string AccountDisplay
-    {
-        get
-        {
-            var sessionVm = m_applicationVm?.CloudSessionVm;
-            if (sessionVm is null || !sessionVm.IsSignedIn)
-                return string.Empty;
-
-            return sessionVm.UserDisplayName ?? string.Empty;
-        }
-    }
-
-    private void OnCloudSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName != nameof(CloudSessionViewModel.IsSignedIn)
-            && e.PropertyName != nameof(CloudSessionViewModel.UserDisplayName))
-            return;
-
-        if (m_uiDispatcher.CheckAccess())
-            AccountStateChanged?.Invoke(this, EventArgs.Empty);
-        else
-            m_uiDispatcher.BeginInvoke(new Action(() => AccountStateChanged?.Invoke(this, EventArgs.Empty)));
-    }
-
-    /// <summary>
     /// Effective plugin theme (MX-14): the persisted ThemeMode setting wins ("Dark"/"Light");
     /// "FollowMax" (and anything unrecognized) defers to the host color manager.
     /// </summary>
@@ -370,7 +330,6 @@ public sealed class MaxPluginBootstrap
             return m_applicationVm;
 
         m_applicationVm = m_commandService.CreateApplicationViewModel();
-        m_applicationVm.CloudSessionVm.PropertyChanged += OnCloudSessionPropertyChanged;
 
         // One-time silent session restore (persisted refresh token): dialogs open signed-in and the
         // menu gate reflects the restored session without a browser round-trip. Restore handles its

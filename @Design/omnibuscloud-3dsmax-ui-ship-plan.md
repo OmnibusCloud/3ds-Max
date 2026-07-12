@@ -310,10 +310,16 @@ fade). **Remaining exit step: promote `plugin-v1.0.2-beta` to Latest**
    the now-real version pipeline.
 
 ### Post-ship tails (tracked, none block the promote)
-- **Live-Max experiments (Wave-3 deferred):** dynamic account header in the menu; default
-  "OmnibusCloud" toolbar auto-registration; confirm macroscript icons resolve from the
-  package's Contents/Icons (else text-only fallback); About focusing an already-open
-  Settings dialog.
+- **Dynamic account header — attempted and CLOSED as won't-do (1.0.3-test, 2026-07-12).**
+  Approach: passive OutWitAccount macroscript item + ICuiMenuItem.SetTitle from Initialize.ms
+  on a bootstrap AccountStateChanged event (Max-UI-thread-marshalled). Live Max 2027 finding:
+  menu STRUCTURE manipulation at #cuiRegisterMenus time works reliably (DeleteItem + recreate
+  migrated the persisted menu both ways), but runtime SetTitle never changed the visible Qt
+  menu — the header stayed static. Reverted; the account identity remains visible in every
+  dialog footer and in Settings. Re-open only if a future Max exposes a menu-refresh API.
+- **Live-Max experiments (Wave-3 deferred):** default "OmnibusCloud" toolbar
+  auto-registration; confirm macroscript icons resolve from the package's Contents/Icons
+  (else text-only fallback); About focusing an already-open Settings dialog.
 - **Hygiene (M4.1 leftovers):** MessagePack advisory bump (NU1902), CS8618 nullable
   cleanup.
 - **Release housekeeping:** optionally delete superseded 1.0.0/1.0.1-beta releases.
