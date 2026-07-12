@@ -9,7 +9,7 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Platforms>x64</Platforms>
     <RootNamespace>OutWit.Render.ThreeDsMax.Plugin.UI</RootNamespace>
-    <AssemblyName>OutWit.Render.3dsMax.Plugin.UI</AssemblyName>
+    <AssemblyName>OmnibusCloud.3dsMax.Plugin.UI</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

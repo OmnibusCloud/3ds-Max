@@ -21,6 +21,7 @@ public sealed class MaxPluginServices
         StatusBar = statusBar ?? MaxStatusBarServiceNull.Instance;
         Logger = MaxPluginLogging.Logger;
         Settings = MaxPluginSettingsFactory.Create();
+        MaxPluginLogging.ApplyMinimumLevel(Settings.LogLevel);
 
         BrowserLauncher = new MaxSystemBrowserLauncherShell();
         CloudSessionService = new MaxCloudSessionService(

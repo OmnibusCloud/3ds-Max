@@ -14,8 +14,8 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
-                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
+                <ResourceDictionary Source="/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+                <ResourceDictionary Source="/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
         </ResourceDictionary>

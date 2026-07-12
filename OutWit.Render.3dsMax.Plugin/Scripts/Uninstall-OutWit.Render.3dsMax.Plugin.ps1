@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$destinationRoot = Join-Path $TargetRoot "OutWit.Render.3dsMax.Plugin"
+$destinationRoot = Join-Path $TargetRoot "OmnibusCloud.3dsMax.Plugin"
 
 if (-not (Test-Path $destinationRoot))
 {

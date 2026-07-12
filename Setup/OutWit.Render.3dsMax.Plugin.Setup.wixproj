@@ -15,7 +15,7 @@
     <OutputName>OmnibusCloud-3dsMax-Plugin</OutputName>
     <OutputPath>$(MSBuildThisFileDirectory)..\dist\</OutputPath>
     <ProductVersion Condition="'$(ProductVersion)' == ''">0.0.0</ProductVersion>
-    <BundleDir Condition="'$(BundleDir)' == ''">$(MSBuildThisFileDirectory)..\obj\plugin-package\OutWit.Render.3dsMax.Plugin</BundleDir>
+    <BundleDir Condition="'$(BundleDir)' == ''">$(MSBuildThisFileDirectory)..\obj\plugin-package\OmnibusCloud.3dsMax.Plugin</BundleDir>
     <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);BundleDir=$(BundleDir)</DefineConstants>
     <!-- Harvested per-user-capable payload: no per-component registry keypaths by design -->
     <SuppressIces>ICE38;ICE43;ICE57;ICE64;ICE90;ICE91</SuppressIces>

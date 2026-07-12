@@ -28,7 +28,7 @@ fn OutWit_3dsMax_ResolveAssemblyPath =
 (
     local pathClass = dotNetClass "System.IO.Path"
     local packageRoot = OutWit_3dsMax_ResolvePackageRoot()
-    pathClass.GetFullPath (pathConfig.appendPath packageRoot "bin\\OutWit.Render.3dsMax.Plugin.dll")
+    pathClass.GetFullPath (pathConfig.appendPath packageRoot "bin\\OmnibusCloud.3dsMax.Plugin.dll")
 )
 
 fn OutWit_3dsMax_EnsurePluginLoaded =

@@ -5,7 +5,7 @@
 .DESCRIPTION
     Produces the same on-disk layout the Install script lays down, staged into a folder and zipped:
 
-        OutWit.Render.3dsMax.Plugin/
+        OmnibusCloud.3dsMax.Plugin/
             PackageContents.xml          (AppVersion/FriendlyVersion stamped to -Version)
             Contents/
                 macroscripts/ scripts/   (from the ApplicationPlugins template)
@@ -66,7 +66,7 @@ function Invoke-OptionalSigning
 
     try
     {
-        $targets = @(Get-ChildItem -Path $BinRoot -Recurse -Include "OutWit.*.dll", "OutWit.*.exe" | Select-Object -ExpandProperty FullName)
+        $targets = @(Get-ChildItem -Path $BinRoot -Recurse -Include "OmnibusCloud.*.dll", "OutWit.*.dll", "OutWit.*.exe" | Select-Object -ExpandProperty FullName)
         if ($targets.Count -eq 0)
         {
             Write-Warning "No OutWit assemblies found to sign under $BinRoot."
@@ -90,7 +90,7 @@ function Invoke-OptionalSigning
 $projectRoot = Split-Path -Parent $PSScriptRoot                       # ...\OutWit.Render.3dsMax.Plugin
 $repoRoot = Split-Path -Parent $projectRoot                          # repo root
 $solutionPath = Join-Path $repoRoot "OutWit.slnx"
-$packageTemplateRoot = Join-Path $projectRoot "ApplicationPlugins\OutWit.Render.3dsMax.Plugin"
+$packageTemplateRoot = Join-Path $projectRoot "ApplicationPlugins\OmnibusCloud.3dsMax.Plugin"
 $buildOutputRoot = Join-Path $projectRoot ("bin\x64\{0}\net10.0-windows" -f $Configuration)
 
 if (-not (Test-Path $packageTemplateRoot))
@@ -115,7 +115,7 @@ if (-not (Test-Path $buildOutputRoot))
 
 # 2. Stage the bundle: template + built binaries.
 $stagingRoot = Join-Path $repoRoot "obj\plugin-package"
-$bundleRoot = Join-Path $stagingRoot "OutWit.Render.3dsMax.Plugin"
+$bundleRoot = Join-Path $stagingRoot "OmnibusCloud.3dsMax.Plugin"
 $bundleBinRoot = Join-Path $bundleRoot "Contents\bin"
 
 if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
@@ -137,7 +137,7 @@ Invoke-OptionalSigning -BinRoot $bundleBinRoot
 
 # 5. Zip the staged bundle (bundle folder at the zip root).
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-$zipPath = Join-Path $OutputDirectory ("OutWit.Render.3dsMax.Plugin-{0}.zip" -f $Version)
+$zipPath = Join-Path $OutputDirectory ("OmnibusCloud.3dsMax.Plugin-{0}.zip" -f $Version)
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path $bundleRoot -DestinationPath $zipPath -Force
 

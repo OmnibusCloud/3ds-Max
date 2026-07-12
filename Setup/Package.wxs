@@ -16,7 +16,7 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define PluginFolderName = "OutWit.Render.3dsMax.Plugin" ?>
+  <?define PluginFolderName = "OmnibusCloud.3dsMax.Plugin" ?>
 
   <Package Name="OmnibusCloud 3ds Max Plugin"
            Manufacturer="OmnibusCloud"
@@ -68,6 +68,15 @@
                  Value="[AppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
                  Condition="NOT (ALLUSERS=1)" Before="CostInitialize" Sequence="execute" />
 
+    <!-- One-time cleanup of the pre-rebrand package folder (OutWit.Render.3dsMax.Plugin): left in
+         place it would keep registering a second OmnibusCloud menu inside 3ds Max. -->
+    <SetProperty Id="LEGACYFOLDER" Action="SetLegacyFolderPerMachine"
+                 Value="[CommonAppDataFolder]Autodesk\ApplicationPlugins\OutWit.Render.3dsMax.Plugin"
+                 Condition="ALLUSERS=1" Before="CostInitialize" Sequence="execute" />
+    <SetProperty Id="LEGACYFOLDER" Action="SetLegacyFolderPerUser"
+                 Value="[AppDataFolder]Autodesk\ApplicationPlugins\OutWit.Render.3dsMax.Plugin"
+                 Condition="NOT (ALLUSERS=1)" Before="CostInitialize" Sequence="execute" />
+
     <Feature Id="Main" Title="OmnibusCloud 3ds Max Plugin" AllowAbsent="no">
       <ComponentGroupRef Id="BundleFiles" />
       <ComponentRef Id="InstallStamp" />
@@ -84,6 +93,7 @@
       <RegistryValue Root="HKMU" Key="Software\OmnibusCloud\3dsMaxPlugin"
                      Name="InstalledVersion" Type="string" Value="[ProductVersion]" KeyPath="yes" />
       <util:RemoveFolderEx On="both" Property="WIPEFOLDER" />
+      <util:RemoveFolderEx On="install" Property="LEGACYFOLDER" />
     </Component>
   </Fragment>
 </Wix>

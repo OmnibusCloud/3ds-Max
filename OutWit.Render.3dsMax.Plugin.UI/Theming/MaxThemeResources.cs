@@ -15,7 +15,7 @@ public static class MaxThemeResources
 {
     #region Constants
 
-    private const string LIGHT_PALETTE_URI = "/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPaletteLight.xaml";
+    private const string LIGHT_PALETTE_URI = "/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxPaletteLight.xaml";
 
     #endregion
 

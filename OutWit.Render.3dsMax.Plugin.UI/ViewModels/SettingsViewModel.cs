@@ -72,6 +72,7 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         AvailableLogLevels = ["Information", "Debug", "Warning", "Error"];
         PluginVersion = MaxPluginVersionInfo.Resolve();
         HostVersion = "3ds Max 2027";
+        LogsDirectory = MaxDiagnosticsLauncher.GetLogsDirectory();
     }
 
     private void InitEvents()
@@ -124,6 +125,7 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         Settings.ImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(SelectedImageFormat);
         Settings.LogLevel = SelectedLogLevel;
         Settings.SettingsManager.Save();
+        MaxPluginLogging.ApplyMinimumLevel(SelectedLogLevel);
 
         // Connection URLs live on the session VM (used by the next sign-in / connect).
         CloudVm.CloudUrl = CloudUrl;
@@ -312,6 +314,10 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
 
     // Diagnostics
     public ObservableCollection<string> AvailableLogLevels { get; private set; } = null!;
+
+    /// <summary>Resolved per install scope (ProgramData for all-users installs, APPDATA per-user).</summary>
+    [Notify]
+    public string LogsDirectory { get; set; } = string.Empty;
 
     [Notify]
     public string SelectedLogLevel { get; set; } = "Information";

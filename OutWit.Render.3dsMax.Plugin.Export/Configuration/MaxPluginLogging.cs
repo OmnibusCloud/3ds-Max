@@ -1,5 +1,7 @@
 using System.IO;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 
@@ -25,6 +27,10 @@ public static class MaxPluginLogging
 
     private static ILogger? m_logger;
 
+    // The Settings ▸ Diagnostics "Level" knob controls this switch live (default matches the
+    // embedded LogLevel setting default of Information).
+    private static readonly LoggingLevelSwitch m_levelSwitch = new(LogEventLevel.Information);
+
     #endregion
 
     #region Functions
@@ -49,6 +55,22 @@ public static class MaxPluginLogging
         }
     }
 
+    /// <summary>
+    /// Applies the persisted "LogLevel" setting ("Information"/"Debug"/"Warning"/"Error") to the
+    /// live level switch. Unknown values fall back to Information; safe before or after the logger
+    /// is created.
+    /// </summary>
+    public static void ApplyMinimumLevel(string? logLevel)
+    {
+        m_levelSwitch.MinimumLevel = logLevel?.Trim().ToLowerInvariant() switch
+        {
+            "debug" => LogEventLevel.Debug,
+            "warning" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            _ => LogEventLevel.Information
+        };
+    }
+
     #endregion
 
     #region Tools
@@ -61,7 +83,7 @@ public static class MaxPluginLogging
             Directory.CreateDirectory(logDirectory);
 
             return new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.ControlledBy(m_levelSwitch)
                 .WriteTo.File(
                     Path.Combine(logDirectory, LOG_FILE_NAME),
                     rollingInterval: RollingInterval.Day,

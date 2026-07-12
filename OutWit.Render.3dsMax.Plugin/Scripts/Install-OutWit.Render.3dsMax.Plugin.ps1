@@ -6,9 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$packageTemplateRoot = Join-Path $projectRoot "ApplicationPlugins\OutWit.Render.3dsMax.Plugin"
+$packageTemplateRoot = Join-Path $projectRoot "ApplicationPlugins\OmnibusCloud.3dsMax.Plugin"
 $outputRoot = Join-Path $projectRoot ("bin\x64\{0}\net10.0-windows" -f $Configuration)
-$destinationRoot = Join-Path $TargetRoot "OutWit.Render.3dsMax.Plugin"
+$destinationRoot = Join-Path $TargetRoot "OmnibusCloud.3dsMax.Plugin"
 $destinationBinRoot = Join-Path $destinationRoot "Contents\bin"
 
 if (-not (Test-Path $packageTemplateRoot))
@@ -18,7 +18,7 @@ if (-not (Test-Path $packageTemplateRoot))
 
 if (-not (Test-Path $outputRoot))
 {
-    throw "Build output was not found: $outputRoot. Build OutWit.Render.3dsMax.Plugin first."
+    throw "Build output was not found: $outputRoot. Build OmnibusCloud.3dsMax.Plugin first."
 }
 
 New-Item -ItemType Directory -Force -Path $TargetRoot | Out-Null

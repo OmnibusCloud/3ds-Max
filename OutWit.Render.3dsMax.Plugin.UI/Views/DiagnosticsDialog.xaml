@@ -1,7 +1,7 @@
 <Window x:Class="OutWit.Render.ThreeDsMax.Plugin.UI.Views.DiagnosticsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:models="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.Export.Models;assembly=OutWit.Render.3dsMax.Plugin.Export"
+        xmlns:models="clr-namespace:OutWit.Render.ThreeDsMax.Plugin.Export.Models;assembly=OmnibusCloud.3dsMax.Plugin.Export"
         Title="OmnibusCloud — Diagnostics"
         Width="544"
         Height="520"
@@ -14,8 +14,8 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
-                <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
+                <ResourceDictionary Source="/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxPalette.xaml" />
+                <ResourceDictionary Source="/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxControls.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
 

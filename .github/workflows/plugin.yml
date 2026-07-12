@@ -12,11 +12,13 @@ name: plugin
 # 2027/Autodesk.Max.dll into Libs/ before building. The matching .deps.json / .xml metadata are
 # committed here, so only the DLL is fetched.
 #
-# SIGNING is optional and gated on a configured certificate (see Build-...Package.ps1 /
-# Invoke-OptionalSigning): set repo secrets WINDOWS_CERT_PFX_BASE64 (+ WINDOWS_CERT_PASSWORD) to
-# Authenticode-sign the bundled OutWit assemblies. Until then the bundle ships UNSIGNED with a
-# warning, so dev releases keep working. (Azure Trusted Signing is the alternative when a cert is
-# issued.)
+# SIGNING (SSL.com eSigner, quota-limited — we sign the necessary MINIMUM): the MAIN plugin
+# assembly is signed once inside the staged bundle (so the signed file flows into both the zip and
+# the MSI harvest), then the MSI itself — 2 signing operations per release. Gated like the desktop
+# client: internal iteration tags (-dev/-test/-internal) skip signing; -beta/-rc/stable sign.
+# Secrets: ESIGNER_USERNAME / ESIGNER_PASSWORD / ESIGNER_CREDENTIAL_ID / ESIGNER_TOTP_SECRET —
+# absent secrets degrade to an UNSIGNED build with a warning. The legacy PFX path in
+# Build-...Package.ps1 (WINDOWS_CERT_PFX_BASE64) remains as an offline fallback.
 
 on:
   push:
@@ -86,8 +88,61 @@ jobs:
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: ./OutWit.Render.3dsMax.Plugin/Scripts/Build-OutWit.Render.3dsMax.Plugin.Package.ps1 -Configuration Release -Version "${{ steps.ver.outputs.version }}" -OutputDirectory dist
 
-      # The MSI harvests the same staged bundle the zip was built from (obj/plugin-package/...).
-      # Dual scope per ship-plan decision D3; overwrite semantics = MajorUpgrade + folder wipe.
+      # eSigner operations are quota-limited: sign public release tags only (-beta/-rc/stable);
+      # -dev/-test/-internal iteration tags and dispatch builds ship unsigned. No-op w/o secrets.
+      - name: Decide signing
+        id: signgate
+        shell: bash
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+        run: |
+          set -euo pipefail
+          should=false
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            case "${{ github.ref_name }}" in
+              *-dev*|*-test*|*-internal*) : ;;   # internal iteration tag → save quota
+              *) should=true ;;                  # public release (-beta / -rc / stable) → sign
+            esac
+          fi
+          if [[ -z "${ESIGNER_USERNAME:-}" ]]; then
+            [[ "$should" == "true" ]] && echo "::warning::Signing requested but ESIGNER_* secrets are not set — shipping UNSIGNED."
+            should=false
+          fi
+          echo "should_sign=$should" >> "$GITHUB_OUTPUT"
+          echo "should_sign=$should"
+
+      # Sign ONLY the main plugin assembly (the DLL 3ds Max loads) INSIDE the staged bundle, so one
+      # signing operation covers both the zip and the MSI harvest. CodeSignTool refuses
+      # output_path == input dir, so sign into a temp dir and copy back.
+      - name: Sign main plugin assembly (SSL.com eSigner)
+        if: steps.signgate.outputs.should_sign == 'true'
+        uses: sslcom/esigner-codesign@develop
+        with:
+          command: sign
+          username: ${{ secrets.ESIGNER_USERNAME }}
+          password: ${{ secrets.ESIGNER_PASSWORD }}
+          credential_id: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          file_path: ${{ github.workspace }}/obj/plugin-package/OmnibusCloud.3dsMax.Plugin/Contents/bin/OmnibusCloud.3dsMax.Plugin.dll
+          output_path: ${{ runner.temp }}\signed-dll
+          malware_block: 'false'
+          environment_name: PROD
+
+      - name: Re-zip the bundle with the signed assembly
+        if: steps.signgate.outputs.should_sign == 'true'
+        shell: pwsh
+        run: |
+          $signed = Join-Path "${{ runner.temp }}" "signed-dll/OmnibusCloud.3dsMax.Plugin.dll"
+          if (-not (Test-Path $signed)) { throw "Signed assembly not found at $signed" }
+          Copy-Item $signed "obj/plugin-package/OmnibusCloud.3dsMax.Plugin/Contents/bin/OmnibusCloud.3dsMax.Plugin.dll" -Force
+          $zip = "dist/OmnibusCloud.3dsMax.Plugin-${{ steps.ver.outputs.version }}.zip"
+          Remove-Item $zip -Force
+          Compress-Archive -Path "obj/plugin-package/OmnibusCloud.3dsMax.Plugin" -DestinationPath $zip -Force
+          Write-Host "Bundle re-zipped with the signed assembly."
+
+      # The MSI harvests the same staged bundle the zip was built from (obj/plugin-package/...) —
+      # AFTER the assembly signing, so the installer carries the signed DLL. Dual scope per
+      # ship-plan decision D3; overwrite semantics = MajorUpgrade + folder wipe.
       - name: Build MSI installer
         shell: pwsh
         run: |
@@ -97,6 +152,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
           Rename-Item dist/OmnibusCloud-3dsMax-Plugin.msi "OmnibusCloud-3dsMax-Plugin-$version.msi"
           Get-ChildItem dist
+
+      - name: Sign MSI installer (SSL.com eSigner)
+        if: steps.signgate.outputs.should_sign == 'true'
+        uses: sslcom/esigner-codesign@develop
+        with:
+          command: sign
+          username: ${{ secrets.ESIGNER_USERNAME }}
+          password: ${{ secrets.ESIGNER_PASSWORD }}
+          credential_id: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          file_path: ${{ github.workspace }}/dist/OmnibusCloud-3dsMax-Plugin-${{ steps.ver.outputs.version }}.msi
+          output_path: ${{ runner.temp }}\signed-msi
+          malware_block: 'false'
+          environment_name: PROD
+
+      - name: Replace MSI with the signed copy
+        if: steps.signgate.outputs.should_sign == 'true'
+        shell: pwsh
+        run: |
+          $signed = Join-Path "${{ runner.temp }}" "signed-msi/OmnibusCloud-3dsMax-Plugin-${{ steps.ver.outputs.version }}.msi"
+          if (-not (Test-Path $signed)) { throw "Signed MSI not found at $signed" }
+          Move-Item $signed "dist/OmnibusCloud-3dsMax-Plugin-${{ steps.ver.outputs.version }}.msi" -Force
+          Write-Host "MSI replaced with the signed copy."
 
       # Guards the bundle layout: PackageContents.xml at the package root and the plugin assembly in
       # Contents/bin. Filename-only matching is separator-agnostic (Compress-Archive entry separators
@@ -109,9 +187,9 @@ jobs:
           echo "Package: $ZIP"
           unzip -l "$ZIP" | sed -n '1,20p'
           NAMES=$(unzip -l "$ZIP" | awk '{print $4}' | tr '\\' '/')
-          echo "$NAMES" | grep -qx 'OutWit.Render.3dsMax.Plugin/PackageContents.xml' \
+          echo "$NAMES" | grep -qx 'OmnibusCloud.3dsMax.Plugin/PackageContents.xml' \
             || { echo "::error::PackageContents.xml is not at the bundle root"; exit 1; }
-          echo "$NAMES" | grep -qx 'OutWit.Render.3dsMax.Plugin/Contents/bin/OutWit.Render.3dsMax.Plugin.dll' \
+          echo "$NAMES" | grep -qx 'OmnibusCloud.3dsMax.Plugin/Contents/bin/OmnibusCloud.3dsMax.Plugin.dll' \
             || { echo "::error::plugin assembly missing from Contents/bin"; exit 1; }
 
       - name: Upload build artifact

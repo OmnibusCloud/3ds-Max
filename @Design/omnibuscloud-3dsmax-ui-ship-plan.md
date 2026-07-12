@@ -191,6 +191,21 @@ in both Max themes; user sign-off.
 
 ### Wave 4 — Identity: branding rename + real versioning + log placement
 *(session goals 5, 7, 8 · prerequisite for Waves 5–6)*
+**DONE (plugin-v1.0.0-beta, 2026-07-11).** AssemblyName ×3 → `OmnibusCloud.3dsMax.Plugin(.UI/.Export)`
+(RootNamespace stays OutWit; InternalsVisibleTo + XAML pack URIs + MaxThemeResources URI +
+DiagnosticsDialog assembly= updated); template folder + Initialize.ms renamed; PackageContents
+Name/Author/Company/AppNameSpace → OmnibusCloud; zip → `OmnibusCloud.3dsMax.Plugin-<v>.zip`
+(portal regex already accepts it); logs follow the INSTALL SCOPE (ProgramData for all-users
+installs with a writability probe → APPDATA fallback; Settings ▸ Diagnostics shows the resolved
+path); the LogLevel setting drives a live Serilog LoggingLevelSwitch. Versioning landed earlier
+(0.7.49). MSI wipes the legacy `OutWit.Render.3dsMax.Plugin` folder on install (verified locally:
+planted legacy folder removed, new folder installed, clean uninstall).
+
+### Wave 6 — Pipeline signing — **DONE (plugin-v1.0.0-beta)**
+eSigner (SSL.com) in plugin.yml with the client's tag gate (skip -dev/-test/-internal; sign
+-beta/-rc/stable; no-op without secrets): the MAIN plugin DLL is signed once inside the staged
+bundle (flows into both zip and MSI harvest), then the MSI — 2 quota operations per release
+(user's requirement: minimum). PFX path in Build ps1 stays as offline fallback.
 
 1. **Public artifact names (goal 8)** — follow the client's split (user-visible = brand,
    code identity = OutWit): `AssemblyName` → `OmnibusCloud.3dsMax.Plugin` /

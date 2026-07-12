@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage SchemaVersion="1.0"
                     AutodeskProduct="3ds Max"
-                    Name="OmnibusCloud"
+                    Name="OmnibusCloud 3ds Max Plugin"
                     Description="OmnibusCloud render and scene-export integration for 3ds Max."
                     AppVersion="1.0.0"
                     FriendlyVersion="1.0.0"
                     ProductType="Application"
-                    AppNameSpace="outwit.render.3dsmax"
-                    Author="OutWit"
+                    AppNameSpace="com.omnibuscloud.3dsmax"
+                    Author="OmnibusCloud"
                     ProductCode="{0F96D4A8-7E30-41E0-A4A1-C26604D61D35}"
                     UpgradeCode="{10A2CA01-08D8-4B4E-97EA-FC907B54E09B}">
-  <CompanyDetails Name="OutWit" Url="https://github.com/dmitrat/WitEngine" />
+  <CompanyDetails Name="OmnibusCloud" Url="https://omnibuscloud.com" />
   <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />
   <Components Description="pre-start-up scripts parts">
     <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />
-    <ComponentEntry ModuleName="./Contents/scripts/OutWit.Render.3dsMax.Plugin.Initialize.ms" />
+    <ComponentEntry ModuleName="./Contents/scripts/OmnibusCloud.3dsMax.Plugin.Initialize.ms" />
   </Components>
   <Components Description="macroscripts parts">
     <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />

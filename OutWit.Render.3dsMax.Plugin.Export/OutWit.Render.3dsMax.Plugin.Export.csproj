@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RootNamespace>OutWit.Render.ThreeDsMax.Plugin.Export</RootNamespace>
-    <AssemblyName>OutWit.Render.3dsMax.Plugin.Export</AssemblyName>
+    <AssemblyName>OmnibusCloud.3dsMax.Plugin.Export</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="OutWit.Render.3dsMax.Plugin" />
+    <InternalsVisibleTo Include="OmnibusCloud.3dsMax.Plugin" />
     <InternalsVisibleTo Include="OutWit.Render.3dsMax.Plugin.Export.Tests" />
   </ItemGroup>
 

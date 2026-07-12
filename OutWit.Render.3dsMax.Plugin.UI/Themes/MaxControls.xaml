@@ -9,7 +9,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <ResourceDictionary.MergedDictionaries>
-        <ResourceDictionary Source="/OutWit.Render.3dsMax.Plugin.UI;component/Themes/MaxIcons.xaml" />
+        <ResourceDictionary Source="/OmnibusCloud.3dsMax.Plugin.UI;component/Themes/MaxIcons.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
     <!-- ============ Icon paths (mockup 24×24 stroke icons; LayoutTransform keeps proportions + stroke weight) ============ -->

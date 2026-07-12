@@ -8,7 +8,7 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Platforms>x64</Platforms>
     <RootNamespace>OutWit.Render.ThreeDsMax.Plugin</RootNamespace>
-    <AssemblyName>OutWit.Render.3dsMax.Plugin</AssemblyName>
+    <AssemblyName>OmnibusCloud.3dsMax.Plugin</AssemblyName>
     <ThreeDsMaxManagedSdkLocalPath>$(MSBuildProjectDirectory)\Libs\Autodesk.Max.dll</ThreeDsMaxManagedSdkLocalPath>
     <ThreeDsMaxManagedSdkPath Condition="'$(ThreeDsMaxManagedSdkPath)' == ''">$(ADSK_3DSMAX_x64_2027)</ThreeDsMaxManagedSdkPath>
   </PropertyGroup>

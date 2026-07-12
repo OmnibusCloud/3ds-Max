@@ -900,14 +900,15 @@ internal static class MaxBatchSmokeTestUtils
         if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
             return overridePath;
 
-        var testDirectoryPluginPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "3dsmax-plugin", "OutWit.Render.3dsMax.Plugin.dll");
+        var testDirectoryPluginPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "3dsmax-plugin", "OmnibusCloud.3dsMax.Plugin.dll");
         if (File.Exists(testDirectoryPluginPath))
             return testDirectoryPluginPath;
 
         foreach (var candidatePath in new[]
         {
-            Path.Combine(repoRoot, "OutWit.Render.3dsMax.Plugin", "bin", "x64", "Debug", "net10.0-windows", "OutWit.Render.3dsMax.Plugin.dll"),
-            Path.Combine(repoRoot, "OutWit.Render.3dsMax.Plugin", "bin", "x64", "Release", "net10.0-windows", "OutWit.Render.3dsMax.Plugin.dll")
+            // Project folder keeps the OutWit name; the built ASSEMBLY is branded OmnibusCloud.
+            Path.Combine(repoRoot, "OutWit.Render.3dsMax.Plugin", "bin", "x64", "Debug", "net10.0-windows", "OmnibusCloud.3dsMax.Plugin.dll"),
+            Path.Combine(repoRoot, "OutWit.Render.3dsMax.Plugin", "bin", "x64", "Release", "net10.0-windows", "OmnibusCloud.3dsMax.Plugin.dll")
         })
         {
             if (File.Exists(candidatePath))
