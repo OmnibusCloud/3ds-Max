@@ -294,12 +294,29 @@ legacy xcopy install cleans it.
 **Gate:** promoted release carries a signed MSI + signed DLLs (`signtool verify /pa`);
 `-dev` tag skips signing and still releases.
 
-### Wave 7 — Final QA gate
+### Wave 7 — Final QA gate — **PASSED (user QA on plugin-v1.0.2-beta, 2026-07-12)**
+User installed the signed branded MSI and confirmed the plugin works (incl. a video render
+of the Ape corpus scene). 1.0.0-beta shipped 2026-07-12 and was followed by two installer
+polish releases the same day: 1.0.1-beta (UAC program name via eSigner program_name; ARP
+icon + About/Help links; WixUI banner/dialog bitmaps) and 1.0.2-beta (dialog band replicates
+the desktop client's login brand pane: OmnibusCloud-Vertical.png over navy with the bottom
+fade). **Remaining exit step: promote `plugin-v1.0.2-beta` to Latest**
+(`gh release edit plugin-v1.0.2-beta --prerelease=false --latest`).
+
 1. Full visual side-by-side vs mockups (both themes) — Milestone 3 gate.
 2. Smoke: menu gating, OIDC sign-in, render all 4 modes with lifecycle walk, export both
    targets, settings persistence, logs open, About version.
 3. 249 unit tests + live farm job; then version **1.0.0-beta** (Milestone 4 target) via
    the now-real version pipeline.
+
+### Post-ship tails (tracked, none block the promote)
+- **Live-Max experiments (Wave-3 deferred):** dynamic account header in the menu; default
+  "OmnibusCloud" toolbar auto-registration; confirm macroscript icons resolve from the
+  package's Contents/Icons (else text-only fallback); About focusing an already-open
+  Settings dialog.
+- **Hygiene (M4.1 leftovers):** MessagePack advisory bump (NU1902), CS8618 nullable
+  cleanup.
+- **Release housekeeping:** optionally delete superseded 1.0.0/1.0.1-beta releases.
 
 ---
 
