@@ -13,7 +13,13 @@
 *.snupkg
 
 # Live/batch test render outputs (generated per run — never commit)
-@Publish/LiveTestOutputs/
+@Publish/
+
+# Internal working documents (design mockups, ship plans, experiments, agent notes) —
+# the public repo carries only the READMEs and docs/
+@Design/
+CLAUDE.md
+WitEngine-logo.png
 
 # Local secrets (test API keys, .env) — never commit
 .env

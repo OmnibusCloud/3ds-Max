@@ -5,7 +5,7 @@ network: the plugin exports the open scene into a neutral DCC payload, uploads i
 texture assets, and the network renders it across many machines — stills, frame ranges,
 tiled stills, or encoded video.
 
-> **Status: public alpha — functionally complete for a first production release.**
+> **Status: public beta — 1.0.**
 > Stills and video render end-to-end from real `.max` scenes: skinned character
 > animation, Scanline and PBR materials, **V-Ray materials, lights, environments and
 > physical-camera exposure** (including an opt-in local bake for scanned materials),
@@ -15,12 +15,13 @@ tiled stills, or encoded video.
 > multi-core (heavy scenes export in seconds), and everything the exporter approximates
 > leaves a **named diagnostic** instead of failing silently. The Export dialog can also
 > return the scene as a self-contained **`.blend` file** with all textures packed.
+> The in-Max experience is complete: an **OmnibusCloud menu** with themed
+> render/export/settings dialogs (dark & light, following the Max theme), live render
+> lifecycle with upload progress and cancellation, a diagnostics window for every named
+> approximation, and a signed dual-scope **MSI installer**.
 > See **[Capabilities & Known Limitations](docs/capabilities-and-limitations.md)** for the
 > honest feature matrix: what transfers faithfully, what is approximated, what is not
-> supported yet, and what is planned. The in-Max UI is minimal for now (a proper
-> submission/monitoring/settings experience is the current work — see the sibling
-> [Blender integration](https://github.com/OutWitLab/OmnibusCloud-Blender) for the UX this
-> repo is converging on) — functional feedback is what this alpha is for.
+> supported yet, and what is planned.
 
 ---
 
@@ -64,11 +65,20 @@ diagnostic at export — lives in
 | --- | --- |
 | [`OutWit.Render.3dsMax.Plugin`](OutWit.Render.3dsMax.Plugin/) | The plugin shell: 3ds Max SDK integration (`Autodesk.Max`), scene snapshot collection, `ApplicationPlugins` package template, MaxScript entry points, install scripts. |
 | [`OutWit.Render.3dsMax.Plugin.Export`](OutWit.Render.3dsMax.Plugin.Export/) | The export engine: snapshot → `DccSceneData` mapping, validation, launch-package preparation, upload, connected submission and result download. Max-SDK-free (`net10.0`). |
-| [`OutWit.Render.3dsMax.Plugin.UI`](OutWit.Render.3dsMax.Plugin.UI/) | The WPF exporter window (MVVM). |
+| [`OutWit.Render.3dsMax.Plugin.UI`](OutWit.Render.3dsMax.Plugin.UI/) | The WPF dialogs (MVVM, code-behind-free): Render, Export, Settings, Sign-in, Diagnostics — hand-rolled control styles themed to the Max dark/light palettes. |
 | [`OutWit.Render.3dsMax.Plugin.Export.Tests`](OutWit.Render.3dsMax.Plugin.Export.Tests/) | Unit tests (no 3ds Max required) + `3dsmaxbatch` smoke suites that drive a real 3ds Max install against real sample scenes (see [`@Data/README.md`](@Data/README.md)). |
 | [`OutWit.Render.3dsMax.Plugin.LocalTests`](OutWit.Render.3dsMax.Plugin.LocalTests/) | `Live/` suites that submit DCC-scene render jobs to the deployed `engine.omnibuscloud.com` and verify the downloaded results. `[Explicit]`, gated on `OMNIBUSCLOUD_API_KEY`. |
 
 ---
+
+## Install
+
+Grab the signed **`OmnibusCloud-3dsMax-Plugin-<version>.msi`** from the
+[latest release](../../releases/latest) (also available from the
+[OmnibusCloud downloads page](https://omnibuscloud.com/downloads/3dsmax)) and run it —
+it installs for everyone (`%ProgramData%`) or just for you (`%APPDATA%`), upgrades any
+previous version in place, and registers the **OmnibusCloud** menu on the next 3ds Max
+start. The zip next to it is the same `ApplicationPlugins` bundle for portable installs.
 
 ## Build & test
 
@@ -81,15 +91,15 @@ dotnet build OutWit.slnx                 # everything builds against nuget.org o
 dotnet test OutWit.slnx                  # unit tests run anywhere; smokes self-skip without 3ds Max / @Data
 ```
 
-Install the plugin into a local 3ds Max:
+Install a local build into 3ds Max (xcopy deployment, no MSI needed while iterating):
 
 ```powershell
 .\OutWit.Render.3dsMax.Plugin\Scripts\Install-OutWit.Render.3dsMax.Plugin.ps1
 ```
 
 This stages the `ApplicationPlugins` package into
-`%ProgramData%\Autodesk\ApplicationPlugins\OutWit.Render.3dsMax.Plugin`; restart 3ds Max
-and use the **OutWit** menu / macro category to open the exporter window.
+`%ProgramData%\Autodesk\ApplicationPlugins\OmnibusCloud.3dsMax.Plugin`; restart 3ds Max
+and use the **OmnibusCloud** menu.
 
 ---
 

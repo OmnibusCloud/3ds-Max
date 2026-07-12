@@ -6,9 +6,8 @@ namespace OutWit.Render.ThreeDsMax.Plugin.LocalTests.Live;
 
 /// <summary>
 /// Shared connection and helpers for live distributed integration tests that run against
-/// the deployed OmnibusCloud instance with real connected node clients.
-/// Ported from the WitEngine Cloud.Tests live suite, re-pointed at the canonical SaaS
-/// deployment and the published OutWit.Cloud.SDK facet API.
+/// the deployed OmnibusCloud instance with real connected node clients, built on the
+/// published OutWit.Cloud.SDK facet API.
 /// </summary>
 public abstract class LiveDistributedIntegrationTestBase
 {
