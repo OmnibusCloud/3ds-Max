@@ -71,6 +71,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
 
         // Quick output settings (design 4.1.2), seeded from the persisted defaults.
+        LockAspectRatio = Settings.LockAspectRatio;
         SelectedImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(Settings.ImageFormat);
         SelectedVideoPreset = MaxRenderOutputCatalog.VideoPresetDisplay(Settings.VideoContainer);
         TilesX = Settings.TilesX > 0 ? Settings.TilesX : 2;
@@ -528,6 +529,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         Settings.LastRenderMode = ResolveRenderMode();
         Settings.SplitFrame = SplitFrame;
+        Settings.LockAspectRatio = LockAspectRatio;
         Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.UseAllClients = LaunchVm.UseAllClients;
         Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
@@ -580,9 +582,20 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
                 SelectedImageFormat = "EXR";
         }
 
-        // Engaging the lock freezes the CURRENT ratio.
-        if (e.PropertyName == nameof(LockAspectRatio) && LockAspectRatio)
-            CaptureAspect();
+        if (e.PropertyName == nameof(LockAspectRatio))
+        {
+            // Engaging the lock freezes the CURRENT ratio.
+            if (LockAspectRatio)
+                CaptureAspect();
+
+            // The lock is a sticky dialog habit (like ThemeMode), not a render parameter: persist
+            // the toggle immediately, independent of the RememberLastRenderSettings gate.
+            if (Settings.LockAspectRatio != LockAspectRatio)
+            {
+                Settings.LockAspectRatio = LockAspectRatio;
+                Settings.SettingsManager.Save();
+            }
+        }
     }
 
     private void OnLaunchPropertyChanged(object? sender, PropertyChangedEventArgs e)

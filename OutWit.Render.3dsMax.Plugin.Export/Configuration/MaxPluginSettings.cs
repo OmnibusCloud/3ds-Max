@@ -63,6 +63,10 @@ public class MaxPluginSettings : SettingsContainer
     [Setting("Render")]
     public virtual bool SplitFrame { get; set; }
 
+    /// <summary>Resolution aspect-ratio lock in the Render dialog (default on).</summary>
+    [Setting("Render")]
+    public virtual bool LockAspectRatio { get; set; }
+
     /// <summary>Opt-in local V-Ray render-to-texture of scanned (.vrscan) materials before upload.</summary>
     [Setting("Render")]
     public virtual bool BakeVRayScannedMaterials { get; set; }

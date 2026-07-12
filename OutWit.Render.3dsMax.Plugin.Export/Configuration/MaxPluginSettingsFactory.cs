@@ -1,3 +1,4 @@
+using System.IO;
 using OutWit.Common.Settings.Configuration;
 using OutWit.Common.Settings.Json;
 
@@ -28,6 +29,12 @@ public static class MaxPluginSettingsFactory
     /// </summary>
     public static MaxPluginSettings Create()
     {
+        MigrateLegacyUserStore(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OutWit", "Render.3dsMax.Plugin.Export", SETTINGS_FILE_NAME + ".json"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OmnibusCloud", "3dsMax.Plugin.Export", SETTINGS_FILE_NAME + ".json"));
+
         var manager = new SettingsBuilder()
             .UseJsonResource(typeof(MaxPluginSettings).Assembly, DEFAULTS_RESOURCE_NAME)
             .WithFileName(SETTINGS_FILE_NAME)
@@ -38,6 +45,29 @@ public static class MaxPluginSettingsFactory
         manager.Merge();
         manager.Load();
         return new MaxPluginSettings(manager);
+    }
+
+    /// <summary>
+    /// One-time carry-over of the pre-rename (&lt;= 0.7.x) user store: the per-user settings folder
+    /// derives from the assembly name, so the wave-4 rename moved it from OutWit\Render.3dsMax… to
+    /// OmnibusCloud\3dsMax… and left existing preferences behind. Copies the legacy file only when
+    /// the new store does not exist yet (a store the user already writes to is never touched);
+    /// Merge() then upgrades the copied schema. Best-effort: any IO failure just means defaults.
+    /// </summary>
+    internal static void MigrateLegacyUserStore(string legacyFilePath, string targetFilePath)
+    {
+        try
+        {
+            if (File.Exists(targetFilePath) || !File.Exists(legacyFilePath))
+                return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(targetFilePath)!);
+            File.Copy(legacyFilePath, targetFilePath);
+        }
+        catch
+        {
+            // Best-effort: a failed carry-over falls back to shipped defaults.
+        }
     }
 
     /// <summary>
