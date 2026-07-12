@@ -153,6 +153,9 @@ jobs:
           Rename-Item dist/OmnibusCloud-3dsMax-Plugin.msi "OmnibusCloud-3dsMax-Plugin-$version.msi"
           Get-ChildItem dist
 
+      # program_name is MSI-specific: it becomes the signature's program name, which is what the
+      # UAC elevation prompt displays. Without it UAC falls back to the randomly named cached copy
+      # (C:\Windows\Installer\<hex>.msi) and users see gibberish instead of the product name.
       - name: Sign MSI installer (SSL.com eSigner)
         if: steps.signgate.outputs.should_sign == 'true'
         uses: sslcom/esigner-codesign@develop
@@ -162,6 +165,7 @@ jobs:
           password: ${{ secrets.ESIGNER_PASSWORD }}
           credential_id: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
           totp_secret: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          program_name: OmnibusCloud 3ds Max Plugin
           file_path: ${{ github.workspace }}/dist/OmnibusCloud-3dsMax-Plugin-${{ steps.ver.outputs.version }}.msi
           output_path: ${{ runner.temp }}\signed-msi
           malware_block: 'false'

@@ -39,6 +39,17 @@
     <ui:WixUI Id="WixUI_Advanced" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
 
+    <!-- Installer branding (Assets/Generate-InstallerAssets.ps1 rebuilds the bitmaps from the
+         brand mark): banner = inner-dialog top strip, dialog = welcome/exit background -->
+    <WixVariable Id="WixUIBannerBmp" Value="Assets\Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="Assets\Dialog.bmp" />
+
+    <!-- Programs and Features entry: brand icon + support links -->
+    <Icon Id="OmnibusCloud.ico" SourceFile="Assets\OmnibusCloud.ico" />
+    <Property Id="ARPPRODUCTICON" Value="OmnibusCloud.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://omnibuscloud.com" />
+    <Property Id="ARPHELPLINK" Value="https://omnibuscloud.com/downloads/3dsmax" />
+
     <!-- Steer WixUI_Advanced's per-scope folder defaults to the Autodesk auto-discovery roots -->
     <SetProperty Id="WixPerMachineFolder" Action="SetPerMachinePluginsRoot"
                  Value="[CommonAppDataFolder]Autodesk\ApplicationPlugins\$(var.PluginFolderName)"
