@@ -18,6 +18,7 @@
   </Components>
   <Components Description="macroscripts parts">
     <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />
+    <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Account.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Render.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_ExportScene.mcr" />
     <ComponentEntry ModuleName="./Contents/macroscripts/Macro_OutWit_Settings.mcr" />

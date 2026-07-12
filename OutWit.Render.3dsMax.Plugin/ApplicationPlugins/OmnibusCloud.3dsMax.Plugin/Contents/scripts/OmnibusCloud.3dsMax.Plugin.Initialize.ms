@@ -14,6 +14,9 @@ global OutWit_3dsMax_OpenPortal
 global OutWit_3dsMax_IsSignedIn
 global OutWit_3dsMax_WarmUpSession
 global OutWit_3dsMax_RegisterMenu
+global OutWit_3dsMax_MenuMgr
+global OutWit_3dsMax_UpdateAccountHeader
+global OutWit_3dsMax_OnAccountStateChanged
 
 dotNet.loadAssembly "System"
 
@@ -49,6 +52,10 @@ fn OutWit_3dsMax_EnsureBootstrap =
     (
         OutWit_3dsMax_EnsurePluginLoaded()
         OutWit_3dsMax_Bootstrap = dotNetObject "OutWit.Render.ThreeDsMax.Plugin.Services.MaxPluginBootstrap"
+
+        -- The bootstrap raises AccountStateChanged on the Max UI thread whenever the session
+        -- state changes; the handler refreshes the menu's account header title (design 1.1).
+        try ( dotNet.addEventHandler OutWit_3dsMax_Bootstrap "AccountStateChanged" OutWit_3dsMax_OnAccountStateChanged ) catch ()
     )
     OutWit_3dsMax_Bootstrap
 )
@@ -120,6 +127,39 @@ fn OutWit_3dsMax_WarmUpSession =
     catch ( false )
 )
 
+-- Refreshes the passive account header item (design 1.1): "Signed in: <name>" / "Not connected".
+-- Safe no-op (returns false) when the manager, the item or SetTitle is unavailable — the header
+-- then keeps its static macroscript caption.
+fn OutWit_3dsMax_UpdateAccountHeader =
+(
+    try
+    (
+        if OutWit_3dsMax_MenuMgr == undefined then false
+        else
+        (
+            local item = OutWit_3dsMax_MenuMgr.GetMenuItemById "B5F1E2C0-0008-4E2B-9C3A-000000000008"
+            if item == undefined then false
+            else
+            (
+                local title = "Not connected"
+                if (OutWit_3dsMax_IsSignedIn()) do
+                (
+                    local who = try ( OutWit_3dsMax_Bootstrap.AccountDisplay ) catch ( "" )
+                    title = if who != undefined and who != "" then ("Signed in: " + who) else "Signed in"
+                )
+                item.SetTitle title
+                true
+            )
+        )
+    )
+    catch ( false )
+)
+
+fn OutWit_3dsMax_OnAccountStateChanged sender args =
+(
+    OutWit_3dsMax_UpdateAccountHeader()
+)
+
 fn OutWit_3dsMax_RegisterMenu =
 (
     local menuMgr = callbacks.notificationParam()
@@ -127,12 +167,30 @@ fn OutWit_3dsMax_RegisterMenu =
     if menuMgr == undefined do
         return false
 
+    -- Stashed globally: menu items are only reachable through the manager instance the
+    -- registration callback hands us, and the account header updates long after registration.
+    OutWit_3dsMax_MenuMgr = menuMgr
+
     local mainMenuBar = menuMgr.mainMenuBar
     local helpId = "cee8f758-2199-411b-81e7-d3ff4a80d143"
     local menuId = "B5F1E2C0-1A4D-4E2B-9C3A-7D6E5F4A3B21"
+    local accountId = "B5F1E2C0-0008-4E2B-9C3A-000000000008"
 
-    if (menuMgr.GetMenuItemById menuId) != undefined do
+    -- v2 layout marker: the account header item. Present -> the persisted menu is current;
+    -- just refresh the header title from the session state.
+    if (menuMgr.GetMenuItemById accountId) != undefined do
+    (
+        OutWit_3dsMax_UpdateAccountHeader()
         return true
+    )
+
+    -- A persisted v1 menu (<= 1.0.2: no account header) is dropped and recreated in the v2
+    -- layout — every id inside is ours. If the drop fails, keep the working v1 menu.
+    if (menuMgr.GetMenuItemById menuId) != undefined do
+    (
+        local dropped = try ( mainMenuBar.DeleteItem menuId ) catch ( false )
+        if dropped != true do return true
+    )
 
     local sub
     if (menuMgr.GetMenuItemById helpId) == undefined then
@@ -141,9 +199,11 @@ fn OutWit_3dsMax_RegisterMenu =
         sub = mainMenuBar.CreateSubMenu menuId "OmnibusCloud" beforeId:helpId
 
     -- macroScript actions live in the "Macros" action table (647394); the "Name`category" string
-    -- selects the macro. Canon (design 1.1): scene actions | account/config | external — three
-    -- groups split by separators. Render/Export grey out until signed in; Sign in / Sign out are
-    -- separate items gated by their own isEnabled handlers (only the relevant one is active).
+    -- selects the macro. Canon (design 1.1): passive account header | scene actions |
+    -- account/config | external — groups split by separators. Render/Export grey out until
+    -- signed in; Sign in / Sign out are separate items gated by their own isEnabled handlers.
+    sub.CreateAction "B5F1E2C0-0008-4E2B-9C3A-000000000008" 647394 "OutWitAccount`OmnibusCloud"
+    try ( sub.CreateSeparator "B5F1E2C0-00A0-4E2B-9C3A-0000000000A0" ) catch ()
     sub.CreateAction "B5F1E2C0-0001-4E2B-9C3A-000000000001" 647394 "OutWitRender`OmnibusCloud"
     sub.CreateAction "B5F1E2C0-0002-4E2B-9C3A-000000000002" 647394 "OutWitExportScene`OmnibusCloud"
     try ( sub.CreateSeparator "B5F1E2C0-00A1-4E2B-9C3A-0000000000A1" ) catch ()
@@ -157,6 +217,7 @@ fn OutWit_3dsMax_RegisterMenu =
     -- The persisted session restores in the background right at startup (menu gate turns green
     -- without a manual sign-in).
     OutWit_3dsMax_WarmUpSession()
+    OutWit_3dsMax_UpdateAccountHeader()
 
     true
 )

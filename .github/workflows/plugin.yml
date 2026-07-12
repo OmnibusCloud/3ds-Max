@@ -228,4 +228,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
+          # Anything suffixed is a prerelease — incl. internal -test/-dev/-internal iteration tags,
+          # which must never become the "Latest" release the portal feed serves.
+          prerelease: ${{ contains(github.ref_name, '-') }}
