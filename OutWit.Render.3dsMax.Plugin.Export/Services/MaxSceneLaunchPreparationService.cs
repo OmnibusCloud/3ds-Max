@@ -74,6 +74,7 @@ public sealed class MaxSceneLaunchPreparationService
             Samples = request.Samples,
             UseAllClients = request.UseAllClients,
             SelectedGroupName = request.SelectedGroupName,
+            SelectedProjectName = request.SelectedProjectName,
             JsonArtifactPath = jsonResult.OutputPath ?? string.Empty,
             MemoryPackGzipArtifactPath = memoryPackGzipArtifactPath
         };

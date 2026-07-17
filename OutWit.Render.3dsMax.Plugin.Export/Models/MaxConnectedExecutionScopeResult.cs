@@ -19,6 +19,9 @@ public sealed class MaxConnectedExecutionScopeResult
 
     public List<MaxConnectedExecutionGroupOption> Groups { get; set; } = [];
 
+    /// <summary>Projects (campaigns) the user may launch into — listed BEFORE groups in the Target UI.</summary>
+    public List<MaxConnectedExecutionProjectOption> Projects { get; set; } = [];
+
     public List<MaxSceneDiagnosticItem> Diagnostics { get; set; } = [];
 
     #endregion

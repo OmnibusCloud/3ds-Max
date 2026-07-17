@@ -31,6 +31,8 @@ public sealed class MaxSceneLaunchPackageManifest
 
     public string SelectedGroupName { get; set; } = string.Empty;
 
+    public string SelectedProjectName { get; set; } = string.Empty;
+
     public string JsonArtifactPath { get; set; } = string.Empty;
 
     public string MemoryPackGzipArtifactPath { get; set; } = string.Empty;

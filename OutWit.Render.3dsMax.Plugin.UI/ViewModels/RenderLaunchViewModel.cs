@@ -17,6 +17,11 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
         "ExportBlend"
     ];
 
+    // Which entries of the unified Target list are PROJECTS (campaigns). The list shows plain
+    // names (projects first, then groups); on a cross-kind name collision the project wins —
+    // the same deterministic rule the submission transport applies.
+    private HashSet<string> m_projectNames = new(StringComparer.OrdinalIgnoreCase);
+
     #endregion
 
     #region Constructors
@@ -34,8 +39,8 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
     private void InitDefault()
     {
         SelectedRenderMode = RENDER_MODE_OPTIONS[0];
-        AvailableGroupNames = [];
-        ExecutionScopeSummary = "Select group before connected launch";
+        AvailableTargetNames = [];
+        ExecutionScopeSummary = "Select a project or group before connected launch";
         // Whole-network is a permission: hidden until the loaded execution scope confirms it (MX-10).
         CanRunOnAllClientsOption = false;
         JobStatusText = "No active job";
@@ -51,8 +56,8 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
             if (e.PropertyName == nameof(ResolutionX) || e.PropertyName == nameof(ResolutionY))
                 RenderResolutionText = $"{ResolutionX} x {ResolutionY}";
 
-            if (e.PropertyName == nameof(UseAllClients) || e.PropertyName == nameof(SelectedGroupName))
-                ExecutionScopeSummary = UseAllClients ? "All clients" : string.IsNullOrWhiteSpace(SelectedGroupName) ? "Select group before connected launch" : $"Group: {SelectedGroupName}";
+            if (e.PropertyName == nameof(UseAllClients) || e.PropertyName == nameof(SelectedTargetName))
+                ExecutionScopeSummary = BuildScopeSummary();
 
             if (e.PropertyName == nameof(CanRunOnAllClientsOption) && !CanRunOnAllClientsOption)
                 UseAllClients = false;
@@ -149,19 +154,36 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
     }
 
     /// <summary>
-    /// Applies the currently available execution scope options to the launch UI.
+    /// Applies the currently available execution scope options to the launch UI: the unified
+    /// Target list carries the user's projects (campaigns) FIRST, then the authorized groups.
     /// </summary>
     public void ApplyExecutionScope(MaxConnectedExecutionScopeResult result)
     {
-        AvailableGroupNames = result.Groups.Select(me => me.Name).ToArray();
+        m_projectNames = result.Projects.Select(me => me.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        AvailableTargetNames = result.Projects.Select(me => me.Name)
+            .Concat(result.Groups.Select(me => me.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         CanRunOnAllClientsOption = result.CanRunOnAllClients;
         UseAllClients = result.CanRunOnAllClients && UseAllClients;
 
-        if (!UseAllClients && string.IsNullOrWhiteSpace(SelectedGroupName) && AvailableGroupNames.Count > 0)
-            SelectedGroupName = AvailableGroupNames[0];
+        if (!UseAllClients && string.IsNullOrWhiteSpace(SelectedTargetName) && AvailableTargetNames.Count > 0)
+            SelectedTargetName = AvailableTargetNames[0];
 
-        if (result.CanRunOnAllClients == false && string.IsNullOrWhiteSpace(SelectedGroupName) == false)
-            ExecutionScopeSummary = $"Group: {SelectedGroupName}";
+        ExecutionScopeSummary = BuildScopeSummary();
+    }
+
+    #endregion
+
+    #region Tools
+
+    private string BuildScopeSummary()
+    {
+        if (UseAllClients)
+            return "All clients";
+        if (string.IsNullOrWhiteSpace(SelectedTargetName))
+            return "Select a project or group before connected launch";
+        return IsProjectSelected ? $"Project: {SelectedTargetName}" : $"Group: {SelectedTargetName}";
     }
 
     #endregion
@@ -194,11 +216,21 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public bool CanRunOnAllClientsOption { get; set; }
 
+    /// <summary>The unified Target list: project names first, then group names.</summary>
     [Notify]
-    public IReadOnlyList<string> AvailableGroupNames { get; set; } = [];
+    public IReadOnlyList<string> AvailableTargetNames { get; set; } = [];
 
     [Notify]
-    public string SelectedGroupName { get; set; } = string.Empty;
+    public string SelectedTargetName { get; set; } = string.Empty;
+
+    public bool IsProjectSelected =>
+        !string.IsNullOrWhiteSpace(SelectedTargetName) && m_projectNames.Contains(SelectedTargetName);
+
+    /// <summary>The selected name when it is a PROJECT, else empty — feeds the launch request.</summary>
+    public string SelectedProjectTargetName => IsProjectSelected ? SelectedTargetName : string.Empty;
+
+    /// <summary>The selected name when it is a GROUP, else empty — feeds the launch request.</summary>
+    public string SelectedGroupTargetName => IsProjectSelected ? string.Empty : SelectedTargetName;
 
     [Notify]
     public string ExecutionScopeSummary { get; set; }

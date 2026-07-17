@@ -67,7 +67,7 @@ public sealed class MaxConnectedExecutionScopeService
 
             diagnostics.Add(CreateDiagnostic(
                 MaxSceneDiagnosticSeverity.Info,
-                $"Loaded execution scope: {scope.Groups.Length} groups, all-clients={scope.CanRunOnAllClients}."));
+                $"Loaded execution scope: {scope.Projects.Length} projects, {scope.Groups.Length} groups, all-clients={scope.CanRunOnAllClients}."));
 
             return new MaxConnectedExecutionScopeResult
             {
@@ -82,6 +82,14 @@ public sealed class MaxConnectedExecutionScopeService
                         GroupId = me.GroupId?.ToString() ?? string.Empty,
                         Name = me.Name,
                         Description = me.Description
+                    })
+                    .ToList(),
+                Projects = scope.Projects
+                    .Select(me => new MaxConnectedExecutionProjectOption
+                    {
+                        ProjectId = me.ProjectId.ToString(),
+                        Name = me.Name,
+                        Description = me.Description ?? string.Empty
                     })
                     .ToList(),
                 Diagnostics = diagnostics

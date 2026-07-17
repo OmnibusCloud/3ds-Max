@@ -23,6 +23,8 @@ public sealed class MaxConnectedRenderSubmissionReceipt
 
     public string SelectedGroupName { get; set; } = string.Empty;
 
+    public string SelectedProjectName { get; set; } = string.Empty;
+
     public string PackageArchivePath { get; set; } = string.Empty;
 
     public string StatusText { get; set; } = string.Empty;

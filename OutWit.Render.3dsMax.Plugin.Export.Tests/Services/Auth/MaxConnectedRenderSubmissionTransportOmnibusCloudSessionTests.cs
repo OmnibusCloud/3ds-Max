@@ -47,6 +47,82 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSessionTest
     }
 
     [Test]
+    public async Task SubmitFailsWhenBothProjectAndGroupAreSelectedTest()
+    {
+        var transport = CreateTransport(new FakeMaxCloudConnectionService { Client = new FakeWitCloudClient() });
+        var request = CreateRequest();
+        request.UseAllClients = false;
+        request.SelectedGroupName = "Artists";
+        request.SelectedProjectName = "Town Asset";
+
+        var result = await transport.SubmitAsync(request, CreatePackageWithScene());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.JobId, Does.StartWith("failed-"));
+            Assert.That(result.StatusText, Does.Contain("not both"));
+        });
+    }
+
+    [Test]
+    public async Task SubmitFailsWhenNoTargetIsSelectedTest()
+    {
+        // Launch-week req 4: no target must never silently degrade to an unscoped all-clients
+        // submit (the engine rejects it for accounts without the global grant).
+        var transport = CreateTransport(new FakeMaxCloudConnectionService { Client = new FakeWitCloudClient() });
+        var request = CreateRequest();
+        request.UseAllClients = false;
+
+        var result = await transport.SubmitAsync(request, CreatePackageWithScene());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.JobId, Does.StartWith("failed-"));
+            Assert.That(result.StatusText, Does.Contain("Select a project or a render group"));
+        });
+    }
+
+    [Test]
+    public async Task SubmitFailsWhenSelectedProjectIsNotInScopeTest()
+    {
+        var client = new FakeWitCloudClient();
+        client.ScopeOptions = new OutWit.Cloud.Data.Access.ExecutionScopeOptions
+        {
+            Projects = [new OutWit.Cloud.Data.Access.ExecutionProjectOption { ProjectId = Guid.NewGuid(), Name = "Spring Rig" }]
+        };
+        var transport = CreateTransport(new FakeMaxCloudConnectionService { Client = client });
+        var request = CreateRequest();
+        request.UseAllClients = false;
+        request.SelectedProjectName = "Town Asset";
+
+        var result = await transport.SubmitAsync(request, CreatePackageWithScene());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.JobId, Does.StartWith("failed-"));
+            Assert.That(result.StatusText, Does.Contain("Project 'Town Asset' was not found"));
+        });
+    }
+
+    [Test]
+    public async Task SubmitFailsWhenSelectedGroupIsNotInScopeTest()
+    {
+        // Pre-project behavior preserved — but now the vanished group fails BEFORE any upload.
+        var transport = CreateTransport(new FakeMaxCloudConnectionService { Client = new FakeWitCloudClient() });
+        var request = CreateRequest();
+        request.UseAllClients = false;
+        request.SelectedGroupName = "Artists";
+
+        var result = await transport.SubmitAsync(request, CreatePackageWithScene());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.JobId, Does.StartWith("failed-"));
+            Assert.That(result.StatusText, Does.Contain("Group 'Artists' was not found"));
+        });
+    }
+
+    [Test]
     public async Task SubmitPropagatesFailedPackageStateTest()
     {
         var transport = CreateTransport(new FakeMaxCloudConnectionService());
@@ -225,6 +301,15 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSessionTest
     private static MaxConnectedRenderSubmissionTransportOmnibusCloudSession CreateTransport(FakeMaxCloudConnectionService connectionService)
     {
         return new MaxConnectedRenderSubmissionTransportOmnibusCloudSession(connectionService, new MaxConnectedRenderSceneAttachmentService());
+    }
+
+    private static MaxSceneLaunchPackageResult CreatePackageWithScene()
+    {
+        return new MaxSceneLaunchPackageResult
+        {
+            IsSuccess = true,
+            Scene = new OutWit.Controller.Render.Dcc.Model.DccSceneData()
+        };
     }
 
     private static MaxSceneLaunchPackageRequest CreateRequest()

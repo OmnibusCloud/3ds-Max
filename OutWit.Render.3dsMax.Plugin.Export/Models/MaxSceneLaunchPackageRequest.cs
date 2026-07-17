@@ -27,6 +27,10 @@ public sealed class MaxSceneLaunchPackageRequest
 
     public string SelectedGroupName { get; set; } = string.Empty;
 
+    /// <summary>The selected project (campaign) name — mutually exclusive with
+    /// <see cref="SelectedGroupName"/>; the UI sets exactly one of the two.</summary>
+    public string SelectedProjectName { get; set; } = string.Empty;
+
     public string OutputFolder { get; set; } = string.Empty;
 
     /// <summary>Still/frames image format ("PNG"/"JPEG"/"EXR"/"TIFF"/"WEBP"); empty falls back to PNG.</summary>

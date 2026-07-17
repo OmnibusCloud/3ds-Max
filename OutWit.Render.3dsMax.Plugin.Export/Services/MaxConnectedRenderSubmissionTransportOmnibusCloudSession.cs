@@ -101,6 +101,35 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         {
             var scene = package.Scene;
 
+            // Target resolution runs BEFORE the attachment uploads: a wrong/vanished target must
+            // fail in milliseconds with a readable message, not after minutes of pushing textures.
+            var hasGroupName = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
+            var hasProjectName = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
+
+            if (hasGroupName && hasProjectName)
+                return CreateFailedState(package, "Connected render submission failed. A launch may target a project or a group, not both.", diagnostics, now);
+
+            // Launch-week req 4 (and the silent-degrade fix the Blender addon needed in 1.0.9): a
+            // launch with NO target must never fall through to an unscoped all-clients submit — the
+            // engine rejects it for accounts without the global grant.
+            if (!request.UseAllClients && !hasGroupName && !hasProjectName)
+                return CreateFailedState(package, "Connected render submission failed. Select a project or a render group first (or run on the whole network if your account allows it).", diagnostics, now);
+
+            Guid? clientGroupId = null;
+            Guid? projectId = null;
+            if (!request.UseAllClients && hasProjectName)
+            {
+                projectId = await ResolveProjectIdAsync(client, request, diagnostics, cancellationToken);
+                if (projectId == null)
+                    return CreateFailedState(package, $"Connected render submission failed. Project '{request.SelectedProjectName}' was not found in the user's execution scope.", diagnostics, now);
+            }
+            else if (!request.UseAllClients)
+            {
+                clientGroupId = await ResolveClientGroupIdAsync(client, request, diagnostics, cancellationToken);
+                if (clientGroupId == null)
+                    return CreateFailedState(package, $"Connected render submission failed. Group '{request.SelectedGroupName}' was not found in the user's execution scope.", diagnostics, now);
+            }
+
             // Upload progress (design 4.1.3 Uploading card): each attachment advances the fraction;
             // the final scene submission tops it off. The asset count is an upper bound (skipped
             // attachments just make the bar finish early) — honest enough for a progress bar.
@@ -125,11 +154,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             // here with a readable message instead of on the farm after the whole upload.
             DccSceneValidationService.Validate(scene);
 
-            var clientGroupId = await ResolveClientGroupIdAsync(client, request, diagnostics, cancellationToken);
-            if (!request.UseAllClients && !string.IsNullOrWhiteSpace(request.SelectedGroupName) && clientGroupId == null)
-                return CreateFailedState(package, $"Connected render submission failed. Group '{request.SelectedGroupName}' was not found in the user's execution scope.", diagnostics, now);
-
-            var submission = CreateSubmission(request, scene, clientGroupId);
+            var submission = CreateSubmission(request, scene, clientGroupId, projectId);
             var handle = await client.Scripts.SubmitAsync(submission, cancellationToken);
             request.UploadProgress?.Invoke(1d);
 
@@ -286,7 +311,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
     #region Tools
 
-    private static WitJobSubmission CreateSubmission(MaxSceneLaunchPackageRequest request, DccSceneData scene, Guid? clientGroupId)
+    private static WitJobSubmission CreateSubmission(MaxSceneLaunchPackageRequest request, DccSceneData scene, Guid? clientGroupId, Guid? projectId)
     {
         var options = CreateRenderOptions(request, scene);
 
@@ -315,7 +340,8 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         {
             ScriptName = scriptName,
             Parameters = parameters,
-            ClientGroupId = clientGroupId
+            ClientGroupId = clientGroupId,
+            ProjectId = projectId
         };
     }
 
@@ -370,6 +396,27 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         return group.GroupId;
     }
 
+    // Name-resolved against the FRESH scope like the group above — a project that completed (or was
+    // unshared) since the dialog loaded fails here with a readable message, not on the farm.
+    private static async Task<Guid?> ResolveProjectIdAsync(
+        IWitCloudClient client,
+        MaxSceneLaunchPackageRequest request,
+        List<MaxSceneDiagnosticItem> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (request.UseAllClients || string.IsNullOrWhiteSpace(request.SelectedProjectName))
+            return null;
+
+        var scope = await client.GetExecutionScopeOptionsAsync(cancellationToken);
+        var project = scope.Projects.FirstOrDefault(me => string.Equals(me.Name, request.SelectedProjectName, StringComparison.OrdinalIgnoreCase));
+
+        if (project == null || project.ProjectId == Guid.Empty)
+            return null;
+
+        diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Resolved launch project '{project.Name}' to '{project.ProjectId}'."));
+        return project.ProjectId;
+    }
+
     private static string WriteSubmissionReceipt(
         MaxSceneLaunchPackageRequest request,
         MaxSceneLaunchPackageResult package,
@@ -387,6 +434,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             RenderMode = request.RenderMode,
             UseAllClients = request.UseAllClients,
             SelectedGroupName = request.SelectedGroupName,
+            SelectedProjectName = request.SelectedProjectName,
             PackageArchivePath = package.PackageArchivePath,
             StatusText = $"Submitted to OmnibusCloud script '{scriptName}' as job '{jobId}'."
         };

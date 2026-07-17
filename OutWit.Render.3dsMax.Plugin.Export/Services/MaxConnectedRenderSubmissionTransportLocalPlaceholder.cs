@@ -81,6 +81,7 @@ public sealed class MaxConnectedRenderSubmissionTransportLocalPlaceholder : IMax
             RenderMode = request.RenderMode,
             UseAllClients = request.UseAllClients,
             SelectedGroupName = request.SelectedGroupName,
+            SelectedProjectName = request.SelectedProjectName,
             PackageArchivePath = package.PackageArchivePath,
             StatusText = "Recorded local placeholder submission receipt. Remote OmnibusCloud transport is the next implementation step."
         };

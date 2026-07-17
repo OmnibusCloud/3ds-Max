@@ -98,7 +98,8 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
             FrameEnd = LaunchVm.FrameEnd,
             Samples = LaunchVm.Samples,
             UseAllClients = LaunchVm.UseAllClients,
-            SelectedGroupName = LaunchVm.SelectedGroupName,
+            SelectedGroupName = LaunchVm.SelectedGroupTargetName,
+            SelectedProjectName = LaunchVm.SelectedProjectTargetName,
             OutputFolder = outputFolder
         };
 
@@ -148,7 +149,8 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
             FrameEnd = LaunchVm.FrameEnd,
             Samples = LaunchVm.Samples,
             UseAllClients = LaunchVm.UseAllClients,
-            SelectedGroupName = LaunchVm.SelectedGroupName,
+            SelectedGroupName = LaunchVm.SelectedGroupTargetName,
+            SelectedProjectName = LaunchVm.SelectedProjectTargetName,
             OutputFolder = Path.Combine(OptionsVm.OutputFolder, "OmnibusCloudLaunches")
         });
 
@@ -306,6 +308,7 @@ public sealed class ExportMainViewModel : ViewModelBase<ApplicationViewModel>
     {
         return $"{result.StatusText}{Environment.NewLine}"
                + $"User: {result.UserDisplayName}{Environment.NewLine}"
+               + $"Projects: {string.Join(", ", result.Projects.Select(me => me.Name))}{Environment.NewLine}"
                + $"Groups: {string.Join(", ", result.Groups.Select(me => me.Name))}{Environment.NewLine}"
                + $"All Clients: {result.CanRunOnAllClients}";
     }

@@ -365,7 +365,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             FrameEnd = LaunchVm.FrameEnd,
             Samples = LaunchVm.Samples,
             UseAllClients = LaunchVm.UseAllClients,
-            SelectedGroupName = LaunchVm.SelectedGroupName,
+            SelectedGroupName = LaunchVm.SelectedGroupTargetName,
+            SelectedProjectName = LaunchVm.SelectedProjectTargetName,
             OutputFolder = outputFolder,
             ImageFormat = SelectedImageFormat,
             TilesX = TilesX,
@@ -532,7 +533,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Settings.LockAspectRatio = LockAspectRatio;
         Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.UseAllClients = LaunchVm.UseAllClients;
-        Settings.LastGroupName = LaunchVm.SelectedGroupName ?? string.Empty;
+        // Historic field name; carries the unified target DISPLAY name (project or group).
+        Settings.LastGroupName = LaunchVm.SelectedTargetName ?? string.Empty;
         Settings.ImageFormat = SelectedImageFormat;
         Settings.VideoContainer = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset);
         Settings.TilesX = TilesX;

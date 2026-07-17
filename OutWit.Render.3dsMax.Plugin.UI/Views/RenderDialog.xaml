@@ -177,8 +177,8 @@
                               Visibility="{Binding LaunchVm.CanRunOnAllClientsOption, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding LaunchVm.UseAllClients}" />
 
-                    <ComboBox ItemsSource="{Binding LaunchVm.AvailableGroupNames}"
-                              SelectedItem="{Binding LaunchVm.SelectedGroupName}">
+                    <ComboBox ItemsSource="{Binding LaunchVm.AvailableTargetNames}"
+                              SelectedItem="{Binding LaunchVm.SelectedTargetName}">
                         <ComboBox.Style>
                             <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="IsEnabled" Value="True" />
