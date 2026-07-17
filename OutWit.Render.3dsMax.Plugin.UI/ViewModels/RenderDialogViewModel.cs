@@ -385,7 +385,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void UpdateStatus()
     {
-        CanRender = CloudVm.IsSignedIn && !Status.IsActiveJob;
+        // Launch-week req 4: no target at all (no project, no group, no all-network right) keeps
+        // Render disabled — the scope summary line already says "Select a project or group…".
+        var hasRenderTarget = LaunchVm.UseAllClients || LaunchVm.SelectedTarget is not null;
+        CanRender = CloudVm.IsSignedIn && !Status.IsActiveJob && hasRenderTarget;
         CanCancel = Status.IsActiveJob && !m_cancelRequested;
         IsImageOutput = OutputAxis == RenderOutputAxis.Image;
         IsAnimationOutput = OutputAxis == RenderOutputAxis.Animation;

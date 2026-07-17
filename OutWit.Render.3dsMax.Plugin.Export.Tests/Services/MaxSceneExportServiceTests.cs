@@ -459,6 +459,60 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
+    public void ConnectedRenderPreflightPassesForProjectTargetTest()
+    {
+        // Live-found: preflight demanded a GROUP and rejected a launch targeted at a project
+        // (campaign) — the unified Target list offers both kinds since projects joined it.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "RenderFrames",
+            ResolutionX = 1920,
+            ResolutionY = 1080,
+            FrameStart = 1,
+            FrameEnd = 10,
+            Samples = 64,
+            SelectedProjectName = "Town Asset",
+            OutputFolder = Path.GetTempPath()
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.True);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("preflight passed locally", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
+    public void ConnectedRenderPreflightFailsWhenBothProjectAndGroupAreSelectedTest()
+    {
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "RenderStill",
+            ResolutionX = 1920,
+            ResolutionY = 1080,
+            FrameStart = 1,
+            FrameEnd = 1,
+            SelectedGroupName = "Artists",
+            SelectedProjectName = "Town Asset",
+            OutputFolder = Path.GetTempPath()
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.False);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("not both", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
     public void ConnectedRenderPreflightPassesForExportBlendWithoutGroupOrResolutionTest()
     {
         // ExportBlend builds the .blend host-side: no execution group, resolution, or frame range

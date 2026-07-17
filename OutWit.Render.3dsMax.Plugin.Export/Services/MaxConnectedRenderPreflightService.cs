@@ -63,8 +63,14 @@ public sealed class MaxConnectedRenderPreflightService
         // ExportBlend builds the .blend host-side: no farm group, resolution, or frame range applies.
         if (request.RenderMode != EXPORT_BLEND_MODE)
         {
-            if (!request.UseAllClients && string.IsNullOrWhiteSpace(request.SelectedGroupName))
-                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select one execution group or enable 'Run on all clients' before connected launch."));
+            var hasGroup = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
+            var hasProject = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
+
+            if (hasGroup && hasProject)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "A launch may target a project or a group, not both."));
+
+            if (!request.UseAllClients && !hasGroup && !hasProject)
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select a project or an execution group (or enable 'Run on all clients') before connected launch."));
 
             if (request.ResolutionX <= 0 || request.ResolutionY <= 0)
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Render resolution must be greater than zero."));

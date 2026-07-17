@@ -103,27 +103,31 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
             // Target resolution runs BEFORE the attachment uploads: a wrong/vanished target must
             // fail in milliseconds with a readable message, not after minutes of pushing textures.
+            // ExportBlend is exempt — the export dialog carries no target picker and the job has
+            // always submitted unscoped (the engine still authorizes: accounts without the
+            // all-clients grant get its readable rejection; scoping the export is a follow-up).
+            var isExportBlend = request.RenderMode == "ExportBlend";
             var hasGroupName = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
             var hasProjectName = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
 
-            if (hasGroupName && hasProjectName)
+            if (!isExportBlend && hasGroupName && hasProjectName)
                 return CreateFailedState(package, "Connected render submission failed. A launch may target a project or a group, not both.", diagnostics, now);
 
             // Launch-week req 4 (and the silent-degrade fix the Blender addon needed in 1.0.9): a
             // launch with NO target must never fall through to an unscoped all-clients submit — the
             // engine rejects it for accounts without the global grant.
-            if (!request.UseAllClients && !hasGroupName && !hasProjectName)
+            if (!isExportBlend && !request.UseAllClients && !hasGroupName && !hasProjectName)
                 return CreateFailedState(package, "Connected render submission failed. Select a project or a render group first (or run on the whole network if your account allows it).", diagnostics, now);
 
             Guid? clientGroupId = null;
             Guid? projectId = null;
-            if (!request.UseAllClients && hasProjectName)
+            if (!isExportBlend && !request.UseAllClients && hasProjectName)
             {
                 projectId = await ResolveProjectIdAsync(client, request, diagnostics, cancellationToken);
                 if (projectId == null)
                     return CreateFailedState(package, $"Connected render submission failed. Project '{request.SelectedProjectName}' was not found in the user's execution scope.", diagnostics, now);
             }
-            else if (!request.UseAllClients)
+            else if (!isExportBlend && !request.UseAllClients && hasGroupName)
             {
                 clientGroupId = await ResolveClientGroupIdAsync(client, request, diagnostics, cancellationToken);
                 if (clientGroupId == null)
