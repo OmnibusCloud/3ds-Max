@@ -177,8 +177,8 @@
                               Visibility="{Binding LaunchVm.CanRunOnAllClientsOption, Converter={StaticResource BoolToVis}}"
                               IsChecked="{Binding LaunchVm.UseAllClients}" />
 
-                    <ComboBox ItemsSource="{Binding LaunchVm.AvailableTargetNames}"
-                              SelectedItem="{Binding LaunchVm.SelectedTargetName}">
+                    <ComboBox ItemsSource="{Binding LaunchVm.AvailableTargets}"
+                              SelectedItem="{Binding LaunchVm.SelectedTarget}">
                         <ComboBox.Style>
                             <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="IsEnabled" Value="True" />
@@ -189,6 +189,19 @@
                                 </Style.Triggers>
                             </Style>
                         </ComboBox.Style>
+                        <ComboBox.ItemTemplate>
+                            <!-- Colored kind dot + name + a quiet kind word: projects and groups share one
+                                 flat list, and color alone would fail color-blind users. -->
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="8" Height="8" Fill="{Binding KindBrush}"
+                                             VerticalAlignment="Center" Margin="0,0,7,0" />
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding KindLabel}" FontStyle="Italic" Opacity="0.55"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
                     </ComboBox>
                 </StackPanel>
             </GroupBox>

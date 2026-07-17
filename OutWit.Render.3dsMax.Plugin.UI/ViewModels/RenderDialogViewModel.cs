@@ -534,7 +534,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.UseAllClients = LaunchVm.UseAllClients;
         // Historic field name; carries the unified target DISPLAY name (project or group).
-        Settings.LastGroupName = LaunchVm.SelectedTargetName ?? string.Empty;
+        Settings.LastGroupName = LaunchVm.SelectedTargetName;
         Settings.ImageFormat = SelectedImageFormat;
         Settings.VideoContainer = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset);
         Settings.TilesX = TilesX;
