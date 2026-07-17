@@ -60,18 +60,21 @@ public sealed class MaxConnectedRenderPreflightService
         if (!VALID_RENDER_MODES.Contains(request.RenderMode))
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Unsupported render mode '{request.RenderMode}'."));
 
-        // ExportBlend builds the .blend host-side: no farm group, resolution, or frame range applies.
+        // EVERY connected mode needs a compute target — including ExportBlend, whose server-side
+        // .blend build runs on the farm like any other job (unscoped only works with the
+        // whole-network right).
+        var hasGroup = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
+        var hasProject = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
+
+        if (hasGroup && hasProject)
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "A launch may target a project or a group, not both."));
+
+        if (!request.UseAllClients && !hasGroup && !hasProject)
+            diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select a project or an execution group (or enable 'Run on all clients') before connected launch."));
+
+        // ExportBlend builds the .blend host-side: no resolution or frame range applies.
         if (request.RenderMode != EXPORT_BLEND_MODE)
         {
-            var hasGroup = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
-            var hasProject = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
-
-            if (hasGroup && hasProject)
-                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "A launch may target a project or a group, not both."));
-
-            if (!request.UseAllClients && !hasGroup && !hasProject)
-                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Select a project or an execution group (or enable 'Run on all clients') before connected launch."));
-
             if (request.ResolutionX <= 0 || request.ResolutionY <= 0)
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Render resolution must be greater than zero."));
 

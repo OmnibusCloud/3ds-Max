@@ -513,11 +513,11 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
-    public void ConnectedRenderPreflightPassesForExportBlendWithoutGroupOrResolutionTest()
+    public void ConnectedRenderPreflightPassesForExportBlendWithoutResolutionTest()
     {
-        // ExportBlend builds the .blend host-side: no execution group, resolution, or frame range
-        // applies, so preflight must pass with only the endpoint configured (regression for the
-        // Export dialog's default target being blocked).
+        // ExportBlend builds the .blend host-side: no resolution or frame range applies — but a
+        // COMPUTE TARGET does (the server-side build runs on the farm like any job). Whole-network
+        // stands in for the historic unscoped export here; a project/group works the same.
         var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
 
         var result = service.Run(new MaxSceneLaunchPackageRequest
@@ -525,6 +525,51 @@ public sealed class MaxSceneExportServiceTests
             CloudUrl = "https://omnibuscloud.local",
             IdentityUrl = "https://identity.omnibuscloud.local",
             RenderMode = "ExportBlend",
+            UseAllClients = true,
+            OutputFolder = Path.GetTempPath()
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.True);
+            Assert.That(result.Diagnostics.Any(me => me.Severity == MaxSceneDiagnosticSeverity.Error), Is.False);
+        });
+    }
+
+    [Test]
+    public void ConnectedRenderPreflightFailsForExportBlendWithoutAnyTargetTest()
+    {
+        // Live-found: a non-admin's export always died ENGINE-side ("not authorized to launch on
+        // all clients") because the export submitted unscoped. Now the target requirement applies
+        // to ExportBlend too, so the gap surfaces locally before any upload.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "ExportBlend",
+            OutputFolder = Path.GetTempPath()
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.False);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("Select a project or an execution group", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
+    public void ConnectedRenderPreflightPassesForExportBlendIntoProjectTest()
+    {
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "ExportBlend",
+            SelectedProjectName = "Town Asset",
             OutputFolder = Path.GetTempPath()
         });
 

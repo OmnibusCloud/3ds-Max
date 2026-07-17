@@ -99,6 +99,42 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         // Silent session restore so the default Blender target is available without a browser trip.
         await CloudVm.EnsureSessionRestoredAsync();
+        await LoadExecutionScopeAsync();
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// Loads the compute targets the server-side .blend build may run on. The export used to
+    /// submit UNSCOPED (all clients) — which the engine only allows for accounts with the global
+    /// grant, so every non-admin export died with "not authorized to launch on all clients".
+    /// Same unified project/group list as the Render dialog.
+    /// </summary>
+    private async Task LoadExecutionScopeAsync()
+    {
+        if (!CloudVm.IsSignedIn)
+            return;
+
+        var request = new MaxConnectedExecutionScopeRequest
+        {
+            CloudUrl = CloudVm.CloudUrl,
+            IdentityUrl = CloudVm.IdentityUrl
+        };
+
+        var result = await Task.Run(() => ApplicationVm.ConnectedExecutionScopeService.LoadAsync(request));
+        if (!result.IsSuccess)
+            return;
+
+        AvailableTargets = result.Projects
+            .Select(me => new RenderTargetOption { IsProject = true, Name = me.Name })
+            .Concat(result.Groups.Select(me => new RenderTargetOption { IsProject = false, Name = me.Name }))
+            .ToArray();
+        CanRunOnAllClientsOption = result.CanRunOnAllClients;
+        // Historic behavior for accounts with the global grant: the export ran on the whole
+        // network. Everyone else defaults to their first project/group.
+        UseAllClients = result.CanRunOnAllClients;
+        if (!UseAllClients && SelectedTarget is null && AvailableTargets.Count > 0)
+            SelectedTarget = AvailableTargets[0];
+
         UpdateStatus();
     }
 
@@ -160,6 +196,9 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             IdentityUrl = CloudVm.IdentityUrl,
             RenderMode = "ExportBlend",
             OutputFolder = outputFolder,
+            UseAllClients = UseAllClients,
+            SelectedGroupName = SelectedTarget is { IsProject: false } group ? group.Name : string.Empty,
+            SelectedProjectName = SelectedTarget is { IsProject: true } project ? project.Name : string.Empty,
             // The server packs every attachment into the .blend (pack_all), so a baked scanned
             // material travels inside the returned file like any authored texture.
             BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials,
@@ -312,12 +351,15 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void UpdateStatus()
     {
-        // The Blender target is a server round-trip and needs a session; DCC JSON is local.
-        var targetReady = Target == ExportTarget.DccJson || CloudVm.IsSignedIn;
+        // The Blender target is a server round-trip and needs a session PLUS a compute target
+        // (project/group or the whole-network right) for the server-side build; DCC JSON is local.
+        var hasComputeTarget = UseAllClients || SelectedTarget is not null;
+        var targetReady = Target == ExportTarget.DccJson || (CloudVm.IsSignedIn && hasComputeTarget);
         CanExport = targetReady && !IsExporting && !IsCompleted;
         CanCancel = IsExporting;
         IsBlend = Target == ExportTarget.Blend;
         IsReady = !IsExporting && !IsCompleted && !IsFailed;
+        ShowNoTargetsHint = IsBlend && CloudVm.IsSignedIn && !hasComputeTarget && AvailableTargets.Count == 0;
     }
 
     private void PersistSettings()
@@ -334,14 +376,19 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(Target) or nameof(IsExporting) or nameof(IsCompleted) or nameof(IsFailed))
+        if (e.PropertyName is nameof(Target) or nameof(IsExporting) or nameof(IsCompleted) or nameof(IsFailed)
+            or nameof(SelectedTarget) or nameof(UseAllClients))
             UpdateStatus();
     }
 
     private void OnCloudPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(CloudSessionViewModel.IsSignedIn))
+        {
             UpdateStatus();
+            if (CloudVm.IsSignedIn)
+                _ = LoadExecutionScopeAsync();
+        }
     }
 
     #endregion
@@ -398,6 +445,22 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool CanCancel { get; set; }
+
+    /// <summary>Compute targets for the server-side .blend build (projects first, then groups).</summary>
+    [Notify]
+    public IReadOnlyList<RenderTargetOption> AvailableTargets { get; set; } = [];
+
+    [Notify]
+    public RenderTargetOption? SelectedTarget { get; set; }
+
+    [Notify]
+    public bool UseAllClients { get; set; }
+
+    [Notify]
+    public bool CanRunOnAllClientsOption { get; set; }
+
+    [Notify]
+    public bool ShowNoTargetsHint { get; set; }
 
     #endregion
 
