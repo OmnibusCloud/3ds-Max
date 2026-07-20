@@ -1,8 +1,8 @@
-# OutWit Render for 3ds Max — Capabilities & Known Limitations
+# OmnibusCloud 3ds Max Plugin — Capabilities & Known Limitations
 
-**Status: public alpha.** This document describes, honestly and specifically, what the
+**Status: public beta — 1.0.** This document describes, honestly and specifically, what the
 plugin transfers well today, what it transfers approximately, what it does not transfer
-yet, and what is planned next. It is the companion to every alpha build: if something you
+yet, and what is planned next. It is the companion to every beta build: if something you
 rely on is listed under *approximate* or *not yet supported*, that is a known boundary,
 not a surprise — and if something breaks that is listed under *supported*, we want to
 hear about it.
@@ -10,7 +10,7 @@ hear about it.
 ## What the plugin does
 
 The plugin exports your 3ds Max scene into a neutral, renderer-agnostic scene contract
-and submits it to the OmnibusCloud render farm, where it is rebuilt and rendered with a
+and submits it to the OmnibusCloud network, where it is rebuilt and rendered with a
 physically-based path tracer (Blender/Cycles). The goal is **faithful look transfer** —
 the render should read as the image the artist authored — not bit-exact replication of a
 legacy rasterizer. Where 3ds Max shading models are non-physical (Scanline's additive
@@ -43,7 +43,7 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
   authored; enclosed detail objects stay opaque).
 - Objects without materials render with their wireframe color, as in the viewport.
 - Scene preparation is fast: mesh data is read in bulk and assembled on all CPU cores
-  (a scene that took minutes to capture in early alphas exports in seconds), and static
+  (a scene that took minutes to capture in early builds exports in seconds), and static
   meshes are never re-sampled per frame.
 
 ### Animation
@@ -69,7 +69,7 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
 - Photometric lights with intensity normalization.
 - Area lights, shadow on/off flags, light color and multiplier animation.
 - The Physical Exposure Control's global EV is honored — raising EV in Max darkens the
-  farm render the same way, giving artists a familiar brightness knob.
+  network render the same way, giving artists a familiar brightness knob.
 
 ### Materials
 - **Standard / Blinn (Scanline-era)**: diffuse color and maps, specular level and
@@ -111,13 +111,13 @@ generalizes. Fixes are always systemic (semantics of a feature), never per-scene
 - Object motion blur → real shutter integration.
 - The blur kind is detected per scene from the objects' authored flags.
 
-### Farm pipeline
+### Network pipeline
 - Distributed still and video (H.264) rendering, resolution/samples/denoise controls,
   automatic texture/asset upload, job caching.
 - Robust asset handling: two textures sharing a filename from different folders stay
   distinct; a texture whose source file is missing degrades that one texture with a
   named warning instead of failing the submission (matching Max's own behavior), and
-  the degraded scene is re-validated before upload so it can never fail late on the farm.
+  the degraded scene is re-validated before upload so it can never fail late on the network.
 
 ### Export to Blender (.blend)
 - The Export dialog can build the scene **server-side into a `.blend` file** and hand it
@@ -239,7 +239,7 @@ These transfer with documented approximations. Expect a faithful read, not an ex
 Please open an issue on the GitHub repository with:
 - the plugin version (Help → About) and, if known, the server version,
 - a minimal scene (or a description of the material/light/feature involved),
-- the native render and the farm render, if you can share them.
+- the native render and the network render, if you can share them.
 
-Scenes that render *differently* are exactly the input this alpha needs — the corpus
+Scenes that render *differently* are exactly the input this beta needs — the corpus
 above grew out of reports like yours.
