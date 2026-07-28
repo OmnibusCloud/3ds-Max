@@ -1,3 +1,4 @@
+using OutWit.Cloud.Auth.Interfaces;
 using OutWit.Common.MVVM.ViewModels;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services;
@@ -49,7 +50,7 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     public IMaxStatusBarService StatusBar => Services.StatusBar;
 
-    public IMaxSystemBrowserLauncher BrowserLauncher => Services.BrowserLauncher;
+    public ISystemBrowserLauncher BrowserLauncher => Services.BrowserLauncher;
 
     public IMaxCloudSessionService CloudSessionService => Services.CloudSessionService;
 

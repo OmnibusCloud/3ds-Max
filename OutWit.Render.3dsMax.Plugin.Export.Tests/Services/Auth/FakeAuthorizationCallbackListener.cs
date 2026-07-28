@@ -1,10 +1,10 @@
-using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
+using OutWit.Cloud.Auth.Interfaces;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services.Auth;
 
-internal sealed class FakeMaxAuthorizationCallbackListener : IMaxAuthorizationCallbackListener
+internal sealed class FakeAuthorizationCallbackListener : IAuthorizationCallbackListener
 {
-    #region IMaxAuthorizationCallbackListener
+    #region IAuthorizationCallbackListener
 
     public string? TryStart()
     {

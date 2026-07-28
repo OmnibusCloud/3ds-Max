@@ -1,48 +1,47 @@
 using System.Text;
 using System.Text.Json;
+using OutWit.Cloud.Auth;
+using OutWit.Cloud.Auth.Sessions;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
 
 /// <summary>
-/// In-process OmnibusCloud user session for the 3ds Max plugin. Mirrors the sign-in
-/// behaviour of the other OmnibusCloud native clients: OIDC authorization-code + PKCE
-/// through the system browser with a loopback callback, silent refresh, and a
-/// DPAPI-protected persisted refresh token. No sidecar process — everything runs
-/// inside the plugin.
+/// In-process OmnibusCloud user session for the 3ds Max plugin — a thin adapter over the shared
+/// OutWit.Cloud.Auth stack (<see cref="TokenService"/> + <see cref="SessionStore"/>) that every
+/// OmnibusCloud native client uses: OIDC authorization-code + PKCE through the system browser
+/// with a loopback callback, silent refresh, and an encrypted-at-rest persisted refresh token.
+/// The adapter keeps the plugin-facing <see cref="IMaxCloudSessionService"/> surface unchanged
+/// and derives DisplayName/UserId from the current access token's JWT claims (they are no longer
+/// persisted alongside the refresh token).
 /// </summary>
 public sealed class MaxCloudSessionService : IMaxCloudSessionService
 {
     #region Constants
 
-    private const string CLIENT_ID = "cloud-client";
+    /// <summary>
+    /// The OIDC client id the 3ds Max plugin is registered under at WitIdentity. Passed
+    /// explicitly to the shared <see cref="TokenService"/> (whose default is the worker
+    /// client's id) — changing it would break sign-in against deployed identity servers.
+    /// </summary>
+    public const string CLIENT_ID = "cloud-client";
 
-    private const string SCOPE = "openid profile roles offline_access";
+    private const string SESSION_FILE_NAME = "3dsmax-session.json";
 
-    private const int TOKEN_EXPIRY_BUFFER_SECONDS = 30;
+    // A DCC plugin session must not silently expire under the artist — the session lives
+    // until an explicit sign-out (or the identity server revokes the refresh token).
+    private const SessionPolicy SESSION_POLICY = SessionPolicy.RememberUntilLogout;
 
-    private const int AUTH_TIMEOUT_SECONDS = 300;
+    private const string NO_SESSION_TEXT = "No active user session.";
 
     #endregion
 
     #region Fields
 
-    private readonly IMaxSessionStore m_sessionStore;
+    private readonly TokenService m_tokenService;
 
-    private readonly IMaxSystemBrowserLauncher m_browserLauncher;
-
-    private readonly Func<IMaxAuthorizationCallbackListener> m_callbackListenerFactory;
-
-    private readonly HttpMessageHandler? m_httpMessageHandler;
-
-    private string? m_accessToken;
-
-    private DateTime m_accessTokenExpiry = DateTime.MinValue;
-
-    private string? m_refreshToken;
-
-    private string? m_tokenEndpoint;
+    private readonly SessionStore m_sessionStore;
 
     private bool m_isSignedIn;
 
@@ -50,22 +49,31 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
 
     private string? m_userId;
 
-    private string? m_lastError = "No active user session.";
+    private string? m_lastError = NO_SESSION_TEXT;
 
     #endregion
 
     #region Constructors
 
-    public MaxCloudSessionService(
-        IMaxSessionStore sessionStore,
-        IMaxSystemBrowserLauncher browserLauncher,
-        Func<IMaxAuthorizationCallbackListener> callbackListenerFactory,
-        HttpMessageHandler? httpMessageHandler = null)
+    public MaxCloudSessionService(TokenService tokenService, SessionStore sessionStore)
     {
+        m_tokenService = tokenService;
         m_sessionStore = sessionStore;
-        m_browserLauncher = browserLauncher;
-        m_callbackListenerFactory = callbackListenerFactory;
-        m_httpMessageHandler = httpMessageHandler;
+
+        InitEvents();
+    }
+
+    #endregion
+
+    #region Initialization
+
+    private void InitEvents()
+    {
+        // A rotated refresh token must be persisted immediately: the identity server revokes
+        // the previous one, so losing the rotation would force an interactive re-login on the
+        // next 3ds Max start.
+        m_tokenService.RefreshTokenRotated += OnRefreshTokenRotated;
+        m_tokenService.ReauthenticationRequired += OnReauthenticationRequired;
     }
 
     #endregion
@@ -79,30 +87,17 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
     /// <returns>True when a signed-in session was restored.</returns>
     public async Task<bool> TryRestoreSessionAsync(CancellationToken cancellationToken = default)
     {
-        var storedSession = await m_sessionStore.LoadAsync(cancellationToken);
-        if (storedSession == null || string.IsNullOrWhiteSpace(storedSession.RefreshToken) || string.IsNullOrWhiteSpace(storedSession.TokenEndpoint))
-        {
-            MaxPluginLogging.Logger.Information("Session restore: no stored session.");
-            return false;
-        }
-
-        m_refreshToken = storedSession.RefreshToken;
-        m_tokenEndpoint = storedSession.TokenEndpoint;
-        m_displayName = string.IsNullOrWhiteSpace(storedSession.DisplayName) ? null : storedSession.DisplayName;
-        m_userId = string.IsNullOrWhiteSpace(storedSession.UserId) ? null : storedSession.UserId;
-
-        var restored = await RefreshTokenAsync(cancellationToken);
+        var restored = await m_tokenService.TryRestoreSessionAsync(SESSION_POLICY, m_sessionStore);
         if (!restored)
         {
-            MaxPluginLogging.Logger.Warning("Session restore failed for {DisplayName}: {Error}", storedSession.DisplayName, m_lastError);
-            await m_sessionStore.ClearAsync(cancellationToken);
+            MaxPluginLogging.Logger.Information("Session restore: no restorable session.");
             ClearRuntimeSession();
             return false;
         }
 
-        await SaveCurrentSessionAsync(cancellationToken);
+        ApplySignedInState(await m_tokenService.GetTokenAsync());
         MaxPluginLogging.Logger.Information("Session restored silently as {DisplayName}.", m_displayName);
-        return true;
+        return m_isSignedIn;
     }
 
     /// <summary>
@@ -113,8 +108,6 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
     /// <returns>The resulting session state.</returns>
     public async Task<MaxConnectedSessionState> SignInAsync(string identityUrl, CancellationToken cancellationToken = default)
     {
-        ClearLastError();
-
         try
         {
             if (string.IsNullOrWhiteSpace(identityUrl))
@@ -123,49 +116,18 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
                 return GetState();
             }
 
-            var endpoints = await DiscoverEndpointsAsync(identityUrl, cancellationToken);
-            if (endpoints == null)
-                return GetState();
-
-            m_tokenEndpoint = endpoints.TokenEndpoint;
-
-            var codeVerifier = MaxPkceUtils.GenerateCodeVerifier();
-            var codeChallenge = MaxPkceUtils.ComputeCodeChallenge(codeVerifier);
-            var state = Guid.NewGuid().ToString("N");
-
-            using var listener = m_callbackListenerFactory();
-            var redirectUri = listener.TryStart();
-            if (redirectUri == null)
+            var signedIn = await m_tokenService.LoginWithBrowserAsync(identityUrl);
+            if (!signedIn)
             {
-                SetLastError("Interactive authentication failed because the local loopback callback listener could not start.");
-                return GetState();
-            }
-
-            var authorizeUrl = BuildAuthorizeUrl(endpoints.AuthorizationEndpoint, redirectUri, codeChallenge, state);
-            m_browserLauncher.Open(authorizeUrl);
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(AUTH_TIMEOUT_SECONDS));
-
-            // After capturing the code the listener forwards the browser to WitIdentity's shared
-            // completion page so the user sees the same branded "signed in" screen as every
-            // other OmnibusCloud native client.
-            var completionUrl = $"{identityUrl.TrimEnd('/')}/auth/complete";
-            var code = await listener.WaitForCallbackAsync(state, completionUrl, cts.Token);
-            if (string.IsNullOrWhiteSpace(code))
-            {
-                SetLastError("Interactive authentication timed out or was cancelled while waiting for the browser callback.");
-                return GetState();
-            }
-
-            var exchanged = await ExchangeCodeForTokensAsync(code, redirectUri, codeVerifier, cancellationToken);
-            if (!exchanged)
-            {
+                SetLastError(string.IsNullOrWhiteSpace(m_tokenService.LastInteractiveFailureText)
+                    ? "Interactive sign-in failed."
+                    : m_tokenService.LastInteractiveFailureText);
                 MaxPluginLogging.Logger.Warning("Interactive sign-in failed: {Error}", m_lastError);
                 return GetState();
             }
 
-            await SaveCurrentSessionAsync(cancellationToken);
+            m_tokenService.SaveSession(SESSION_POLICY, m_sessionStore);
+            ApplySignedInState(await m_tokenService.GetTokenAsync());
             MaxPluginLogging.Logger.Information("Interactive sign-in completed as {DisplayName}.", m_displayName);
             return GetState();
         }
@@ -180,12 +142,12 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
     /// Clears the runtime and persisted session.
     /// </summary>
     /// <param name="cancellationToken">Cancels the sign-out.</param>
-    public async Task SignOutAsync(CancellationToken cancellationToken = default)
+    public Task SignOutAsync(CancellationToken cancellationToken = default)
     {
-        await m_sessionStore.ClearAsync(cancellationToken);
+        m_tokenService.ClearSession(m_sessionStore);
         ClearRuntimeSession();
-        SetLastError("No active user session.");
         MaxPluginLogging.Logger.Information("Signed out; persisted session cleared.");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -195,20 +157,12 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
     /// <returns>The access token, or null.</returns>
     public async Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(m_accessToken) && DateTime.UtcNow < m_accessTokenExpiry)
-            return m_accessToken;
+        var accessToken = await m_tokenService.GetTokenAsync();
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return null;
 
-        if (!string.IsNullOrWhiteSpace(m_refreshToken) && !string.IsNullOrWhiteSpace(m_tokenEndpoint))
-        {
-            var refreshed = await RefreshTokenAsync(cancellationToken);
-            if (refreshed)
-            {
-                await SaveCurrentSessionAsync(cancellationToken);
-                return m_accessToken;
-            }
-        }
-
-        return null;
+        ApplySignedInState(accessToken);
+        return accessToken;
     }
 
     /// <summary>
@@ -230,144 +184,38 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
 
     #region Tools
 
-    private async Task<MaxOidcEndpoints?> DiscoverEndpointsAsync(string identityUrl, CancellationToken cancellationToken)
+    /// <summary>
+    /// Resolves the default session-file path: %APPDATA%\OmnibusCloud\3dsMax\3dsmax-session.json.
+    /// The SAME file the previous in-repo DPAPI store used, so the storage location survives the
+    /// migration to the shared stack (the old payload encoding does not — the shared store fails
+    /// closed on it, which means a one-time re-login).
+    /// </summary>
+    /// <returns>The absolute session-file path.</returns>
+    public static string ResolveDefaultSessionFilePath()
     {
-        try
-        {
-            var discoveryUrl = $"{identityUrl.TrimEnd('/')}/.well-known/openid-configuration";
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrWhiteSpace(appData))
+            appData = AppContext.BaseDirectory;
 
-            using var httpClient = CreateHttpClient();
-            var json = await httpClient.GetStringAsync(discoveryUrl, cancellationToken);
-            var document = JsonSerializer.Deserialize<JsonElement>(json);
-
-            var authorizationEndpoint = document.TryGetProperty("authorization_endpoint", out var authorizeProp)
-                ? authorizeProp.GetString()
-                : null;
-            var tokenEndpoint = document.TryGetProperty("token_endpoint", out var tokenProp)
-                ? tokenProp.GetString()
-                : null;
-
-            if (string.IsNullOrWhiteSpace(authorizationEndpoint) || string.IsNullOrWhiteSpace(tokenEndpoint))
-            {
-                SetLastError("Identity discovery succeeded but the required authorization/token endpoints were missing.");
-                return null;
-            }
-
-            return new MaxOidcEndpoints
-            {
-                AuthorizationEndpoint = authorizationEndpoint,
-                TokenEndpoint = tokenEndpoint
-            };
-        }
-        catch (Exception)
-        {
-            SetLastError($"Failed to discover identity configuration from {identityUrl.TrimEnd('/')}/.well-known/openid-configuration.");
-            return null;
-        }
+        return Path.Combine(appData, "OmnibusCloud", "3dsMax", SESSION_FILE_NAME);
     }
 
-    private static string BuildAuthorizeUrl(string authorizationEndpoint, string redirectUri, string codeChallenge, string state)
+    private void ApplySignedInState(string accessToken)
     {
-        var parameters = new Dictionary<string, string>
+        if (string.IsNullOrWhiteSpace(accessToken))
         {
-            ["client_id"] = CLIENT_ID,
-            ["response_type"] = "code",
-            ["redirect_uri"] = redirectUri,
-            ["scope"] = SCOPE,
-            ["code_challenge"] = codeChallenge,
-            ["code_challenge_method"] = "S256",
-            ["state"] = state
-        };
-
-        var query = string.Join("&", parameters.Select(me => $"{Uri.EscapeDataString(me.Key)}={Uri.EscapeDataString(me.Value)}"));
-        return $"{authorizationEndpoint}?{query}";
-    }
-
-    private async Task<bool> ExchangeCodeForTokensAsync(string code, string redirectUri, string codeVerifier, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var httpClient = CreateHttpClient();
-            var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "authorization_code",
-                ["client_id"] = CLIENT_ID,
-                ["code"] = code,
-                ["redirect_uri"] = redirectUri,
-                ["code_verifier"] = codeVerifier
-            });
-
-            var response = await httpClient.PostAsync(m_tokenEndpoint, content, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                SetLastError($"Interactive authentication token exchange failed with status {(int)response.StatusCode}.");
-                return false;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            ApplyTokenResponse(json);
-            ClearLastError();
-            return m_isSignedIn;
-        }
-        catch (Exception)
-        {
-            SetLastError("Interactive authentication token exchange failed unexpectedly.");
-            return false;
-        }
-    }
-
-    private async Task<bool> RefreshTokenAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var httpClient = CreateHttpClient();
-            var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "refresh_token",
-                ["client_id"] = CLIENT_ID,
-                ["refresh_token"] = m_refreshToken!
-            });
-
-            var response = await httpClient.PostAsync(m_tokenEndpoint, content, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                SetLastError($"Token refresh failed with status {(int)response.StatusCode}.");
-                return false;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            ApplyTokenResponse(json);
-            ClearLastError();
-            return m_isSignedIn;
-        }
-        catch (Exception)
-        {
-            SetLastError("Token refresh failed unexpectedly.");
-            return false;
-        }
-    }
-
-    private void ApplyTokenResponse(string json)
-    {
-        var tokenResponse = JsonSerializer.Deserialize<JsonElement>(json);
-
-        m_accessToken = tokenResponse.GetProperty("access_token").GetString();
-
-        if (tokenResponse.TryGetProperty("refresh_token", out var refreshProp))
-            m_refreshToken = refreshProp.GetString();
-
-        var expiresIn = tokenResponse.GetProperty("expires_in").GetInt32();
-        m_accessTokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - TOKEN_EXPIRY_BUFFER_SECONDS);
-        UpdateIdentityFromAccessToken();
-        m_isSignedIn = !string.IsNullOrWhiteSpace(m_accessToken);
-    }
-
-    private void UpdateIdentityFromAccessToken()
-    {
-        if (string.IsNullOrWhiteSpace(m_accessToken))
+            ClearRuntimeSession();
             return;
+        }
 
-        var claims = ParseJwtClaims(m_accessToken);
+        UpdateIdentity(accessToken);
+        m_isSignedIn = true;
+        m_lastError = null;
+    }
+
+    private void UpdateIdentity(string accessToken)
+    {
+        var claims = ParseJwtClaims(accessToken);
         if (claims == null)
             return;
 
@@ -405,37 +253,12 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
             : null;
     }
 
-    private async Task SaveCurrentSessionAsync(CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(m_refreshToken) || string.IsNullOrWhiteSpace(m_tokenEndpoint))
-            return;
-
-        await m_sessionStore.SaveAsync(new MaxStoredSession
-        {
-            RefreshToken = m_refreshToken,
-            TokenEndpoint = m_tokenEndpoint,
-            DisplayName = m_displayName ?? string.Empty,
-            UserId = m_userId ?? string.Empty,
-            LastLoginUtc = DateTime.UtcNow.ToString("O")
-        }, cancellationToken);
-    }
-
-    private HttpClient CreateHttpClient()
-    {
-        return m_httpMessageHandler == null
-            ? new HttpClient()
-            : new HttpClient(m_httpMessageHandler, disposeHandler: false);
-    }
-
     private void ClearRuntimeSession()
     {
-        m_accessToken = null;
-        m_refreshToken = null;
-        m_tokenEndpoint = null;
-        m_accessTokenExpiry = DateTime.MinValue;
         m_isSignedIn = false;
         m_displayName = null;
         m_userId = null;
+        m_lastError = NO_SESSION_TEXT;
     }
 
     private void SetLastError(string? text)
@@ -443,20 +266,20 @@ public sealed class MaxCloudSessionService : IMaxCloudSessionService
         m_lastError = text;
     }
 
-    private void ClearLastError()
-    {
-        m_lastError = null;
-    }
-
     #endregion
 
-    #region Models
+    #region Event Handlers
 
-    private sealed class MaxOidcEndpoints
+    private void OnRefreshTokenRotated()
     {
-        public string AuthorizationEndpoint { get; init; } = string.Empty;
+        m_tokenService.SaveSession(SESSION_POLICY, m_sessionStore);
+        MaxPluginLogging.Logger.Information("Rotated refresh token persisted.");
+    }
 
-        public string TokenEndpoint { get; init; } = string.Empty;
+    private void OnReauthenticationRequired()
+    {
+        ClearRuntimeSession();
+        MaxPluginLogging.Logger.Warning("Refresh token permanently rejected; interactive re-login required.");
     }
 
     #endregion

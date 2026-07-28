@@ -1,3 +1,8 @@
+using OutWit.Cloud.Auth;
+using OutWit.Cloud.Auth.Browser;
+using OutWit.Cloud.Auth.Callbacks;
+using OutWit.Cloud.Auth.Interfaces;
+using OutWit.Cloud.Auth.Sessions;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
 using Serilog;
@@ -23,11 +28,16 @@ public sealed class MaxPluginServices
         Settings = MaxPluginSettingsFactory.Create();
         MaxPluginLogging.ApplyMinimumLevel(Settings.LogLevel);
 
-        BrowserLauncher = new MaxSystemBrowserLauncherShell();
+        // The shared OutWit.Cloud.Auth stack (browser PKCE + loopback callback + encrypted
+        // session store); the plugin keeps its own registered client id and session file.
+        BrowserLauncher = new SystemBrowserLauncherShell(Logger);
         CloudSessionService = new MaxCloudSessionService(
-            new MaxSessionStoreDpapi(),
-            BrowserLauncher,
-            () => new MaxAuthorizationCallbackListenerLoopback());
+            new TokenService(
+                Logger,
+                BrowserLauncher,
+                new AuthorizationCallbackListenerFactoryLoopback(Logger),
+                MaxCloudSessionService.CLIENT_ID),
+            new SessionStore(MaxCloudSessionService.ResolveDefaultSessionFilePath(), Logger));
         CloudConnectionService = new MaxCloudConnectionService(CloudSessionService);
         LaunchPreparationService = new MaxSceneLaunchPreparationService(sceneExportService);
         ConnectedRenderPreflightService = new MaxConnectedRenderPreflightService(sceneExportService);
@@ -55,7 +65,7 @@ public sealed class MaxPluginServices
     /// <summary>Per-user plugin preferences.</summary>
     public MaxPluginSettings Settings { get; }
 
-    public IMaxSystemBrowserLauncher BrowserLauncher { get; }
+    public ISystemBrowserLauncher BrowserLauncher { get; }
 
     public IMaxCloudSessionService CloudSessionService { get; }
 

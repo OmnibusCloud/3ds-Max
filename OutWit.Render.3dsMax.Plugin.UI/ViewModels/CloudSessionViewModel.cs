@@ -178,9 +178,16 @@ public sealed class CloudSessionViewModel : ViewModelBase<ApplicationViewModel>
         MarkSignedOut();
     }
 
-    private void OpenCloud()
+    private async void OpenCloud()
     {
-        ApplicationVm.BrowserLauncher.Open(CloudUrl);
+        try
+        {
+            await ApplicationVm.BrowserLauncher.OpenAsync(CloudUrl);
+        }
+        catch (Exception ex)
+        {
+            SessionStatusText = $"Failed to open browser: {ex.Message}";
+        }
     }
 
     private void ApplySessionState(MaxConnectedSessionState state)

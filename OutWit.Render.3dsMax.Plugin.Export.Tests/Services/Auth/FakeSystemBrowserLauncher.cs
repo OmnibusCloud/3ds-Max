@@ -1,14 +1,15 @@
-using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
+using OutWit.Cloud.Auth.Interfaces;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services.Auth;
 
-internal sealed class FakeMaxSystemBrowserLauncher : IMaxSystemBrowserLauncher
+internal sealed class FakeSystemBrowserLauncher : ISystemBrowserLauncher
 {
-    #region IMaxSystemBrowserLauncher
+    #region ISystemBrowserLauncher
 
-    public void Open(string url)
+    public Task OpenAsync(string url)
     {
         OpenedUrls.Add(url);
+        return Task.CompletedTask;
     }
 
     #endregion

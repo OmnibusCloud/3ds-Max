@@ -1,5 +1,7 @@
-using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
+using OutWit.Cloud.Auth;
+using OutWit.Cloud.Auth.Sessions;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Services.Auth;
+using Serilog;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Tests.Services.Auth;
 
@@ -8,36 +10,42 @@ public sealed class MaxCloudSessionServiceTests
 {
     #region Constants
 
-    private const string IDENTITY_URL = "https://auth.omnibuscloud.local";
+    private static readonly ILogger LOGGER = Serilog.Core.Logger.None;
 
     #endregion
 
     #region Fields
 
-    private FakeMaxSessionStore m_store = null!;
+    private FakeIdentityServer m_server = null!;
 
-    private FakeMaxSystemBrowserLauncher m_browser = null!;
+    private FakeSystemBrowserLauncher m_browser = null!;
 
-    private FakeMaxAuthorizationCallbackListener m_listener = null!;
+    private FakeAuthorizationCallbackListener m_listener = null!;
 
-    private StubAuthHttpMessageHandler m_http = null!;
+    private SessionStore m_sessionStore = null!;
+
+    private string m_testDir = null!;
 
     #endregion
 
     [SetUp]
     public void Setup()
     {
-        m_store = new FakeMaxSessionStore();
-        m_browser = new FakeMaxSystemBrowserLauncher();
-        m_listener = new FakeMaxAuthorizationCallbackListener();
-        m_http = new StubAuthHttpMessageHandler();
+        m_server = new FakeIdentityServer();
+        m_browser = new FakeSystemBrowserLauncher();
+        m_listener = new FakeAuthorizationCallbackListener();
+        m_testDir = Path.Combine(Path.GetTempPath(), "omnibuscloud-3dsmax-tests", Guid.NewGuid().ToString("N"));
+        m_sessionStore = new SessionStore(Path.Combine(m_testDir, "3dsmax-session.json"), LOGGER);
     }
 
     [TearDown]
     public void TearDown()
     {
+        m_server.Dispose();
         m_listener.Dispose();
-        m_http.Dispose();
+
+        if (Directory.Exists(m_testDir))
+            Directory.Delete(m_testDir, recursive: true);
     }
 
     #region Sign In Tests
@@ -47,7 +55,7 @@ public sealed class MaxCloudSessionServiceTests
     {
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
@@ -63,13 +71,13 @@ public sealed class MaxCloudSessionServiceTests
     {
         var service = CreateService();
 
-        await service.SignInAsync(IDENTITY_URL);
+        await service.SignInAsync(m_server.BaseUrl);
 
         Assert.That(m_browser.OpenedUrls, Has.Count.EqualTo(1));
         var authorizeUrl = m_browser.OpenedUrls[0];
         Assert.Multiple(() =>
         {
-            Assert.That(authorizeUrl, Does.StartWith($"{IDENTITY_URL}/connect/authorize?"));
+            Assert.That(authorizeUrl, Does.StartWith($"{m_server.BaseUrl}/connect/authorize?"));
             Assert.That(authorizeUrl, Does.Contain("client_id=cloud-client"));
             Assert.That(authorizeUrl, Does.Contain("response_type=code"));
             Assert.That(authorizeUrl, Does.Contain("code_challenge_method=S256"));
@@ -84,9 +92,9 @@ public sealed class MaxCloudSessionServiceTests
     {
         var service = CreateService();
 
-        await service.SignInAsync(IDENTITY_URL);
+        await service.SignInAsync(m_server.BaseUrl);
 
-        Assert.That(m_listener.LastCompletionUrl, Is.EqualTo($"{IDENTITY_URL}/auth/complete"));
+        Assert.That(m_listener.LastCompletionUrl, Is.EqualTo($"{m_server.BaseUrl}/auth/complete"));
     }
 
     [Test]
@@ -94,14 +102,14 @@ public sealed class MaxCloudSessionServiceTests
     {
         var service = CreateService();
 
-        await service.SignInAsync(IDENTITY_URL);
+        await service.SignInAsync(m_server.BaseUrl);
 
-        Assert.That(m_http.LastTokenRequestBody, Is.Not.Null);
+        Assert.That(m_server.LastTokenRequestBody, Is.Not.Null);
         Assert.Multiple(() =>
         {
-            Assert.That(m_http.LastTokenRequestBody, Does.Contain("grant_type=authorization_code"));
-            Assert.That(m_http.LastTokenRequestBody, Does.Contain("code=auth-code"));
-            Assert.That(m_http.LastTokenRequestBody, Does.Contain("code_verifier="));
+            Assert.That(m_server.LastTokenRequestBody, Does.Contain("grant_type=authorization_code"));
+            Assert.That(m_server.LastTokenRequestBody, Does.Contain("code=auth-code"));
+            Assert.That(m_server.LastTokenRequestBody, Does.Contain("code_verifier="));
         });
     }
 
@@ -110,14 +118,17 @@ public sealed class MaxCloudSessionServiceTests
     {
         var service = CreateService();
 
-        await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
-        Assert.That(m_store.StoredSession, Is.Not.Null);
+        var storedSession = m_sessionStore.Load();
+        Assert.That(storedSession, Is.Not.Null);
         Assert.Multiple(() =>
         {
-            Assert.That(m_store.StoredSession!.RefreshToken, Is.EqualTo("refresh-token-1"));
-            Assert.That(m_store.StoredSession.TokenEndpoint, Is.EqualTo($"{IDENTITY_URL}/connect/token"));
-            Assert.That(m_store.StoredSession.DisplayName, Is.EqualTo("Artist One"));
+            Assert.That(storedSession!.RefreshToken, Is.EqualTo("refresh-token-1"));
+            Assert.That(storedSession.TokenEndpoint, Is.EqualTo($"{m_server.BaseUrl}/connect/token"));
+            // DisplayName is no longer persisted with the session — it is derived from the
+            // access token's claims at runtime.
+            Assert.That(state.DisplayName, Is.EqualTo("Artist One"));
         });
     }
 
@@ -127,7 +138,7 @@ public sealed class MaxCloudSessionServiceTests
         m_listener.RedirectUri = null;
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
@@ -143,7 +154,7 @@ public sealed class MaxCloudSessionServiceTests
         m_listener.AuthorizationCode = null;
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
@@ -155,10 +166,10 @@ public sealed class MaxCloudSessionServiceTests
     [Test]
     public async Task SignInFailsWhenDiscoveryFailsTest()
     {
-        m_http.FailDiscovery = true;
+        m_server.FailDiscovery = true;
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
@@ -170,10 +181,10 @@ public sealed class MaxCloudSessionServiceTests
     [Test]
     public async Task SignInFailsWhenTokenExchangeFailsTest()
     {
-        m_http.FailTokenEndpoint = true;
+        m_server.FailTokenEndpoint = true;
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
@@ -185,16 +196,31 @@ public sealed class MaxCloudSessionServiceTests
     [Test]
     public async Task SignInUsesPreferredUsernameWhenNameClaimMissingTest()
     {
-        m_http.AccessToken = StubAuthHttpMessageHandler.CreateUnsignedJwt("user-2", "artist2@omnibuscloud.local", claimName: "preferred_username");
+        m_server.AccessToken = FakeIdentityServer.CreateUnsignedJwt("user-2", "artist2@omnibuscloud.local", claimName: "preferred_username");
         var service = CreateService();
 
-        var state = await service.SignInAsync(IDENTITY_URL);
+        var state = await service.SignInAsync(m_server.BaseUrl);
 
         Assert.Multiple(() =>
         {
             Assert.That(state.IsSignedIn, Is.True);
             Assert.That(state.DisplayName, Is.EqualTo("artist2@omnibuscloud.local"));
             Assert.That(state.UserId, Is.EqualTo("user-2"));
+        });
+    }
+
+    [Test]
+    public async Task SignInFailsWhenIdentityUrlMissingTest()
+    {
+        var service = CreateService();
+
+        var state = await service.SignInAsync(string.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.IsSignedIn, Is.False);
+            Assert.That(state.LastError, Does.Contain("Identity URL is required"));
+            Assert.That(m_browser.OpenedUrls, Is.Empty);
         });
     }
 
@@ -205,11 +231,12 @@ public sealed class MaxCloudSessionServiceTests
     [Test]
     public async Task TryRestoreSessionRefreshesStoredSessionTest()
     {
-        m_store.StoredSession = new MaxStoredSession
+        m_sessionStore.Save(new StoredSession
         {
             RefreshToken = "stored-refresh-token",
-            TokenEndpoint = $"{IDENTITY_URL}/connect/token"
-        };
+            TokenEndpoint = $"{m_server.BaseUrl}/connect/token",
+            LastLoginUtc = DateTime.UtcNow.ToString("O")
+        });
         var service = CreateService();
 
         var restored = await service.TryRestoreSessionAsync();
@@ -219,8 +246,30 @@ public sealed class MaxCloudSessionServiceTests
             Assert.That(restored, Is.True);
             Assert.That(service.GetState().IsSignedIn, Is.True);
             Assert.That(service.GetState().DisplayName, Is.EqualTo("Artist One"));
-            Assert.That(m_http.LastTokenRequestBody, Does.Contain("grant_type=refresh_token"));
-            Assert.That(m_http.LastTokenRequestBody, Does.Contain("refresh_token=stored-refresh-token"));
+            Assert.That(m_server.LastTokenRequestBody, Does.Contain("grant_type=refresh_token"));
+            Assert.That(m_server.LastTokenRequestBody, Does.Contain("refresh_token=stored-refresh-token"));
+        });
+    }
+
+    [Test]
+    public async Task TryRestoreSessionPersistsRotatedRefreshTokenTest()
+    {
+        m_sessionStore.Save(new StoredSession
+        {
+            RefreshToken = "stored-refresh-token",
+            TokenEndpoint = $"{m_server.BaseUrl}/connect/token",
+            LastLoginUtc = DateTime.UtcNow.ToString("O")
+        });
+        var service = CreateService();
+
+        var restored = await service.TryRestoreSessionAsync();
+
+        // The identity server rotated the refresh token during the restore refresh; the
+        // rotated token must be persisted or the next start would present a revoked one.
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored, Is.True);
+            Assert.That(m_sessionStore.Load()?.RefreshToken, Is.EqualTo("refresh-token-1"));
         });
     }
 
@@ -241,12 +290,13 @@ public sealed class MaxCloudSessionServiceTests
     [Test]
     public async Task TryRestoreSessionClearsStoreWhenRefreshIsRejectedTest()
     {
-        m_store.StoredSession = new MaxStoredSession
+        m_sessionStore.Save(new StoredSession
         {
             RefreshToken = "revoked-refresh-token",
-            TokenEndpoint = $"{IDENTITY_URL}/connect/token"
-        };
-        m_http.FailTokenEndpoint = true;
+            TokenEndpoint = $"{m_server.BaseUrl}/connect/token",
+            LastLoginUtc = DateTime.UtcNow.ToString("O")
+        });
+        m_server.FailTokenEndpoint = true;
         var service = CreateService();
 
         var restored = await service.TryRestoreSessionAsync();
@@ -254,7 +304,7 @@ public sealed class MaxCloudSessionServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(restored, Is.False);
-            Assert.That(m_store.StoredSession, Is.Null);
+            Assert.That(m_sessionStore.Load(), Is.Null);
             Assert.That(service.GetState().IsSignedIn, Is.False);
         });
     }
@@ -267,15 +317,15 @@ public sealed class MaxCloudSessionServiceTests
     public async Task SignOutClearsRuntimeAndPersistedSessionTest()
     {
         var service = CreateService();
-        await service.SignInAsync(IDENTITY_URL);
+        await service.SignInAsync(m_server.BaseUrl);
 
         await service.SignOutAsync();
 
         Assert.Multiple(() =>
         {
             Assert.That(service.GetState().IsSignedIn, Is.False);
-            Assert.That(m_store.StoredSession, Is.Null);
-            Assert.That(m_store.ClearCount, Is.GreaterThanOrEqualTo(1));
+            Assert.That(m_sessionStore.Load(), Is.Null);
+            Assert.That(File.Exists(m_sessionStore.SessionFilePath), Is.False);
         });
     }
 
@@ -283,11 +333,11 @@ public sealed class MaxCloudSessionServiceTests
     public async Task GetAccessTokenReturnsCurrentTokenWhileValidTest()
     {
         var service = CreateService();
-        await service.SignInAsync(IDENTITY_URL);
+        await service.SignInAsync(m_server.BaseUrl);
 
         var token = await service.GetAccessTokenAsync();
 
-        Assert.That(token, Is.EqualTo(m_http.AccessToken));
+        Assert.That(token, Is.EqualTo(m_server.AccessToken));
     }
 
     [Test]
@@ -306,7 +356,13 @@ public sealed class MaxCloudSessionServiceTests
 
     private MaxCloudSessionService CreateService()
     {
-        return new MaxCloudSessionService(m_store, m_browser, () => m_listener, m_http);
+        var tokenService = new TokenService(
+            LOGGER,
+            m_browser,
+            new FakeAuthorizationCallbackListenerFactory(m_listener),
+            MaxCloudSessionService.CLIENT_ID);
+
+        return new MaxCloudSessionService(tokenService, m_sessionStore);
     }
 
     #endregion
