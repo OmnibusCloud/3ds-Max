@@ -15,7 +15,7 @@ internal sealed class FakeWitCloudBlobs : IWitCloudBlobs
         throw new NotSupportedException("Blob upload is not faked.");
     }
 
-    public Task<Guid> UploadBlobFromFileAsync(string filePath, int chunkSize = IWitCloudBlobs.DEFAULT_CHUNK_SIZE, CancellationToken ct = default)
+    public Task<Guid> UploadBlobFromFileAsync(string filePath, int chunkSize = IWitCloudBlobs.DEFAULT_CHUNK_SIZE, IProgress<WitTransferProgress>? progress = null, CancellationToken ct = default)
     {
         throw new NotSupportedException("Blob upload is not faked.");
     }
@@ -25,7 +25,7 @@ internal sealed class FakeWitCloudBlobs : IWitCloudBlobs
         throw new NotSupportedException("In-memory blob download is not faked.");
     }
 
-    public Task DownloadBlobToFileAsync(Guid blobId, string localPath, int chunkSize = IWitCloudBlobs.DEFAULT_CHUNK_SIZE, CancellationToken ct = default)
+    public Task DownloadBlobToFileAsync(Guid blobId, string localPath, int chunkSize = IWitCloudBlobs.DEFAULT_CHUNK_SIZE, IProgress<WitTransferProgress>? progress = null, CancellationToken ct = default)
     {
         File.WriteAllText(localPath, blobId.ToString("D"));
         DownloadedBlobs.Add((blobId, localPath));

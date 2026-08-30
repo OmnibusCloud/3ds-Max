@@ -10,6 +10,22 @@ internal sealed class FakeWitCloudJobs : IWitCloudJobs
 {
     #region IWitCloudJobs
 
+    public Task<ProcessingJobInfoPage> ListAsync(int page = 0, int pageSize = 50, ProcessingJobStatus? statusFilter = null, string? scriptNameFilter = null, CancellationToken ct = default)
+    {
+        throw new NotSupportedException("Job listing is not faked.");
+    }
+
+    public Task<TResult?> GetVariableAsync<TResult>(Guid jobId, string variable, CancellationToken ct = default)
+    {
+        throw new NotSupportedException("Job variables are not faked.");
+    }
+
+    public Task<string> GetVariableDocumentAsync(Guid jobId, string variable, CancellationToken ct = default)
+    {
+        throw new NotSupportedException("Job variable documents are not faked.");
+    }
+
+
     public Task<ProcessingJobInfo> GetStatusAsync(Guid jobId, CancellationToken ct = default)
     {
         return Task.FromResult(new ProcessingJobInfo
