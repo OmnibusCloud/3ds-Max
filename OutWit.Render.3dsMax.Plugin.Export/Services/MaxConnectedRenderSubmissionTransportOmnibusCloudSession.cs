@@ -176,6 +176,9 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 IsPlaceholderLocalSubmission = false,
                 FrameStart = request.FrameStart,
                 FrameEnd = request.FrameEnd,
+                TileCount = request.RenderMode == "RenderStillTiled"
+                    ? Math.Max(request.TilesX, 1) * Math.Max(request.TilesY, 1)
+                    : 0,
                 SubmittedUtc = now,
                 UpdatedUtc = DateTime.UtcNow,
                 PackageFolderPath = package.PackageFolderPath,
@@ -226,8 +229,16 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             var info = await client.Jobs.GetStatusAsync(jobId, cancellationToken);
 
             jobState.ProgressPercent = Math.Clamp(info.OverallProgress * 100d, 0d, 100d);
+
+            // The SECOND axis. OverallProgress is stage-based and the whole distributed render is one
+            // opaque Grid.ForEach stage, so it parks (typically at 50%) for the entire render — reading
+            // it alone is what made the dialog and the prompt line look frozen. DistributedProgress is
+            // the node-heartbeat view (completed sub-tasks over assigned) and is the axis that moves.
+            jobState.DistributedProgressPercent = Math.Clamp(info.DistributedProgress * 100d, 0d, 100d);
+            jobState.ServerStatus = info.Status.ToString();
             jobState.IsCompleted = info.Status == ProcessingJobStatus.Completed;
             jobState.IsCancelled = info.Status == ProcessingJobStatus.Cancelled;
+            jobState.IsFailed = info.Status == ProcessingJobStatus.Failed;
             jobState.StatusText = string.IsNullOrWhiteSpace(info.ErrorMessage)
                 ? $"OmnibusCloud job status: {info.Status}."
                 : $"OmnibusCloud job status: {info.Status}. {info.ErrorMessage}";

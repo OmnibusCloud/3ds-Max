@@ -47,6 +47,12 @@ public sealed class MaxPluginServices
         ConnectedRenderService = new MaxConnectedRenderService(LaunchPreparationService, ConnectedRenderPreflightService, ConnectedRenderSubmissionService);
         ConnectedRenderPackageUploadService = new MaxConnectedRenderPackageUploadService(new MaxConnectedRenderArchiveUploaderOmnibusCloudApiKey());
         ConnectedRenderDownloadService = new MaxConnectedRenderDownloadService();
+
+        // The job lifecycle is session-scoped, not dialog-scoped: the Render dialog is rebuilt on every
+        // open, so a job tracked by it stopped being reachable the moment it closed.
+        ConnectedRenderJobStore = new MaxConnectedRenderJobStore();
+        ConnectedRenderJobTracker = new MaxConnectedRenderJobTracker(
+            ConnectedRenderService, ConnectedRenderJobStore, StatusBar, Logger);
     }
 
     #endregion
@@ -84,6 +90,12 @@ public sealed class MaxPluginServices
     public MaxConnectedRenderPackageUploadService ConnectedRenderPackageUploadService { get; }
 
     public MaxConnectedRenderDownloadService ConnectedRenderDownloadService { get; }
+
+    /// <summary>Per-user record of the last launched job (survives the dialog and a Max restart).</summary>
+    public MaxConnectedRenderJobStore ConnectedRenderJobStore { get; }
+
+    /// <summary>Session-scoped job lifecycle: launch, poll loop, cancel, restore.</summary>
+    public MaxConnectedRenderJobTracker ConnectedRenderJobTracker { get; }
 
     #endregion
 }

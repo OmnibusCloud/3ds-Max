@@ -70,5 +70,8 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     public MaxConnectedRenderDownloadService ConnectedRenderDownloadService => Services.ConnectedRenderDownloadService;
 
+    /// <summary>Session-scoped render job lifecycle; outlives the Render dialog that started a job.</summary>
+    public MaxConnectedRenderJobTracker ConnectedRenderJobTracker => Services.ConnectedRenderJobTracker;
+
     #endregion
 }

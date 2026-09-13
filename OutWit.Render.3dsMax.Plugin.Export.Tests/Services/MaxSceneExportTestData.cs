@@ -25,6 +25,14 @@ internal static class MaxSceneExportTestData
         return new MaxConnectedRenderService(CreateLaunchPreparationService(snapshot), CreateConnectedRenderPreflightService(snapshot), CreateConnectedRenderSubmissionService());
     }
 
+    public static MaxConnectedRenderService CreateConnectedRenderService(MaxSceneSnapshotData snapshot, IMaxConnectedRenderSubmissionTransport transport)
+    {
+        return new MaxConnectedRenderService(
+            CreateLaunchPreparationService(snapshot),
+            CreateConnectedRenderPreflightService(snapshot),
+            new MaxConnectedRenderSubmissionService(transport));
+    }
+
     public static MaxConnectedRenderPreflightService CreateConnectedRenderPreflightService(MaxSceneSnapshotData snapshot)
     {
         return new MaxConnectedRenderPreflightService(CreateService(snapshot));

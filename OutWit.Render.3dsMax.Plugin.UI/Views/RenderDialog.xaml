@@ -247,8 +247,21 @@
                 <TextBlock Text="{Binding PhaseTitle}" FontSize="14" FontWeight="SemiBold" />
             </DockPanel>
 
+            <!-- ONE BAR PER SERVER AXIS. "Overall" is the engine's stage progress: the whole distributed
+                 render is a single opaque stage there, so it parks mid-render. "Computation" is the farm's
+                 own sub-task progress (frames / tiles done), which is the one that keeps moving. Same
+                 two-bar reading as the Blender addon. -->
+            <TextBlock Text="{Binding OverallProgressLine}" FontSize="11" Margin="0,0,0,3"
+                       Foreground="{DynamicResource Max.Brush.TextMuted}" />
             <ProgressBar Minimum="0" Maximum="1" Value="{Binding RenderProgress, Mode=OneWay}"
                          IsIndeterminate="{Binding IsPhaseIndeterminate}" />
+
+            <StackPanel Margin="0,10,0,0"
+                        Visibility="{Binding ShowComputationProgress, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding ComputationProgressLine}" FontSize="11" Margin="0,0,0,3"
+                           Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding ComputationProgress, Mode=OneWay}" />
+            </StackPanel>
 
             <TextBlock Text="{Binding PhaseSubline}" FontSize="11.5" Margin="0,9,0,0"
                        Foreground="{DynamicResource Max.Brush.TextMuted}" />

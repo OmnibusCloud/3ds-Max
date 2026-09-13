@@ -12,10 +12,16 @@ namespace OutWit.Render.ThreeDsMax.Plugin.UI.ViewModels;
 
 /// <summary>
 /// Render dialog (design 4.1): one Render action over a two-axis Output model, a target group, and a
-/// server-driven phase model. No business logic lives in the View — this owns the render lifecycle and
-/// drives <see cref="MaxRenderStatus"/>. Scene config / job state are held by the shared
-/// <see cref="RenderLaunchViewModel"/>; session + target groups by <see cref="CloudSessionViewModel"/>.
+/// server-driven phase model. No business logic lives in the View. Scene config / job state are held by
+/// the shared <see cref="RenderLaunchViewModel"/>; session + target groups by
+/// <see cref="CloudSessionViewModel"/>.
 /// </summary>
+/// <remarks>
+/// The dialog is a VIEW over <see cref="MaxConnectedRenderJobTracker"/>, not the owner of the render:
+/// a new instance is built on every open, so a job owned here stopped being reachable the moment the
+/// window closed. Opening the dialog therefore re-attaches to whatever the tracker is following —
+/// a job still rendering on the farm, or a finished one whose result has not been collected yet.
+/// </remarks>
 public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 {
     #region Events
@@ -26,12 +32,6 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     #endregion
 
     #region Fields
-
-    private bool m_cancelRequested;
-
-    private MaxConnectedRenderJobState? m_activeJobState;
-
-    private DateTime m_renderStartedUtc;
 
     private System.Windows.Threading.Dispatcher? m_uiDispatcher;
 
@@ -49,6 +49,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     public RenderDialogViewModel(ApplicationViewModel applicationVm) : base(applicationVm)
     {
+        // Captured here because the dialog is constructed on the 3ds Max UI thread: tracker events can
+        // arrive from the transfer threads and must be marshalled back.
+        m_uiDispatcher = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread);
+
         InitDefault();
         InitEvents();
         InitCommands();
@@ -84,6 +88,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         PropertyChanged += OnPropertyChanged;
         LaunchVm.PropertyChanged += OnLaunchPropertyChanged;
         CloudVm.PropertyChanged += OnCloudPropertyChanged;
+        JobTracker.Changed += OnJobTrackerChanged;
     }
 
     private void InitCommands()
@@ -112,6 +117,27 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         await CloudVm.EnsureSessionRestoredAsync();
         await LoadExecutionScopeAsync();
+
+        // Re-attach LAST: a job this dialog knows nothing about may still be running on the farm (or may
+        // have finished while every plugin window was closed), and its result is collected from here.
+        // Needs the restored session, since picking a finished job up re-downloads its result.
+        await ReattachTrackedJobAsync();
+    }
+
+    /// <summary>
+    /// Adopts whatever the session tracker is following: a live job resumes in the active view with its
+    /// progress, a finished one lands in the result view so it can still be opened.
+    /// </summary>
+    private async Task ReattachTrackedJobAsync()
+    {
+        if (JobTracker.HasTrackedJob)
+        {
+            ApplyTrackedJob(JobTracker.Status, JobTracker.JobState);
+            return;
+        }
+
+        if (await JobTracker.RestoreAsync())
+            ApplyTrackedJob(JobTracker.Status, JobTracker.JobState);
     }
 
     private async Task LoadExecutionScopeAsync()
@@ -151,9 +177,6 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task RenderAsync()
     {
-        m_cancelRequested = false;
-        m_renderStartedUtc = DateTime.UtcNow;
-        m_uiDispatcher = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread);
         ResultPath = string.Empty;
         PushAxesToRenderMode();
         PersistRenderSettings();
@@ -162,93 +185,15 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus();
 
         // No Task.Run: the launch captures the scene through the single-threaded 3ds Max SDK and must
-        // stay on the Max main thread; only the submission part awaits the network.
-        var request = BuildRequest();
-        var jobState = await ConnectedRender.LaunchRenderAsync(request);
-
-        LaunchVm.ApplyJobState(jobState);
-        DiagnosticsVm.Apply(jobState.Diagnostics);
-
-        if (!Guid.TryParse(jobState.JobId, out _))
-        {
-            Status = MaxRenderStatus.Failed(jobState.StatusText);
-            UpdateStatus();
-            return;
-        }
-
-        // Cancel pressed while the launch was in flight — stop the job we just submitted.
-        if (m_cancelRequested)
-            jobState = await ConnectedRender.CancelJobAsync(jobState);
-
-        await PollUntilTerminalAsync(jobState);
+        // stay on the Max main thread; only the submission part awaits the network. The tracker keeps
+        // following the job afterwards — closing this dialog no longer abandons it.
+        await JobTracker.LaunchAsync(BuildRequest());
     }
 
-    private async Task PollUntilTerminalAsync(MaxConnectedRenderJobState jobState)
+    private Task CancelAsync()
     {
-        // Source of truth is the server job status (MX-13), polled until terminal. Close != cancel
-        // (MX-5): if the dialog is closed the job keeps running. Cancel requests a server-side stop
-        // and the loop keeps polling until the farm reports the terminal cancelled status.
-        m_activeJobState = jobState;
-
-        try
-        {
-            while (true)
-            {
-                if (jobState.IsCancelled)
-                {
-                    Status = MaxRenderStatus.Cancelled();
-                    UpdateStatus();
-                    return;
-                }
-
-                if (jobState.IsCompleted)
-                {
-                    ResultPath = jobState.PrimaryArtifactPath;
-                    Status = MaxRenderStatus.Completed();
-                    UpdateStatus();
-                    return;
-                }
-
-                if (IsFailed(jobState))
-                {
-                    Status = MaxRenderStatus.Failed(jobState.StatusText);
-                    UpdateStatus();
-                    return;
-                }
-
-                Status = m_cancelRequested ? MaxRenderStatus.Cancelling() : MapJobToStatus(jobState);
-                UpdateStatus();
-
-                await Task.Delay(TimeSpan.FromSeconds(2));
-
-                jobState = await ConnectedRender.RefreshJobAsync(jobState);
-                m_activeJobState = jobState;
-                LaunchVm.ApplyJobState(jobState);
-                DiagnosticsVm.Apply(jobState.Diagnostics);
-            }
-        }
-        finally
-        {
-            m_activeJobState = null;
-        }
-    }
-
-    private async Task CancelAsync()
-    {
-        if (m_cancelRequested)
-            return;
-
-        m_cancelRequested = true;
-        Status = MaxRenderStatus.Cancelling();
-        UpdateStatus();
-
-        // Actually stop the job on the farm; the poll loop observes the terminal cancelled status.
-        var jobState = m_activeJobState;
-        if (jobState != null)
-        {
-            jobState = await ConnectedRender.CancelJobAsync(jobState);
-            DiagnosticsVm.Apply(jobState.Diagnostics);
-        }
+        // A server-side stop; the tracker's poll loop reports the terminal cancelled status.
+        return JobTracker.RequestCancelAsync();
     }
 
     private void OpenResult()
@@ -278,6 +223,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void NewRender()
     {
+        // The result was collected: drop the tracked job (and its persisted record) so the next open
+        // greets the artist with the config view instead of yesterday's render.
+        JobTracker.Clear();
         ResultPath = string.Empty;
         Status = MaxRenderStatus.Ready();
         UpdateStatus();
@@ -298,30 +246,36 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     }
 
     /// <summary>
-    /// Upload progress from the submission transport, marshalled to the UI thread (command
-    /// CanExecute updates must not fire from a worker continuation). Thread identity is checked via
-    /// Dispatcher.CheckAccess — NEVER by comparing SynchronizationContext instances: WPF creates a
-    /// fresh DispatcherSynchronizationContext per operation, so a reference compare re-posts forever
-    /// and the Normal-priority flood starves Render/Input (frozen "Uploading 0%" dialog).
+    /// A tracked-job change, marshalled to the UI thread (command CanExecute updates must not fire from
+    /// a worker continuation — the upload callback runs on the transfer threads). Thread identity is
+    /// checked via Dispatcher.CheckAccess — NEVER by comparing SynchronizationContext instances: WPF
+    /// creates a fresh DispatcherSynchronizationContext per operation, so a reference compare re-posts
+    /// forever and the Normal-priority flood starves Render/Input (frozen "Uploading 0%" dialog).
     /// </summary>
-    private void ReportUploadProgress(double fraction)
+    private void OnJobTrackerChanged(MaxRenderStatus status, MaxConnectedRenderJobState? jobState)
     {
         if (m_uiDispatcher != null && !m_uiDispatcher.CheckAccess())
         {
-            m_uiDispatcher.BeginInvoke(() => ApplyUploadProgress(fraction));
+            m_uiDispatcher.BeginInvoke(() => ApplyTrackedJob(status, jobState));
             return;
         }
 
-        ApplyUploadProgress(fraction);
+        ApplyTrackedJob(status, jobState);
     }
 
-    private void ApplyUploadProgress(double fraction)
+    private void ApplyTrackedJob(MaxRenderStatus status, MaxConnectedRenderJobState? jobState)
     {
-        // The poll loop takes over once the job exists — never regress a later phase to Uploading.
-        if (!Status.IsActiveJob || Status.Phase is MaxRenderPhase.Running or MaxRenderPhase.Finalizing or MaxRenderPhase.Cancelling)
-            return;
+        Status = status;
 
-        Status = MaxRenderStatus.Uploading(fraction);
+        if (jobState != null)
+        {
+            LaunchVm.ApplyJobState(jobState);
+            DiagnosticsVm.Apply(jobState.Diagnostics);
+
+            if (status.Phase == MaxRenderPhase.Completed)
+                ResultPath = jobState.PrimaryArtifactPath;
+        }
+
         UpdateStatus();
     }
 
@@ -374,8 +328,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             TileOverlap = TileOverlap,
             VideoPreset = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset),
             VideoCrf = Settings.VideoCrf,
-            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials,
-            UploadProgress = ReportUploadProgress
+            BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials
+            // UploadProgress is wired by the job tracker, which owns the phase reporting.
         };
     }
 
@@ -389,12 +343,18 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         // Render disabled — the scope summary line already says "Select a project or group…".
         var hasRenderTarget = LaunchVm.UseAllClients || LaunchVm.SelectedTarget is not null;
         CanRender = CloudVm.IsSignedIn && !Status.IsActiveJob && hasRenderTarget;
-        CanCancel = Status.IsActiveJob && !m_cancelRequested;
+        CanCancel = Status.IsActiveJob && Status.Phase != MaxRenderPhase.Cancelling;
         IsImageOutput = OutputAxis == RenderOutputAxis.Image;
         IsAnimationOutput = OutputAxis == RenderOutputAxis.Animation;
         StatusLine = Status.StatusLine;
         RenderProgress = Status.Progress ?? 0d;
         ShowProgress = Status.IsActiveJob;
+
+        // The second axis (design parity with the Blender addon's Computation bar): the farm's own
+        // sub-task progress. Hidden until the server reports distributed work, so an empty bar never
+        // pretends to be progress.
+        ComputationProgress = Status.ComputationProgress ?? 0d;
+        ShowComputationProgress = Status.IsActiveJob && Status.HasComputationProgress;
         ShowTiles = IsImageOutput && SplitFrame;
         ShowImageFormat = IsImageOutput || AnimationResult == RenderAnimationResult.Sequence;
         ShowVideoOptions = IsAnimationOutput && AnimationResult == RenderAnimationResult.Video;
@@ -411,11 +371,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         OpenResultCommand.RaiseCanExecuteChanged();
         OpenFolderCommand.RaiseCanExecuteChanged();
 
-        // Mirror active/terminal render status to the host prompt line (MX-5/6) so progress stays
-        // visible while the dialog is minimized. Idle (Ready) states are not pushed, to avoid noise;
-        // a terminal message persists in the prompt (the status bar service is shared/long-lived).
-        if (Status.IsActiveJob || Status.IsTerminal)
-            StatusBar.Report(Status);
+        // The host prompt line (MX-5/6) is reported by the job tracker, which outlives this dialog —
+        // reporting it here as well would fight the tracker over the same prompt slot.
     }
 
     /// <summary>
@@ -424,17 +381,33 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     /// </summary>
     private void UpdatePhasePresentation()
     {
-        var percent = Status.Progress is { } fraction ? $"{(int)Math.Round(fraction * 100d)}%" : string.Empty;
+        var uploadPercent = Status.Progress is { } fraction ? Percent(fraction) : string.Empty;
+
+        // While rendering, the headline number is the FARM's own progress (units done when countable,
+        // else the distributed percentage) — the engine's coarse axis parks mid-render and reading it
+        // here is what made a running render look stuck at 50%.
+        var renderCounter = Status.UnitsTotal is > 0
+            ? $"{Status.UnitsCompleted}/{Status.UnitsTotal} {Status.UnitName}"
+            : Status.ComputationProgress is { } computation
+                ? Percent(computation)
+                : string.Empty;
 
         (PhaseTitle, PhaseCounter, PhaseSubline) = Status.Phase switch
         {
             MaxRenderPhase.Submitting => ("Submitting scene", string.Empty, "packing scene & assets"),
-            MaxRenderPhase.Uploading => ("Uploading scene", percent, "sending textures & payload to OmnibusCloud"),
-            MaxRenderPhase.Running => ("Rendering", percent, "the farm is rendering — progress from the server"),
-            MaxRenderPhase.Finalizing => ("Finalizing", percent, "assembling the result"),
+            MaxRenderPhase.Uploading => ("Uploading scene", uploadPercent, "sending textures & payload to OmnibusCloud"),
+            MaxRenderPhase.Running => ("Rendering", renderCounter, "the farm is rendering — progress from the server"),
+            MaxRenderPhase.Finalizing => ("Finalizing", string.Empty, "the farm finished rendering; assembling the result"),
             MaxRenderPhase.Cancelling => ("Cancelling…", string.Empty, "finishing the current task on the farm"),
             _ => (string.Empty, string.Empty, string.Empty)
         };
+
+        OverallProgressLine = Status.Progress is { } overall ? $"Overall {Percent(overall)}" : "Overall";
+        ComputationProgressLine = Status.UnitsTotal is > 0
+            ? $"Computation {Status.UnitsCompleted}/{Status.UnitsTotal} {Status.UnitName}"
+            : Status.ComputationProgress is { } value
+                ? $"Computation {Percent(value)}"
+                : "Computation";
 
         IsPhaseIndeterminate = Status.IsActiveJob && Status.Progress is null;
         IsUploadPhase = Status.Phase is MaxRenderPhase.Submitting or MaxRenderPhase.Uploading;
@@ -445,14 +418,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         if (ShowResultActions)
         {
             ResultFileName = Path.GetFileName(ResultPath);
-            var elapsed = DateTime.UtcNow - m_renderStartedUtc;
-            CompletedMeta = m_renderStartedUtc == default
-                ? string.Empty
-                : elapsed.TotalHours >= 1
-                    ? $"finished in {(int)elapsed.TotalHours} h {elapsed.Minutes} min"
-                    : elapsed.TotalMinutes >= 1
-                        ? $"finished in {(int)elapsed.TotalMinutes} min {elapsed.Seconds} s"
-                        : $"finished in {elapsed.Seconds} s";
+            CompletedMeta = FormatCompletedMeta();
             ResultThumbnail = TryLoadThumbnail(ResultPath);
         }
 
@@ -461,6 +427,35 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             FailedMessage = Status.StatusLine;
             FailedDetail = string.IsNullOrWhiteSpace(LaunchVm.JobId) ? string.Empty : $"job {LaunchVm.JobId}";
         }
+    }
+
+    private static string Percent(double fraction) => $"{(int)Math.Round(fraction * 100d)}%";
+
+    /// <summary>
+    /// "finished in …" for the completed card. Measured submit → last server refresh, so a job
+    /// collected after the dialog was closed reports the RENDER's duration, not the time the artist
+    /// took to come back for it.
+    /// </summary>
+    private string FormatCompletedMeta()
+    {
+        var jobState = JobTracker.JobState;
+        var startedUtc = JobTracker.StartedUtc;
+        if (startedUtc == default)
+            return string.Empty;
+
+        var finishedUtc = jobState is { IsCompleted: true, UpdatedUtc: var updated } && updated != default
+            ? updated
+            : DateTime.UtcNow;
+
+        var elapsed = finishedUtc - startedUtc;
+        if (elapsed < TimeSpan.Zero)
+            return string.Empty;
+
+        return elapsed.TotalHours >= 1
+            ? $"finished in {(int)elapsed.TotalHours} h {elapsed.Minutes} min"
+            : elapsed.TotalMinutes >= 1
+                ? $"finished in {(int)elapsed.TotalMinutes} min {elapsed.Seconds} s"
+                : $"finished in {elapsed.Seconds} s";
     }
 
     /// <summary>Small preview of an image result (video/archives get no thumbnail).</summary>
@@ -544,31 +539,6 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         Settings.TilesY = TilesY;
         Settings.TileOverlap = TileOverlap;
         Settings.SettingsManager.Save();
-    }
-
-    private static MaxRenderStatus MapJobToStatus(MaxConnectedRenderJobState jobState)
-    {
-        if (jobState.IsCompleted)
-            return MaxRenderStatus.Completed();
-
-        var fraction = Math.Clamp(jobState.ProgressPercent / 100d, 0d, 1d);
-
-        if (fraction < 0.1d)
-            return MaxRenderStatus.Submitting();
-
-        // The server sits near 100% while it stitches/encodes/uploads the result — show that
-        // honestly as Finalizing instead of a stuck "Rendering 99%".
-        return fraction >= 0.99d
-            ? MaxRenderStatus.Finalizing()
-            : MaxRenderStatus.Running((int)(fraction * 100), 100);
-    }
-
-    private static bool IsFailed(MaxConnectedRenderJobState jobState)
-    {
-        return !jobState.IsCompleted
-               && !string.IsNullOrWhiteSpace(jobState.StatusText)
-               && (jobState.StatusText.Contains("Failed", StringComparison.OrdinalIgnoreCase)
-                   || jobState.StatusText.Contains("Cancelled", StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion
@@ -660,6 +630,24 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     #endregion
 
+    #region IDisposable
+
+    /// <summary>
+    /// Detaches from the session tracker. The tracked JOB is deliberately untouched: closing the dialog
+    /// is not a cancel, and the next open re-attaches to whatever is still running.
+    /// </summary>
+    public override void Dispose()
+    {
+        JobTracker.Changed -= OnJobTrackerChanged;
+        PropertyChanged -= OnPropertyChanged;
+        LaunchVm.PropertyChanged -= OnLaunchPropertyChanged;
+        CloudVm.PropertyChanged -= OnCloudPropertyChanged;
+
+        base.Dispose();
+    }
+
+    #endregion
+
     #region Properties
 
     public ExportSummaryViewModel SummaryVm => ApplicationVm.MainVm.SummaryVm;
@@ -735,11 +723,31 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public string StatusLine { get; set; } = string.Empty;
 
+    /// <summary>The coarse engine axis (upload fraction, then the job's stage fraction): bar one.</summary>
     [Notify]
     public double RenderProgress { get; set; }
 
+    /// <summary>
+    /// The farm's own sub-task fraction: bar two. Separate because the engine axis parks for the whole
+    /// distributed render — one bar could only ever show one of the two truths.
+    /// </summary>
+    [Notify]
+    public double ComputationProgress { get; set; }
+
     [Notify]
     public bool ShowProgress { get; set; }
+
+    /// <summary>True while the server reports distributed work (the computation bar is meaningful).</summary>
+    [Notify]
+    public bool ShowComputationProgress { get; set; }
+
+    /// <summary>Caption of the coarse bar, e.g. "Overall 50%".</summary>
+    [Notify]
+    public string OverallProgressLine { get; set; } = string.Empty;
+
+    /// <summary>Caption of the farm bar, e.g. "Computation 142/240 frames".</summary>
+    [Notify]
+    public string ComputationProgressLine { get; set; } = string.Empty;
 
     [Notify]
     public bool ShowResultActions { get; set; }
@@ -836,15 +844,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private MaxSceneExportService SceneExport => ApplicationVm.SceneExportService;
 
-    private MaxConnectedRenderService ConnectedRender => ApplicationVm.ConnectedRenderService;
-
     private MaxConnectedRenderPreflightService Preflight => ApplicationVm.ConnectedRenderPreflightService;
 
     private MaxConnectedExecutionScopeService ExecutionScope => ApplicationVm.ConnectedExecutionScopeService;
 
     private MaxPluginSettings Settings => ApplicationVm.Settings;
 
-    private IMaxStatusBarService StatusBar => ApplicationVm.StatusBar;
+    /// <summary>The session-scoped job lifecycle this dialog presents (and outlives it).</summary>
+    private MaxConnectedRenderJobTracker JobTracker => ApplicationVm.ConnectedRenderJobTracker;
 
     #endregion
 }

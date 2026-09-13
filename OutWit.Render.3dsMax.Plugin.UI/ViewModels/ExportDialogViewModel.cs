@@ -229,9 +229,10 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
                     return;
                 }
 
-                if (!m_cancelRequested
-                    && !string.IsNullOrWhiteSpace(jobState.StatusText)
-                    && jobState.StatusText.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+                // Failure comes from the SERVER status, not from sniffing the status text: a transient
+                // "Job refresh failed." (one dropped poll) used to abort an export that was still
+                // converting on the farm.
+                if (!m_cancelRequested && MaxConnectedRenderJobStatusMapper.HasFailed(jobState))
                 {
                     Fail(jobState.StatusText);
                     return;
@@ -243,9 +244,15 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
                 m_activeJobState = jobState;
                 DiagnosticsVm.Apply(jobState.Diagnostics);
 
+                // Prefer the farm's own sub-task axis when the job reports one: the engine's coarse
+                // axis parks inside a distributed stage and reads as a frozen percentage.
+                var percent = jobState.DistributedProgressPercent > 0d
+                    ? jobState.DistributedProgressPercent
+                    : jobState.ProgressPercent;
+
                 StatusLine = m_cancelRequested
                     ? "Cancelling…"
-                    : $"Converting to Blender on the server… {jobState.ProgressPercent:0}%";
+                    : $"Converting to Blender on the server… {percent:0}%";
             }
         }
         finally

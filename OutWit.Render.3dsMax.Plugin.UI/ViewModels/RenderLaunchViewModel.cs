@@ -105,7 +105,13 @@ public sealed class RenderLaunchViewModel : ViewModelBase<ApplicationViewModel>
     {
         JobId = jobState.JobId;
         JobStatusText = jobState.StatusText;
-        JobProgressText = $"{jobState.ProgressPercent:0.#}%";
+
+        // Both server axes, named: the farm's sub-task progress leads (it is the one that moves), with
+        // the engine's coarse stage figure behind it. Showing only the stage figure is what made a
+        // running render read as frozen.
+        JobProgressText = jobState.DistributedProgressPercent > 0d
+            ? $"{jobState.DistributedProgressPercent:0.#}% computation · {jobState.ProgressPercent:0.#}% stage"
+            : $"{jobState.ProgressPercent:0.#}% stage";
         LaunchPackageFolderPath = jobState.PackageFolderPath;
         LaunchManifestPath = jobState.ManifestPath;
         SubmissionReceiptPath = jobState.SubmissionReceiptPath;
