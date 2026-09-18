@@ -543,6 +543,49 @@ public sealed class MaxSceneExportServiceTests
         Assert.That(result.CanLaunch, Is.True);
     }
 
+    [TestCase("RenderStill")]
+    [TestCase("RenderStillTiled")]
+    public void ConnectedRenderPreflightFailsForAStillOutsideTheSceneRangeTest(string renderMode)
+    {
+        // The Frame field clamps, but preflight is the gate for every caller: the capture samples
+        // animation across the scene range (1-10 here) only, so frame 26 would silently render the
+        // pose held at frame 10.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var request = CreateTiledStillRequest("PNG");
+        request.RenderMode = renderMode;
+        request.FrameStart = 26;
+        request.FrameEnd = 26;
+
+        var result = service.Run(request);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.False);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("outside the scene's animation range", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [Test]
+    public void ConnectedRenderPreflightPassesForAStillOnAnyFrameInsideTheSceneRangeTest()
+    {
+        // A still is no longer pinned to the range start: frame 7 of the 1-10 scene is a valid launch,
+        // and one frame (start == end) raises no "expects a single frame" warning either.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var request = CreateTiledStillRequest("PNG");
+        request.FrameStart = 7;
+        request.FrameEnd = 7;
+
+        var result = service.Run(request);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.True);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("single frame", StringComparison.OrdinalIgnoreCase)), Is.False);
+        });
+    }
+
     private static MaxSceneLaunchPackageRequest CreateTiledStillRequest(string imageFormat)
     {
         return new MaxSceneLaunchPackageRequest

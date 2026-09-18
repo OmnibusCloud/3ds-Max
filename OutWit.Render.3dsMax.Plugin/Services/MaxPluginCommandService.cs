@@ -49,8 +49,25 @@ public sealed class MaxPluginCommandService
     public ApplicationViewModel CreateApplicationViewModel()
     {
         var exportService = CreateExportService();
-        var services = new MaxPluginServices(exportService, CreateStatusBarService());
+        var services = new MaxPluginServices(exportService, CreateStatusBarService(), CreateTimeSliderService());
         return new ApplicationViewModel(services);
+    }
+
+    /// <summary>
+    /// Creates the host time-slider bridge a still render follows, or a no-op when no Max host is
+    /// available (e.g. tests).
+    /// </summary>
+    private static IMaxTimeSliderService CreateTimeSliderService()
+    {
+        try
+        {
+            var global = GlobalInterface.Instance;
+            return new MaxTimeSliderService(global, global.COREInterface);
+        }
+        catch
+        {
+            return MaxTimeSliderServiceNull.Instance;
+        }
     }
 
     /// <summary>

@@ -43,6 +43,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private bool m_applyingAspect;
 
+    private bool m_applyingSliderFrame;
+
     #endregion
 
     #region Constructors
@@ -93,6 +95,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         LaunchVm.PropertyChanged += OnLaunchPropertyChanged;
         CloudVm.PropertyChanged += OnCloudPropertyChanged;
         JobTracker.Changed += OnJobTrackerChanged;
+        TimeSlider.FrameChanged += OnTimeSliderFrameChanged;
     }
 
     private void InitCommands()
@@ -176,6 +179,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         // V-Ray scanned materials — the collector's diagnostics already name them.
         HasVRayScannedMaterials = summary.UnmappedPluginClasses.Keys
             .Any(me => me.Contains("VRayScannedMtl", StringComparison.OrdinalIgnoreCase));
+
+        // The still frame follows the time slider within the (possibly just changed) scene range.
+        StillFrameHint = $"time slider · {SummaryVm.FrameStart} – {SummaryVm.FrameEnd}";
+        ApplySliderFrame(TimeSlider.CurrentFrame);
         UpdateStatus();
     }
 
@@ -184,6 +191,13 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         ResultPath = string.Empty;
         PushAxesToRenderMode();
         PersistRenderSettings();
+
+        // The capture reads the static scene state (geometry, materials, background) at Max's CURRENT
+        // time and samples only the animated channels across the range; a still whose frame differs
+        // from the slider (it sat outside the scene range) would mix two instants. Put the slider on
+        // the frame being rendered so the viewport, the capture and the farm all agree.
+        if (OutputAxis == RenderOutputAxis.Image && TimeSlider.CurrentFrame is { } sliderFrame && sliderFrame != StillFrame)
+            TimeSlider.SetCurrentFrame(StillFrame);
 
         Status = MaxRenderStatus.Submitting();
         UpdateStatus();
@@ -317,6 +331,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         var outputFolder = Path.Combine(OptionsVm.OutputFolder, "OmnibusCloudLaunches");
         Directory.CreateDirectory(outputFolder);
 
+        // A still renders ONE frame — the Frame row (the time slider). The Range row belongs to the
+        // animation axis; a still used to render its first frame, whatever the artist was looking at.
+        var isStill = OutputAxis == RenderOutputAxis.Image;
+
         return new MaxSceneLaunchPackageRequest
         {
             CloudUrl = CloudVm.CloudUrl,
@@ -324,8 +342,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             RenderMode = LaunchVm.SelectedRenderMode,
             ResolutionX = LaunchVm.ResolutionX,
             ResolutionY = LaunchVm.ResolutionY,
-            FrameStart = LaunchVm.FrameStart,
-            FrameEnd = LaunchVm.FrameEnd,
+            FrameStart = isStill ? StillFrame : LaunchVm.FrameStart,
+            FrameEnd = isStill ? StillFrame : LaunchVm.FrameEnd,
             Samples = LaunchVm.Samples,
             UseAllClients = LaunchVm.UseAllClients,
             SelectedGroupName = LaunchVm.SelectedGroupTargetName,
@@ -583,6 +601,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             ApplyImageFormatConstraints();
         }
 
+        // An edit in the Frame field (not an echo of the slider) moves the Max time slider.
+        if (e.PropertyName == nameof(StillFrame) && !m_applyingSliderFrame)
+            PushStillFrameToSlider();
+
         if (e.PropertyName == nameof(LockAspectRatio))
         {
             // Engaging the lock freezes the CURRENT ratio.
@@ -654,6 +676,54 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             UpdateStatus();
     }
 
+    /// <summary>The artist scrubbed, stepped or played the timeline: the Frame field follows.</summary>
+    private void OnTimeSliderFrameChanged(int frame)
+    {
+        if (m_uiDispatcher != null && !m_uiDispatcher.CheckAccess())
+        {
+            m_uiDispatcher.BeginInvoke(() => ApplySliderFrame(frame));
+            return;
+        }
+
+        ApplySliderFrame(frame);
+    }
+
+    /// <summary>
+    /// Shows the slider's frame in the Frame field, clamped into the scene range. Clamping here is
+    /// display-only: opening the dialog must never move the artist's slider, even when it sits outside
+    /// the range (frame 0 of a 0-based timeline) — Render moves it, explicitly, when it has to.
+    /// </summary>
+    private void ApplySliderFrame(int? sliderFrame)
+    {
+        m_applyingSliderFrame = true;
+        try
+        {
+            StillFrame = MaxStillFrameResolver.Resolve(sliderFrame, SummaryVm.FrameStart, SummaryVm.FrameEnd);
+        }
+        finally
+        {
+            m_applyingSliderFrame = false;
+        }
+    }
+
+    /// <summary>
+    /// A typed frame: bounded by the scene range (the capture samples animation across exactly that
+    /// range), then mirrored onto the Max time slider so the viewport shows what will render.
+    /// </summary>
+    private void PushStillFrameToSlider()
+    {
+        var clamped = MaxStillFrameResolver.Resolve(StillFrame, SummaryVm.FrameStart, SummaryVm.FrameEnd);
+        if (clamped != StillFrame)
+        {
+            // Re-enters through PropertyChanged with the in-range value, which is then pushed.
+            StillFrame = clamped;
+            return;
+        }
+
+        if (TimeSlider.CurrentFrame != StillFrame)
+            TimeSlider.SetCurrentFrame(StillFrame);
+    }
+
     #endregion
 
     #region IDisposable
@@ -667,6 +737,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public override void Dispose()
     {
         JobTracker.Changed -= OnJobTrackerChanged;
+
+        // The last listener leaving stops the slider sampling in the host service.
+        TimeSlider.FrameChanged -= OnTimeSliderFrameChanged;
         PropertyChanged -= OnPropertyChanged;
         LaunchVm.PropertyChanged -= OnLaunchPropertyChanged;
         CloudVm.PropertyChanged -= OnCloudPropertyChanged;
@@ -751,6 +824,18 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     /// <summary>Chains width↔height edits to the ratio captured when the lock was engaged.</summary>
     [Notify]
     public bool LockAspectRatio { get; set; }
+
+    /// <summary>
+    /// The frame a still renders (plain and tiled): two-way with the 3ds Max time slider, bounded by the
+    /// scene's animation range. Derived from the scene, never persisted — like the Blender addon's
+    /// Frame field over <c>scene.frame_current</c>.
+    /// </summary>
+    [Notify]
+    public int StillFrame { get; set; } = 1;
+
+    /// <summary>The quiet note beside the Frame field, e.g. "time slider · 1 – 100".</summary>
+    [Notify]
+    public string StillFrameHint { get; set; } = string.Empty;
 
     [Notify]
     public MaxRenderStatus Status { get; set; } = null!;
@@ -887,6 +972,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     /// <summary>The session-scoped job lifecycle this dialog presents (and outlives it).</summary>
     private MaxConnectedRenderJobTracker JobTracker => ApplicationVm.ConnectedRenderJobTracker;
+
+    /// <summary>The host time slider the still frame follows.</summary>
+    private IMaxTimeSliderService TimeSlider => ApplicationVm.TimeSlider;
 
     #endregion
 }

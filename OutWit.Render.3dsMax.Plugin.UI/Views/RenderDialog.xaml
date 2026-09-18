@@ -148,6 +148,19 @@
                         </StackPanel>
                     </DockPanel>
 
+                    <!-- Frame (image, plain and tiled) — the frame a still renders. Two-way with the 3ds Max
+                         time slider (scrub and it follows; type and the slider moves), bounded by the scene's
+                         animation range. The Range row above is the animation axis' counterpart. -->
+                    <DockPanel Margin="0,11,0,0" Visibility="{Binding IsImageOutput, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource RowLabel}" Text="Frame" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="70" Text="{Binding StillFrame}" HorizontalContentAlignment="Center"
+                                     ToolTip="The frame to render — follows the time slider; editing it moves the slider" />
+                            <TextBlock Text="{Binding StillFrameHint}" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontSize="10.5" Foreground="{DynamicResource Max.Brush.TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
+
                     <!-- Resolution — from the scene, editable; lock chains the aspect, reset restores the scene value -->
                     <DockPanel Margin="0,11,0,0">
                         <TextBlock Style="{StaticResource RowLabel}" Text="Size" />
