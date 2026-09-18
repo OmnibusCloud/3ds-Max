@@ -31,7 +31,20 @@ public sealed class MaxSceneLaunchPackageRequest
     /// <see cref="SelectedGroupName"/>; the UI sets exactly one of the two.</summary>
     public string SelectedProjectName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Where the launch PACKAGE (the scene payload the job is built from) is written — a working folder,
+    /// not where the artist wants the result.
+    /// </summary>
     public string OutputFolder { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The folder the artist chose for the RESULT ("Save to"). Empty leaves the result where it was
+    /// downloaded, which is what the batch and smoke flows expect.
+    /// </summary>
+    public string ResultFolder { get; set; } = string.Empty;
+
+    /// <summary>The name results are saved under, normally the scene name.</summary>
+    public string ResultName { get; set; } = string.Empty;
 
     /// <summary>Still/frames image format ("PNG"/"JPEG"/"EXR"/"TIFF"/"WEBP"); empty falls back to PNG.</summary>
     public string ImageFormat { get; set; } = string.Empty;

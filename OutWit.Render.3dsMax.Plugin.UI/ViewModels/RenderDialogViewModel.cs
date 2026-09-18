@@ -84,6 +84,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         TilesY = Settings.TilesY > 0 ? Settings.TilesY : 2;
         TileOverlap = Settings.TileOverlap > 0 ? Settings.TileOverlap : 8;
 
+        // One "Save to" for Render and Export (Settings ▸ Output): the Render dialog used to ignore it.
+        OutputFolder = ResolveOutputFolder(Settings.OutputFolder);
+
         // A persisted EXR from an earlier build (which nudged tiled stills there) would otherwise be
         // re-offered and fail on the farm again.
         ApplyImageFormatConstraints();
@@ -108,6 +111,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         NewRenderCommand = new RelayCommand(_ => NewRender());
         CopyLogCommand = new RelayCommand(_ => CopyLog());
         ResetResolutionCommand = new RelayCommand(_ => ResetResolution());
+        BrowseCommand = new RelayCommand(_ => Browse());
         UpdateStatus();
     }
 
@@ -254,6 +258,18 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         UpdateStatus();
     }
 
+    private void Browse()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Choose where render results are saved",
+            InitialDirectory = Directory.Exists(OutputFolder) ? OutputFolder : string.Empty
+        };
+
+        if (dialog.ShowDialog() == true)
+            OutputFolder = dialog.FolderName;
+    }
+
     private void CopyLog()
     {
         var text = $"{Status.StatusLine}\nJob: {LaunchVm.JobId}\n\n{DiagnosticsVm.LogText}";
@@ -328,8 +344,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private MaxSceneLaunchPackageRequest BuildRequest()
     {
-        var outputFolder = Path.Combine(OptionsVm.OutputFolder, "OmnibusCloudLaunches");
-        Directory.CreateDirectory(outputFolder);
+        // The launch package is the job's INPUT (the scene payload, tens of MB with textures): a working
+        // folder, discarded once the result is delivered. It used to go to Desktop\OmnibusCloudLaunches
+        // and stay there forever — gigabytes on one machine — while the result itself stayed in %TEMP%.
+        var packageFolder = Path.Combine(Path.GetTempPath(), "OmnibusCloudLaunches");
+        Directory.CreateDirectory(packageFolder);
 
         // A still renders ONE frame — the Frame row (the time slider). The Range row belongs to the
         // animation axis; a still used to render its first frame, whatever the artist was looking at.
@@ -348,7 +367,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             UseAllClients = LaunchVm.UseAllClients,
             SelectedGroupName = LaunchVm.SelectedGroupTargetName,
             SelectedProjectName = LaunchVm.SelectedProjectTargetName,
-            OutputFolder = outputFolder,
+            OutputFolder = packageFolder,
+            ResultFolder = ResolveOutputFolder(OutputFolder),
+            ResultName = SummaryVm.SceneName,
             ImageFormat = SelectedImageFormat,
             TilesX = TilesX,
             TilesY = TilesY,
@@ -568,10 +589,23 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
     }
 
+    /// <summary>The chosen folder, or the Desktop when none is set (the historic default).</summary>
+    private static string ResolveOutputFolder(string? folder) =>
+        string.IsNullOrWhiteSpace(folder)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+            : folder.Trim();
+
     private void PersistRenderSettings()
     {
+        // "Save to" is shared with Export and always remembered, like the Export dialog's — it is where
+        // the artist looks for results, not a per-render parameter.
+        Settings.OutputFolder = ResolveOutputFolder(OutputFolder);
+
         if (!Settings.RememberLastRenderSettings)
+        {
+            Settings.SettingsManager.Save();
             return;
+        }
 
         Settings.LastRenderMode = ResolveRenderMode();
         Settings.SplitFrame = SplitFrame;
@@ -837,6 +871,14 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public string StillFrameHint { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Where results are saved ("Save to") — the same folder the Export dialog uses, seeded from
+    /// Settings ▸ Output. Kept on the job, so a render collected after the dialog closed (or after a
+    /// 3ds Max restart) still lands here.
+    /// </summary>
+    [Notify]
+    public string OutputFolder { get; set; } = string.Empty;
+
     [Notify]
     public MaxRenderStatus Status { get; set; } = null!;
 
@@ -957,6 +999,8 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public ICommand CopyLogCommand { get; private set; } = null!;
 
     public ICommand ResetResolutionCommand { get; private set; } = null!;
+
+    public ICommand BrowseCommand { get; private set; } = null!;
 
     #endregion
 

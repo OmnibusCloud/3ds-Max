@@ -224,6 +224,20 @@
                 </StackPanel>
             </GroupBox>
 
+            <!-- Save to — the same folder as the Export dialog (Settings ▸ Output). Results land here as
+                 <scene>_<frame>.<ext>; an image sequence gets its own <scene>_<start>-<end> subfolder. -->
+            <GroupBox Header="SAVE TO" Margin="0,14,0,0">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Margin="8,0,0,0" Command="{Binding BrowseCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Folder}" />
+                            <TextBlock Text="Browse…" />
+                        </StackPanel>
+                    </Button>
+                    <TextBox Text="{Binding OutputFolder}" />
+                </DockPanel>
+            </GroupBox>
+
             <!-- V-Ray scanned materials (visible only when the scene uses them) -->
             <GroupBox Header="V-RAY SCANNED MATERIALS" Margin="0,14,0,0"
                       Visibility="{Binding HasVRayScannedMaterials, Converter={StaticResource BoolToVis}}">

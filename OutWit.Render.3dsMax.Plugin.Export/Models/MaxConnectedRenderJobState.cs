@@ -30,6 +30,16 @@ public sealed class MaxConnectedRenderJobState
     /// </summary>
     public string VideoPreset { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The folder the artist chose for the result ("Save to"). Kept on the job and its persisted record
+    /// because the result arrives long after the dialog that launched it may have closed — even after a
+    /// 3ds Max restart. Empty keeps the result where it was downloaded (older records, batch flows).
+    /// </summary>
+    public string ResultFolder { get; set; } = string.Empty;
+
+    /// <summary>The name the result is saved under (the scene name); see <see cref="ResultFolder"/>.</summary>
+    public string ResultName { get; set; } = string.Empty;
+
     public string StatusText { get; set; } = string.Empty;
 
     /// <summary>

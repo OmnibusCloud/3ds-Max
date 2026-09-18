@@ -47,6 +47,8 @@ public sealed class MaxConnectedRenderJobTracker
 
     private readonly MaxConnectedRenderJobStore m_store;
 
+    private readonly MaxConnectedRenderDownloadService m_downloadService;
+
     private readonly IMaxStatusBarService m_statusBar;
 
     private readonly ILogger m_logger;
@@ -71,18 +73,21 @@ public sealed class MaxConnectedRenderJobTracker
     /// <param name="statusBar">Host prompt line; reported to on every tracked change.</param>
     /// <param name="logger">Plugin logger.</param>
     /// <param name="pollInterval">Poll interval override; defaults to two seconds (tests shorten it).</param>
+    /// <param name="downloadService">Delivers finished results into the chosen folder.</param>
     public MaxConnectedRenderJobTracker(
         MaxConnectedRenderService renderService,
         MaxConnectedRenderJobStore store,
         IMaxStatusBarService statusBar,
         ILogger logger,
-        TimeSpan? pollInterval = null)
+        TimeSpan? pollInterval = null,
+        MaxConnectedRenderDownloadService? downloadService = null)
     {
         m_renderService = renderService;
         m_store = store;
         m_statusBar = statusBar;
         m_logger = logger;
         m_pollInterval = pollInterval ?? DEFAULT_POLL_INTERVAL;
+        m_downloadService = downloadService ?? new MaxConnectedRenderDownloadService();
     }
 
     #endregion
@@ -191,13 +196,20 @@ public sealed class MaxConnectedRenderJobTracker
             return true;
         }
 
+        if (status.Phase != MaxRenderPhase.Completed)
+            return true;
+
         // Completed, but the result file is not on disk (a crash between completion and download, or a
-        // cleaned temp folder): one refresh re-fetches the blob so the result is collectable again.
-        if (status.Phase == MaxRenderPhase.Completed && !File.Exists(jobState.PrimaryArtifactPath))
-        {
-            var refreshed = await m_renderService.RefreshJobAsync(jobState);
-            Publish(MaxConnectedRenderJobStatusMapper.Map(refreshed), refreshed, persist: true);
-        }
+        // deleted file): one refresh re-fetches the blob so the result is collectable again.
+        var refetched = !File.Exists(jobState.PrimaryArtifactPath);
+        if (refetched)
+            jobState = await m_renderService.RefreshJobAsync(jobState);
+
+        // A result re-fetched just now, or one that finished downloading while Max went away before it
+        // was delivered, still sits in the download area: it goes to the chosen folder now.
+        var delivered = DeliverResult(jobState);
+        if (refetched || delivered)
+            Publish(MaxConnectedRenderJobStatusMapper.Map(jobState), jobState, persist: true);
 
         return true;
     }
@@ -262,6 +274,13 @@ public sealed class MaxConnectedRenderJobTracker
             {
                 var status = MaxConnectedRenderJobStatusMapper.Map(jobState, m_cancelRequested);
 
+                // Delivered BEFORE the completed status is published, so the dialog's result card and
+                // the persisted record point at the file in the chosen folder, never at %TEMP%.
+                if (status.Phase == MaxRenderPhase.Completed)
+                    DeliverResult(jobState);
+                else if (status.Phase == MaxRenderPhase.Cancelled)
+                    MaxSceneLaunchPreparationService.Discard(jobState.PackageFolderPath, jobState.PackageArchivePath);
+
                 // The record is a HANDLE, not a progress log — progress is re-fetched from the server on
                 // restore. Rewriting it on every two-second poll would be a file write per tick for the
                 // whole render, so it is written when the phase actually moves (and on the terminal one,
@@ -289,6 +308,31 @@ public sealed class MaxConnectedRenderJobTracker
             lock (m_lock)
                 m_isPolling = false;
         }
+    }
+
+    /// <summary>
+    /// Moves a finished result out of the download area into the folder chosen at launch, then drops
+    /// the launch package (the scene payload, tens of MB — the Render dialog used to leave every one of
+    /// them behind for good). A failed job keeps its package for diagnosis.
+    /// </summary>
+    /// <returns>True when a result was delivered.</returns>
+    private bool DeliverResult(MaxConnectedRenderJobState jobState)
+    {
+        if (string.IsNullOrWhiteSpace(jobState.ResultFolder) || !MaxRenderResultFileNaming.IsInDownloadArea(jobState.PrimaryArtifactPath))
+            return false;
+
+        var delivery = m_downloadService.DeliverRender(jobState);
+        jobState.Diagnostics.AddRange(delivery.Diagnostics);
+
+        if (!delivery.IsSuccess)
+        {
+            m_logger.Warning("Could not deliver the result of OmnibusCloud render job {JobId}: {Reason}", jobState.JobId, delivery.StatusText);
+            return false;
+        }
+
+        m_logger.Information("Delivered the result of OmnibusCloud render job {JobId} to {Path}", jobState.JobId, delivery.DownloadedFilePath);
+        MaxSceneLaunchPreparationService.Discard(jobState.PackageFolderPath, jobState.PackageArchivePath);
+        return true;
     }
 
     private void OnUploadProgress(double fraction)

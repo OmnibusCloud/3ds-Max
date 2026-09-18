@@ -182,7 +182,7 @@ public sealed class MaxConnectedRenderResultDeliveryTests
         var packageArchive = packageFolder + ".zip";
         File.WriteAllText(packageArchive, "payload");
 
-        var discarded = CreatePreparationService().Discard(packageFolder, packageArchive);
+        var discarded = MaxSceneLaunchPreparationService.Discard(packageFolder, packageArchive);
 
         Assert.Multiple(() =>
         {
@@ -204,8 +204,8 @@ public sealed class MaxConnectedRenderResultDeliveryTests
         var packageNamedButNotZip = Path.Combine(m_testDir, "max-launch-20260918-000000-abc.blend");
         File.WriteAllText(packageNamedButNotZip, "work");
 
-        CreatePreparationService().Discard(foreignFolder, foreignArchive);
-        CreatePreparationService().Discard(null, packageNamedButNotZip);
+        MaxSceneLaunchPreparationService.Discard(foreignFolder, foreignArchive);
+        MaxSceneLaunchPreparationService.Discard(null, packageNamedButNotZip);
 
         Assert.Multiple(() =>
         {
@@ -234,9 +234,6 @@ public sealed class MaxConnectedRenderResultDeliveryTests
             PrimaryArtifactPath = downloadedPath
         };
     }
-
-    private static MaxSceneLaunchPreparationService CreatePreparationService() =>
-        MaxSceneExportTestData.CreateLaunchPreparationService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
 
     #endregion
 }

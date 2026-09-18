@@ -277,7 +277,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         DiagnosticsVm.Apply(delivery.Diagnostics);
 
         if (delivery.IsSuccess)
-            ApplicationVm.LaunchPreparationService.Discard(jobState.PackageFolderPath, jobState.PackageArchivePath);
+            MaxSceneLaunchPreparationService.Discard(jobState.PackageFolderPath, jobState.PackageArchivePath);
 
         return string.IsNullOrWhiteSpace(delivery.DownloadedFilePath) ? jobState.PrimaryArtifactPath : delivery.DownloadedFilePath;
     }

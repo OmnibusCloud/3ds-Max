@@ -202,6 +202,113 @@ public sealed class MaxConnectedRenderJobTrackerTests
 
     #endregion
 
+    #region Delivery Tests
+
+    [Test]
+    public async Task AFinishedRenderIsDeliveredBeforeItIsReportedTest()
+    {
+        // The completed card and the persisted record must point at the file in "Save to" — never at
+        // %TEMP%, where every render result used to stay — and the launch package must not linger.
+        var downloadDir = MaxRenderResultFileNaming.DownloadFolder($"test_{Guid.NewGuid():N}");
+        var saveTo = Path.Combine(m_testDir, "Renders");
+        var packageFolder = Path.Combine(m_testDir, "max-launch-20260918-000000-abcdef");
+        Directory.CreateDirectory(downloadDir);
+        Directory.CreateDirectory(packageFolder);
+        File.WriteAllText(packageFolder + ".zip", "scene payload");
+        var downloaded = Path.Combine(downloadDir, "result.jpg");
+        File.WriteAllText(downloaded, "the jpeg");
+
+        try
+        {
+            var transport = new FakeMaxConnectedRenderSubmissionTransport()
+                .EnqueueRefresh(job =>
+                {
+                    job.ServerStatus = "Completed";
+                    job.IsCompleted = true;
+                    job.ProgressPercent = 100d;
+                    job.DistributedProgressPercent = 100d;
+                    job.PrimaryArtifactPath = downloaded;
+                });
+
+            var store = new MaxConnectedRenderJobStore(m_recordPath);
+            var running = CreateRunningJob();
+            running.FrameStart = 26;
+            running.FrameEnd = 26;
+            running.ResultFolder = saveTo;
+            running.ResultName = "robby_vs_fly";
+            running.PackageFolderPath = packageFolder;
+            running.PackageArchivePath = packageFolder + ".zip";
+            store.Save(running);
+            var tracker = CreateTracker(transport, store);
+
+            string? reportedPath = null;
+            tracker.Changed += (status, job) =>
+            {
+                if (status.Phase == MaxRenderPhase.Completed)
+                    reportedPath ??= job?.PrimaryArtifactPath;
+            };
+
+            await tracker.RestoreAsync();
+            await WaitUntilAsync(() => tracker.Status.IsTerminal);
+
+            var expected = Path.Combine(saveTo, "robby_vs_fly_0026.jpg");
+            Assert.Multiple(() =>
+            {
+                Assert.That(reportedPath, Is.EqualTo(expected));
+                Assert.That(File.ReadAllText(expected), Is.EqualTo("the jpeg"));
+                Assert.That(store.Load()!.PrimaryArtifactPath, Is.EqualTo(expected));
+                Assert.That(Directory.Exists(packageFolder), Is.False);
+                Assert.That(File.Exists(packageFolder + ".zip"), Is.False);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(downloadDir))
+                Directory.Delete(downloadDir, true);
+        }
+    }
+
+    [Test]
+    public async Task ARestoredResultThatWasNeverDeliveredIsDeliveredTest()
+    {
+        // 3ds Max went away after the download but before the delivery: the next open finishes the job
+        // without asking the server anything.
+        var downloadDir = MaxRenderResultFileNaming.DownloadFolder($"test_{Guid.NewGuid():N}");
+        var saveTo = Path.Combine(m_testDir, "Renders");
+        Directory.CreateDirectory(downloadDir);
+        var downloaded = Path.Combine(downloadDir, "result.png");
+        File.WriteAllText(downloaded, "the png");
+
+        try
+        {
+            var transport = new FakeMaxConnectedRenderSubmissionTransport();
+            var store = new MaxConnectedRenderJobStore(m_recordPath);
+            var completed = CreateCompletedJob(downloaded);
+            completed.ResultFolder = saveTo;
+            completed.ResultName = "robby_vs_fly";
+            store.Save(completed);
+            var tracker = CreateTracker(transport, store);
+
+            Assert.That(await tracker.RestoreAsync(), Is.True);
+
+            var expected = Path.Combine(saveTo, "robby_vs_fly_0001.png");
+            Assert.Multiple(() =>
+            {
+                Assert.That(tracker.JobState!.PrimaryArtifactPath, Is.EqualTo(expected));
+                Assert.That(File.Exists(expected), Is.True);
+                Assert.That(store.Load()!.PrimaryArtifactPath, Is.EqualTo(expected));
+                Assert.That(transport.RefreshCount, Is.Zero);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(downloadDir))
+                Directory.Delete(downloadDir, true);
+        }
+    }
+
+    #endregion
+
     #region Cancel / Clear Tests
 
     [Test]

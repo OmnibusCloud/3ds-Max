@@ -177,6 +177,8 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 // the artist chose, also when it is collected after a 3ds Max restart.
                 ImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(request.ImageFormat),
                 VideoPreset = MaxRenderOutputCatalog.NormalizeVideoPresetKey(request.VideoPreset),
+                ResultFolder = request.ResultFolder,
+                ResultName = request.ResultName,
                 StatusText = $"Submitted to OmnibusCloud as job '{handle.JobId}'.",
                 ProgressPercent = 5d,
                 IsCompleted = false,
@@ -551,7 +553,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             var downloaded = 0;
             for (var index = 0; index < jobState.ResultFrameBlobIds.Count; index++)
             {
-                var stem = $"frame_{jobState.FrameStart + index:D4}";
+                var stem = $"{MaxRenderResultFileNaming.DOWNLOADED_FRAME_PREFIX}{jobState.FrameStart + index:D4}";
 
                 // Idempotent across refreshes: skip frames that already landed, under any extension.
                 var framePath = MaxRenderResultFileNaming.FindLanded(resultFolder, stem);
@@ -618,7 +620,7 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
     private static string BuildResultFolder(MaxConnectedRenderJobState jobState, Guid blobId)
     {
         var jobFolder = string.IsNullOrWhiteSpace(jobState.JobId) ? blobId.ToString("N") : jobState.JobId.Replace('-', '_');
-        return Path.Combine(Path.GetTempPath(), "OmnibusCloudResults", jobFolder);
+        return MaxRenderResultFileNaming.DownloadFolder(jobFolder);
     }
 
     private static MaxConnectedRenderJobState CreateFailedState(

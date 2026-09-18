@@ -140,7 +140,7 @@ public sealed class MaxSceneLaunchPreparationService
     /// <param name="packageFolderPath">The package folder (<c>max-launch-…</c>).</param>
     /// <param name="packageArchivePath">The package archive (<c>max-launch-….zip</c>) beside it.</param>
     /// <returns>False only when a deletion was attempted and failed (a locked file).</returns>
-    public bool Discard(string? packageFolderPath, string? packageArchivePath)
+    public static bool Discard(string? packageFolderPath, string? packageArchivePath)
     {
         try
         {
