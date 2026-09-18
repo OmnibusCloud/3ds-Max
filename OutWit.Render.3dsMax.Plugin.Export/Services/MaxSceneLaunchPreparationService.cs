@@ -9,6 +9,13 @@ namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 /// </summary>
 public sealed class MaxSceneLaunchPreparationService
 {
+    #region Constants
+
+    /// <summary>Every package folder (and its archive) this service creates starts with this.</summary>
+    private const string PACKAGE_ID_PREFIX = "max-launch-";
+
+    #endregion
+
     #region Fields
 
     private readonly MaxSceneExportService m_sceneExportService;
@@ -34,7 +41,7 @@ public sealed class MaxSceneLaunchPreparationService
         if (string.IsNullOrWhiteSpace(request.OutputFolder))
             throw new InvalidOperationException("Launch package output folder is required.");
 
-        var packageId = $"max-launch-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+        var packageId = $"{PACKAGE_ID_PREFIX}{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
         var packageFolderPath = Path.Combine(request.OutputFolder, packageId);
         Directory.CreateDirectory(packageFolderPath);
 
@@ -121,6 +128,44 @@ public sealed class MaxSceneLaunchPreparationService
             StatusText = "Prepared a local launch package for future OmnibusCloud submission.",
             Diagnostics = diagnostics
         };
+    }
+
+    /// <summary>
+    /// Deletes a launch package this service prepared — its folder and its archive — once the job built
+    /// from it no longer needs it. A package is the scene payload (tens to hundreds of MB with textures),
+    /// and nothing reads it after the job has finished. Best-effort, and deliberately narrow: only a
+    /// folder named like a package this service creates is ever touched, so a stale or corrupt path can
+    /// never delete anything else.
+    /// </summary>
+    /// <param name="packageFolderPath">The package folder (<c>max-launch-…</c>).</param>
+    /// <param name="packageArchivePath">The package archive (<c>max-launch-….zip</c>) beside it.</param>
+    /// <returns>False only when a deletion was attempted and failed (a locked file).</returns>
+    public bool Discard(string? packageFolderPath, string? packageArchivePath)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(packageFolderPath)
+                && Path.GetFileName(Path.TrimEndingDirectorySeparator(packageFolderPath)).StartsWith(PACKAGE_ID_PREFIX, StringComparison.Ordinal)
+                && Directory.Exists(packageFolderPath))
+            {
+                Directory.Delete(packageFolderPath, true);
+            }
+
+            if (!string.IsNullOrWhiteSpace(packageArchivePath)
+                && Path.GetFileName(packageArchivePath).StartsWith(PACKAGE_ID_PREFIX, StringComparison.Ordinal)
+                && string.Equals(Path.GetExtension(packageArchivePath), ".zip", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(packageArchivePath))
+            {
+                File.Delete(packageArchivePath);
+            }
+
+            return true;
+        }
+        catch
+        {
+            // A locked file just stays behind; the export itself already succeeded.
+            return false;
+        }
     }
 
     #endregion
