@@ -13,9 +13,22 @@ public sealed class MaxConnectedRenderJobState
 
     /// <summary>
     /// The output mode the job was submitted with (e.g. RenderStill, RenderVideo, ExportBlend).
-    /// Determines the result file extension when the result blob is downloaded.
+    /// Together with <see cref="ImageFormat"/> / <see cref="VideoPreset"/> it names the downloaded result.
     /// </summary>
     public string RenderMode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The image format the artist chose (stills, tiled stills, frame sequences), e.g. "JPEG". The result
+    /// used to be saved as .png whatever was chosen — a JPEG, EXR, TIFF or WEBP under a .png name.
+    /// Empty on records written before it was kept; the downloaded bytes then decide.
+    /// </summary>
+    public string ImageFormat { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The video preset key the artist chose (e.g. "webm-vp9"); a video used to be saved as .mp4 whatever
+    /// the container. Empty on older records.
+    /// </summary>
+    public string VideoPreset { get; set; } = string.Empty;
 
     public string StatusText { get; set; } = string.Empty;
 

@@ -21,6 +21,13 @@ public static class MaxRenderOutputCatalog
     /// </summary>
     public static readonly IReadOnlyList<string> TiledImageFormats = ["PNG", "JPEG"];
 
+    /// <summary>
+    /// Every extension a downloaded result can carry — the lookup set for "has this result already
+    /// landed" (a fixed list, so a transfer's temporary file never passes for a finished one).
+    /// </summary>
+    public static readonly IReadOnlyList<string> ResultExtensions =
+        [".png", ".jpg", ".exr", ".tif", ".webp", ".mp4", ".webm", ".mov", ".blend"];
+
     /// <summary>Canonical persisted preset keys with the display labels the dialogs show.</summary>
     public static readonly IReadOnlyList<KeyValuePair<string, string>> VideoPresets =
     [
@@ -84,6 +91,38 @@ public static class MaxRenderOutputCatalog
             "TIFF" => RenderFormat.TIFF,
             "WEBP" => RenderFormat.WEBP,
             _ => RenderFormat.PNG
+        };
+    }
+
+    /// <summary>
+    /// The extension the farm's result carries for what was requested — the same names the Render
+    /// controller gives its own outputs (BlenderRenderArgsBuilder for images, FfmpegRunner for video),
+    /// so a JPEG still arrives as .jpg and a WebM video as .webm instead of everything being
+    /// .png / .mp4.
+    /// </summary>
+    /// <param name="renderMode">RenderStill, RenderStillTiled, RenderFrames, RenderVideo or ExportBlend.</param>
+    /// <param name="imageFormat">The chosen image format (empty = PNG, as on the wire).</param>
+    /// <param name="videoPreset">The chosen video preset key (empty = MP4 · H.264, as on the wire).</param>
+    /// <returns>The extension, including the dot.</returns>
+    public static string ResultExtension(string? renderMode, string? imageFormat, string? videoPreset)
+    {
+        return renderMode switch
+        {
+            "ExportBlend" => ".blend",
+            "RenderVideo" => ParseVideoPreset(videoPreset) switch
+            {
+                VideoFormat.WebMVp9 => ".webm",
+                VideoFormat.MovProres422Hq or VideoFormat.MovProres4444 => ".mov",
+                _ => ".mp4"
+            },
+            _ => ParseImageFormat(imageFormat) switch
+            {
+                RenderFormat.JPEG => ".jpg",
+                RenderFormat.EXR => ".exr",
+                RenderFormat.TIFF => ".tif",
+                RenderFormat.WEBP => ".webp",
+                _ => ".png"
+            }
         };
     }
 

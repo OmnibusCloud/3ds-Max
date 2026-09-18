@@ -24,6 +24,9 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
     private const int DEFAULT_TILES_Y = 2;
 
+    /// <summary>File name (without extension) of a single downloaded result.</summary>
+    private const string RESULT_FILE_STEM = "result";
+
     #endregion
 
     #region Fields
@@ -170,6 +173,10 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
                 JobId = handle.JobId.ToString("D"),
                 CloudUrl = request.CloudUrl,
                 RenderMode = request.RenderMode,
+                // Kept on the job (and its persisted record) so the result is saved under the format
+                // the artist chose, also when it is collected after a 3ds Max restart.
+                ImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(request.ImageFormat),
+                VideoPreset = MaxRenderOutputCatalog.NormalizeVideoPresetKey(request.VideoPreset),
                 StatusText = $"Submitted to OmnibusCloud as job '{handle.JobId}'.",
                 ProgressPercent = 5d,
                 IsCompleted = false,
@@ -538,15 +545,21 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
             var resultFolder = BuildResultFolder(jobState, jobState.ResultFrameBlobIds[0]);
             Directory.CreateDirectory(resultFolder);
 
+            // Frames carry the chosen image format (they used to be frame_NNNN.png whatever it was).
+            var extension = MaxRenderResultFileNaming.ExpectedExtension(jobState);
+
             var downloaded = 0;
             for (var index = 0; index < jobState.ResultFrameBlobIds.Count; index++)
             {
-                var framePath = Path.Combine(resultFolder, $"frame_{jobState.FrameStart + index:D4}.png");
+                var stem = $"frame_{jobState.FrameStart + index:D4}";
 
-                // Idempotent across refreshes: skip frames that already landed.
-                if (!File.Exists(framePath))
+                // Idempotent across refreshes: skip frames that already landed, under any extension.
+                var framePath = MaxRenderResultFileNaming.FindLanded(resultFolder, stem);
+                if (framePath is null)
                 {
-                    await client.Blobs.DownloadBlobToFileAsync(jobState.ResultFrameBlobIds[index], framePath, ct: cancellationToken);
+                    var downloadPath = Path.Combine(resultFolder, stem + extension);
+                    await client.Blobs.DownloadBlobToFileAsync(jobState.ResultFrameBlobIds[index], downloadPath, ct: cancellationToken);
+                    framePath = MaxRenderResultFileNaming.NameByContent(downloadPath);
                     downloaded++;
                 }
 
@@ -574,17 +587,24 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
 
         try
         {
-            var resultPath = BuildResultPath(jobState, blobId);
+            var resultFolder = BuildResultFolder(jobState, blobId);
 
-            // Idempotent across refreshes: if already downloaded, just point at it.
-            if (File.Exists(resultPath))
+            // Idempotent across refreshes: if already downloaded (under whatever extension its bytes
+            // declared), just point at it.
+            var landedPath = MaxRenderResultFileNaming.FindLanded(resultFolder, RESULT_FILE_STEM);
+            if (landedPath is not null)
             {
-                jobState.PrimaryArtifactPath = resultPath;
+                jobState.PrimaryArtifactPath = landedPath;
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(resultPath)!);
-            await client.Blobs.DownloadBlobToFileAsync(blobId, resultPath, ct: cancellationToken);
+            // Downloaded under the extension of the format the artist chose (it used to be .png for every
+            // still and .mp4 for every video), then checked against the bytes themselves.
+            Directory.CreateDirectory(resultFolder);
+            var downloadPath = Path.Combine(resultFolder, RESULT_FILE_STEM + MaxRenderResultFileNaming.ExpectedExtension(jobState));
+            await client.Blobs.DownloadBlobToFileAsync(blobId, downloadPath, ct: cancellationToken);
+
+            var resultPath = MaxRenderResultFileNaming.NameByContent(downloadPath);
             jobState.PrimaryArtifactPath = resultPath;
             jobState.Diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Downloaded job result to '{resultPath}'."));
         }
@@ -595,24 +615,11 @@ public sealed class MaxConnectedRenderSubmissionTransportOmnibusCloudSession : I
         }
     }
 
-    private static string BuildResultPath(MaxConnectedRenderJobState jobState, Guid blobId)
-    {
-        var extension = ResolveResultExtension(jobState.RenderMode);
-        return Path.Combine(BuildResultFolder(jobState, blobId), $"result{extension}");
-    }
-
     private static string BuildResultFolder(MaxConnectedRenderJobState jobState, Guid blobId)
     {
         var jobFolder = string.IsNullOrWhiteSpace(jobState.JobId) ? blobId.ToString("N") : jobState.JobId.Replace('-', '_');
         return Path.Combine(Path.GetTempPath(), "OmnibusCloudResults", jobFolder);
     }
-
-    private static string ResolveResultExtension(string renderMode) => renderMode switch
-    {
-        "ExportBlend" => ".blend",
-        "RenderVideo" => ".mp4",
-        _ => ".png"
-    };
 
     private static MaxConnectedRenderJobState CreateFailedState(
         MaxSceneLaunchPackageResult package,
