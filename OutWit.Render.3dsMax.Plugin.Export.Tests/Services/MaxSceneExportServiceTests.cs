@@ -513,6 +513,57 @@ public sealed class MaxSceneExportServiceTests
     }
 
     [Test]
+    public void ConnectedRenderPreflightFailsForATiledStillInAFormatTheStitcherRefusesTest()
+    {
+        // Live-found: the dialog nudged tiled stills to EXR, and the farm rejected the job in
+        // Render.CollectTiles ("supports PNG and JPEG only") AFTER the whole scene had rendered.
+        // Preflight now refuses the combination locally, before a single machine is booked.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(CreateTiledStillRequest("EXR"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.CanLaunch, Is.False);
+            Assert.That(result.Diagnostics.Any(me => me.Message.Contains("PNG and JPEG only", StringComparison.OrdinalIgnoreCase)), Is.True);
+        });
+    }
+
+    [TestCase("PNG")]
+    [TestCase("JPEG")]
+    [TestCase("")]
+    public void ConnectedRenderPreflightPassesForATiledStillTheStitcherSupportsTest(string imageFormat)
+    {
+        // The empty case matters: an unset format travels as PNG on the wire, so preflight must read
+        // it the same way instead of failing a launch that would have worked.
+        var service = MaxSceneExportTestData.CreateConnectedRenderPreflightService(MaxSceneExportTestData.CreateMinimalValidSceneSnapshot());
+
+        var result = service.Run(CreateTiledStillRequest(imageFormat));
+
+        Assert.That(result.CanLaunch, Is.True);
+    }
+
+    private static MaxSceneLaunchPackageRequest CreateTiledStillRequest(string imageFormat)
+    {
+        return new MaxSceneLaunchPackageRequest
+        {
+            CloudUrl = "https://omnibuscloud.local",
+            IdentityUrl = "https://identity.omnibuscloud.local",
+            RenderMode = "RenderStillTiled",
+            ResolutionX = 1920,
+            ResolutionY = 1080,
+            FrameStart = 1,
+            FrameEnd = 1,
+            SelectedGroupName = "Artists",
+            ImageFormat = imageFormat,
+            TilesX = 2,
+            TilesY = 2,
+            TileOverlap = 8,
+            OutputFolder = Path.GetTempPath()
+        };
+    }
+
+    [Test]
     public void ConnectedRenderPreflightPassesForExportBlendWithoutResolutionTest()
     {
         // ExportBlend builds the .blend host-side: no resolution or frame range applies — but a

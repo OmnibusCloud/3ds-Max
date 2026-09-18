@@ -1,3 +1,4 @@
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
@@ -80,6 +81,13 @@ public sealed class MaxConnectedRenderPreflightService
 
             if (request.FrameStart <= 0 || request.FrameEnd < request.FrameStart)
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, "Frame range is invalid for connected launch."));
+
+            // The farm stitches tiles through an 8-bit pipeline: any other format is refused by
+            // Render.CollectTiles after the whole scene has already been uploaded and rendered.
+            // Normalized first, exactly as the transport does — an unset format travels as PNG.
+            var imageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(request.ImageFormat);
+            if (request.RenderMode == "RenderStillTiled" && !MaxRenderOutputCatalog.IsTiledImageFormat(imageFormat))
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Tiled still collection supports PNG and JPEG only — '{imageFormat}' would be rejected by the farm after the render."));
 
             if ((request.RenderMode == "RenderStill" || request.RenderMode == "RenderStillTiled") && request.FrameEnd != request.FrameStart)
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Still render modes usually expect a single frame. The current frame range will be reduced later unless changed."));

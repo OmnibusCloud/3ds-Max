@@ -118,9 +118,14 @@
                         </RadioButton>
                     </Grid>
 
-                    <!-- Format (stills / sequences) — defaults from Settings ▸ Output, editable per launch -->
+                    <!-- Format (stills / sequences) — defaults from Settings ▸ Output, editable per launch.
+                         The list itself narrows for tiled stills: the farm's stitcher takes PNG/JPEG only. -->
                     <DockPanel Margin="0,11,0,0" Visibility="{Binding ShowImageFormat, Converter={StaticResource BoolToVis}}">
                         <TextBlock Style="{StaticResource RowLabel}" Text="Format" />
+                        <TextBlock DockPanel.Dock="Right" Text="tiled stitching · PNG / JPEG" Margin="10,0,0,0"
+                                   VerticalAlignment="Center" FontSize="10.5"
+                                   Foreground="{DynamicResource Max.Brush.TextMuted}"
+                                   Visibility="{Binding ShowTiles, Converter={StaticResource BoolToVis}}" />
                         <ComboBox ItemsSource="{Binding AvailableImageFormats}" SelectedItem="{Binding SelectedImageFormat}" />
                     </DockPanel>
 
@@ -334,7 +339,7 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
 
-                    <!-- Configuring / blocked / failed: Details + Render -->
+                    <!-- Configuring / blocked / cancelled: Details + Render -->
                     <StackPanel Orientation="Horizontal"
                                 Visibility="{Binding ShowConfigActions, Converter={StaticResource BoolToVis}}">
                         <Button Margin="0,0,8,0" Command="{Binding DetailsCommand}">
@@ -385,7 +390,9 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- Failed: Copy log + Retry (mockup Failed card) -->
+                    <!-- Failed: Copy log + Retry + New render. Retry re-submits the SAME settings, which
+                         is only ever right for a transient farm failure; New render is what leads back to
+                         the configuration view, so a failure caused by the settings has a way out. -->
                     <StackPanel Orientation="Horizontal"
                                 Visibility="{Binding ShowFailedActions, Converter={StaticResource BoolToVis}}">
                         <Button Margin="0,0,8,0" Command="{Binding CopyLogCommand}">
@@ -394,11 +401,16 @@
                                 <TextBlock Text="Copy log" />
                             </StackPanel>
                         </Button>
-                        <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}"
-                                Command="{Binding RenderCommand}" IsEnabled="{Binding CanRender}">
+                        <Button Margin="0,0,8,0" Command="{Binding RenderCommand}" IsEnabled="{Binding CanRender}">
                             <StackPanel Orientation="Horizontal">
                                 <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
                                 <TextBlock Text="Retry" />
+                            </StackPanel>
+                        </Button>
+                        <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}" Command="{Binding NewRenderCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Sliders}" />
+                                <TextBlock Text="New render" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
