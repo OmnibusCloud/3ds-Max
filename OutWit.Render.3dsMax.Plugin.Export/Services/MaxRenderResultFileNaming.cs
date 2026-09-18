@@ -10,7 +10,78 @@ namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
 /// </summary>
 public static class MaxRenderResultFileNaming
 {
+    #region Constants
+
+    /// <summary>Folder (under %TEMP%) the transport downloads results into before they are delivered.</summary>
+    private const string DOWNLOAD_ROOT_NAME = "OmnibusCloudResults";
+
+    /// <summary>File name prefix the transport gives each downloaded sequence frame.</summary>
+    public const string DOWNLOADED_FRAME_PREFIX = "frame_";
+
+    #endregion
+
     #region Functions
+
+    /// <summary>The per-job folder the transport downloads a job's result(s) into.</summary>
+    /// <param name="jobFolderName">The job id (or blob id) turned into a folder name.</param>
+    /// <returns>The folder under the shared download root.</returns>
+    public static string DownloadFolder(string jobFolderName) =>
+        Path.Combine(DownloadRoot, jobFolderName);
+
+    /// <summary>
+    /// True while the path is still in the transport's download area, i.e. not yet delivered to the
+    /// folder the artist chose.
+    /// </summary>
+    /// <param name="path">A result path.</param>
+    /// <returns>True when the path lies under the download root.</returns>
+    public static bool IsInDownloadArea(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(DownloadRoot)) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The name a delivered still or video carries: the scene name plus the frame (a still,
+    /// "robby_vs_fly_0026") or the frame range (a video, "robby_vs_fly_0001-0340").
+    /// </summary>
+    /// <param name="jobState">The job (render mode, frame range, result name).</param>
+    /// <returns>The file name without extension.</returns>
+    public static string DeliveredFileStem(MaxConnectedRenderJobState jobState)
+    {
+        var stem = MaxConnectedRenderDownloadService.SanitizeFileStem(jobState.ResultName);
+        return jobState.RenderMode == "RenderVideo"
+            ? $"{stem}_{FrameRange(jobState)}"
+            : $"{stem}_{jobState.FrameStart:D4}";
+    }
+
+    /// <summary>The subfolder a delivered image sequence goes into, e.g. "robby_vs_fly_0001-0340".</summary>
+    /// <param name="jobState">The job (frame range, result name).</param>
+    /// <returns>The folder name.</returns>
+    public static string DeliveredSequenceFolderName(MaxConnectedRenderJobState jobState) =>
+        $"{MaxConnectedRenderDownloadService.SanitizeFileStem(jobState.ResultName)}_{FrameRange(jobState)}";
+
+    /// <summary>
+    /// The delivered name of one downloaded sequence frame: "frame_0005.png" becomes
+    /// "robby_vs_fly_0005.png". Null when the file is not a downloaded frame.
+    /// </summary>
+    /// <param name="downloadedFileName">The downloaded frame's file name.</param>
+    /// <param name="resultName">The scene name.</param>
+    /// <returns>The delivered file name, or null.</returns>
+    public static string? DeliveredFrameFileName(string downloadedFileName, string resultName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(downloadedFileName);
+        if (!stem.StartsWith(DOWNLOADED_FRAME_PREFIX, StringComparison.Ordinal))
+            return null;
+
+        var frame = stem[DOWNLOADED_FRAME_PREFIX.Length..];
+        if (frame.Length == 0 || !frame.All(char.IsDigit))
+            return null;
+
+        return $"{MaxConnectedRenderDownloadService.SanitizeFileStem(resultName)}_{frame}{Path.GetExtension(downloadedFileName)}";
+    }
 
     /// <summary>The extension the job's result is expected to carry, from what was requested.</summary>
     /// <param name="jobState">The job (its render mode, image format and video preset).</param>
@@ -48,6 +119,16 @@ public static class MaxRenderResultFileNaming
         File.Move(downloadedPath, correctedPath, overwrite: true);
         return correctedPath;
     }
+
+    private static string FrameRange(MaxConnectedRenderJobState jobState) =>
+        $"{jobState.FrameStart:D4}-{Math.Max(jobState.FrameStart, jobState.FrameEnd):D4}";
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>The shared download root, <c>%TEMP%\OmnibusCloudResults</c>.</summary>
+    public static string DownloadRoot => Path.Combine(Path.GetTempPath(), DOWNLOAD_ROOT_NAME);
 
     #endregion
 }

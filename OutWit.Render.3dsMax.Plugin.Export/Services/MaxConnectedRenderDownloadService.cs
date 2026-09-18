@@ -1,3 +1,4 @@
+using OutWit.Render.ThreeDsMax.Plugin.Export.Configuration;
 using OutWit.Render.ThreeDsMax.Plugin.Export.Models;
 
 namespace OutWit.Render.ThreeDsMax.Plugin.Export.Services;
@@ -84,7 +85,7 @@ public sealed class MaxConnectedRenderDownloadService
             var destinationPath = ResolveAvailablePath(destinationFolder, SanitizeFileStem(fileStem), Path.GetExtension(sourcePath));
             File.Move(sourcePath, destinationPath);
             jobState.PrimaryArtifactPath = destinationPath;
-            TryRemoveEmptyFolder(Path.GetDirectoryName(sourcePath));
+            TryRemoveEmptyFolder(Path.GetDirectoryName(sourcePath) ?? string.Empty);
 
             return new MaxConnectedRenderDownloadResult
             {
@@ -104,6 +105,55 @@ public sealed class MaxConnectedRenderDownloadService
                 Diagnostics = [CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, $"Could not save the result to '{destinationFolder}' ({ex.Message}); it is still at '{sourcePath}'.")]
             };
         }
+    }
+
+    /// <summary>
+    /// Delivers a completed render into the folder the artist chose when it was launched (the job's
+    /// <c>ResultFolder</c>). Render results used to stay in <c>%TEMP%\OmnibusCloudResults\&lt;job&gt;</c>
+    /// for good: the Render dialog had no "Save to" at all, and Settings ▸ Output ▸ Save to — labelled
+    /// "Defaults for Render and Export" — never reached it.
+    /// </summary>
+    /// <remarks>
+    /// A still or tiled still becomes <c>&lt;scene&gt;_&lt;frame&gt;.&lt;ext&gt;</c>, a video
+    /// <c>&lt;scene&gt;_&lt;start&gt;-&lt;end&gt;.&lt;ext&gt;</c>, and an image sequence a subfolder of that name
+    /// holding <c>&lt;scene&gt;_&lt;frame&gt;.&lt;ext&gt;</c> files. Nothing existing is ever overwritten. A job
+    /// with no result folder (older records, batch flows) or a result already delivered is left as it is.
+    /// </remarks>
+    /// <param name="jobState">The completed job; its <c>PrimaryArtifactPath</c> is updated on success.</param>
+    /// <returns>The delivery result; unsuccessful when there was nothing to deliver or it could not be moved.</returns>
+    public MaxConnectedRenderDownloadResult DeliverRender(MaxConnectedRenderJobState jobState)
+    {
+        ArgumentNullException.ThrowIfNull(jobState);
+
+        if (string.IsNullOrWhiteSpace(jobState.ResultFolder) || !MaxRenderResultFileNaming.IsInDownloadArea(jobState.PrimaryArtifactPath))
+        {
+            return new MaxConnectedRenderDownloadResult
+            {
+                IsSuccess = false,
+                StatusText = "Nothing to deliver.",
+                DownloadedFilePath = jobState.PrimaryArtifactPath
+            };
+        }
+
+        return jobState.RenderMode == "RenderFrames"
+            ? DeliverSequence(jobState)
+            : Deliver(jobState, jobState.ResultFolder, MaxRenderResultFileNaming.DeliveredFileStem(jobState));
+    }
+
+    /// <summary>
+    /// The first free folder for <paramref name="folderName"/> in <paramref name="parent"/>:
+    /// <c>name</c>, then <c>name (2)</c>, <c>name (3)</c>…
+    /// </summary>
+    /// <param name="parent">The parent folder.</param>
+    /// <param name="folderName">The wanted folder name.</param>
+    /// <returns>A path that does not exist yet.</returns>
+    public static string ResolveAvailableFolder(string parent, string folderName)
+    {
+        var candidate = Path.Combine(parent, folderName);
+        for (var index = 2; Directory.Exists(candidate) || File.Exists(candidate); index++)
+            candidate = Path.Combine(parent, $"{folderName} ({index})");
+
+        return candidate;
     }
 
     /// <summary>
@@ -133,10 +183,74 @@ public sealed class MaxConnectedRenderDownloadService
     }
 
     /// <summary>
+    /// Moves every downloaded frame of a sequence into a new subfolder of the result folder, renaming
+    /// <c>frame_0005.png</c> to <c>&lt;scene&gt;_0005.png</c>. The job points at the first frame as soon as
+    /// it has moved, so a failure half-way still leaves it pointing at a real file.
+    /// </summary>
+    private MaxConnectedRenderDownloadResult DeliverSequence(MaxConnectedRenderJobState jobState)
+    {
+        var notReady = RejectUnready(jobState);
+        if (notReady is not null)
+            return notReady;
+
+        var sourceFolder = Path.GetDirectoryName(jobState.PrimaryArtifactPath)!;
+        var targetFolder = string.Empty;
+        var moved = 0;
+
+        try
+        {
+            Directory.CreateDirectory(jobState.ResultFolder);
+            targetFolder = ResolveAvailableFolder(jobState.ResultFolder, MaxRenderResultFileNaming.DeliveredSequenceFolderName(jobState));
+            Directory.CreateDirectory(targetFolder);
+
+            var frames = Directory.EnumerateFiles(sourceFolder)
+                .Where(me => MaxRenderOutputCatalog.ResultExtensions.Contains(Path.GetExtension(me).ToLowerInvariant()))
+                .Select(me => (Source: me, Name: MaxRenderResultFileNaming.DeliveredFrameFileName(Path.GetFileName(me), jobState.ResultName)))
+                .Where(me => me.Name is not null)
+                .OrderBy(me => me.Name, StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var (source, name) in frames)
+            {
+                var destination = Path.Combine(targetFolder, name!);
+                File.Move(source, destination);
+
+                if (moved++ == 0)
+                    jobState.PrimaryArtifactPath = destination;
+            }
+
+            if (moved == 0)
+                throw new InvalidOperationException("no downloaded frames were found");
+
+            TryRemoveEmptyFolder(sourceFolder);
+
+            return new MaxConnectedRenderDownloadResult
+            {
+                IsSuccess = true,
+                StatusText = "Frames saved.",
+                DownloadedFilePath = jobState.PrimaryArtifactPath,
+                Diagnostics = [CreateDiagnostic(MaxSceneDiagnosticSeverity.Info, $"Saved {moved} frames to '{targetFolder}'.")]
+            };
+        }
+        catch (Exception ex)
+        {
+            TryRemoveEmptyFolder(targetFolder);
+
+            return new MaxConnectedRenderDownloadResult
+            {
+                IsSuccess = false,
+                StatusText = $"Could not save the frames to '{jobState.ResultFolder}': {ex.Message}",
+                DownloadedFilePath = jobState.PrimaryArtifactPath,
+                Diagnostics = [CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, $"Saved {moved} frames before failing ({ex.Message}); the rest are still in '{sourceFolder}'.")]
+            };
+        }
+    }
+
+    /// <summary>
     /// Drops the per-job download folder the move just emptied. Non-recursive on purpose: a folder
     /// that still holds anything (other frames, a Blender backup) is left exactly as it is.
     /// </summary>
-    private static void TryRemoveEmptyFolder(string? folder)
+    private static void TryRemoveEmptyFolder(string folder)
     {
         try
         {

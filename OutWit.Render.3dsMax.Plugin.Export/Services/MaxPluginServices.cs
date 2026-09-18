@@ -56,7 +56,8 @@ public sealed class MaxPluginServices
         // open, so a job tracked by it stopped being reachable the moment it closed.
         ConnectedRenderJobStore = new MaxConnectedRenderJobStore();
         ConnectedRenderJobTracker = new MaxConnectedRenderJobTracker(
-            ConnectedRenderService, ConnectedRenderJobStore, StatusBar, Logger);
+            ConnectedRenderService, ConnectedRenderJobStore, StatusBar, Logger,
+            downloadService: ConnectedRenderDownloadService);
     }
 
     #endregion
