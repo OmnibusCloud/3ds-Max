@@ -367,7 +367,8 @@ public sealed class MaxHostApplicationService : IMaxSceneSnapshotProvider
         }
     }
 
-    private static int ResolveTicksPerFrame(IGlobal global)
+    /// <summary>Ticks per frame of the open scene (shared with the time slider service).</summary>
+    internal static int ResolveTicksPerFrame(IGlobal global)
     {
         // Typed property, same story as FrameRate — the old reflective GetTicksPerFrame lookup
         // always missed and returned the 30 fps constant (160), shifting every sampled timeline.

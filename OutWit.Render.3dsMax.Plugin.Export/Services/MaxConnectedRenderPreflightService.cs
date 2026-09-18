@@ -89,6 +89,14 @@ public sealed class MaxConnectedRenderPreflightService
             if (request.RenderMode == "RenderStillTiled" && !MaxRenderOutputCatalog.IsTiledImageFormat(imageFormat))
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Tiled still collection supports PNG and JPEG only — '{imageFormat}' would be rejected by the farm after the render."));
 
+            // The capture samples animated channels across the scene's range only; a still outside it
+            // would render the pose held at the nearest end instead of the frame that was asked for.
+            if ((request.RenderMode == "RenderStill" || request.RenderMode == "RenderStillTiled")
+                && !MaxStillFrameResolver.IsWithinRange(request.FrameStart, summary.FrameStart, summary.FrameEnd))
+            {
+                diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Frame {request.FrameStart} is outside the scene's animation range {summary.FrameStart}–{summary.FrameEnd}."));
+            }
+
             if ((request.RenderMode == "RenderStill" || request.RenderMode == "RenderStillTiled") && request.FrameEnd != request.FrameStart)
                 diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Warning, "Still render modes usually expect a single frame. The current frame range will be reduced later unless changed."));
 

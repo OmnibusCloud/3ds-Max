@@ -20,10 +20,14 @@ public sealed class MaxPluginServices
 {
     #region Constructors
 
-    public MaxPluginServices(MaxSceneExportService sceneExportService, IMaxStatusBarService? statusBar = null)
+    public MaxPluginServices(
+        MaxSceneExportService sceneExportService,
+        IMaxStatusBarService? statusBar = null,
+        IMaxTimeSliderService? timeSlider = null)
     {
         SceneExportService = sceneExportService;
         StatusBar = statusBar ?? MaxStatusBarServiceNull.Instance;
+        TimeSlider = timeSlider ?? MaxTimeSliderServiceNull.Instance;
         Logger = MaxPluginLogging.Logger;
         Settings = MaxPluginSettingsFactory.Create();
         MaxPluginLogging.ApplyMinimumLevel(Settings.LogLevel);
@@ -64,6 +68,9 @@ public sealed class MaxPluginServices
 
     /// <summary>Host prompt-line status reporting (no-op when there is no Max host).</summary>
     public IMaxStatusBarService StatusBar { get; }
+
+    /// <summary>The host time slider a still render follows (no-op when there is no Max host).</summary>
+    public IMaxTimeSliderService TimeSlider { get; }
 
     /// <summary>Shared Serilog logger writing to the per-user logs directory.</summary>
     public ILogger Logger { get; }

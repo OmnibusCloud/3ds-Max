@@ -50,6 +50,8 @@ public sealed class ApplicationViewModel : ViewModelBase<ApplicationViewModel>
 
     public IMaxStatusBarService StatusBar => Services.StatusBar;
 
+    public IMaxTimeSliderService TimeSlider => Services.TimeSlider;
+
     public ISystemBrowserLauncher BrowserLauncher => Services.BrowserLauncher;
 
     public IMaxCloudSessionService CloudSessionService => Services.CloudSessionService;
