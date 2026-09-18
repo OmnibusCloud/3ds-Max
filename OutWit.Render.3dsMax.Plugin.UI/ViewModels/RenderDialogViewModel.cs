@@ -84,9 +84,6 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         TilesY = Settings.TilesY > 0 ? Settings.TilesY : 2;
         TileOverlap = Settings.TileOverlap > 0 ? Settings.TileOverlap : 8;
 
-        // One "Save to" for Render and Export (Settings ▸ Output): the Render dialog used to ignore it.
-        OutputFolder = ResolveOutputFolder(Settings.OutputFolder);
-
         // A persisted EXR from an earlier build (which nudged tiled stills there) would otherwise be
         // re-offered and fail on the farm again.
         ApplyImageFormatConstraints();
@@ -263,11 +260,12 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
             Title = "Choose where render results are saved",
-            InitialDirectory = Directory.Exists(OutputFolder) ? OutputFolder : string.Empty
+            InitialDirectory = Directory.Exists(OptionsVm.EffectiveOutputFolder) ? OptionsVm.EffectiveOutputFolder : string.Empty
         };
 
+        // The shared "Save to": persisted at once and seen by Export and Settings too.
         if (dialog.ShowDialog() == true)
-            OutputFolder = dialog.FolderName;
+            OptionsVm.OutputFolder = dialog.FolderName;
     }
 
     private void CopyLog()
@@ -368,7 +366,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             SelectedGroupName = LaunchVm.SelectedGroupTargetName,
             SelectedProjectName = LaunchVm.SelectedProjectTargetName,
             OutputFolder = packageFolder,
-            ResultFolder = ResolveOutputFolder(OutputFolder),
+            ResultFolder = OptionsVm.EffectiveOutputFolder,
             ResultName = SummaryVm.SceneName,
             ImageFormat = SelectedImageFormat,
             TilesX = TilesX,
@@ -589,23 +587,12 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
     }
 
-    /// <summary>The chosen folder, or the Desktop when none is set (the historic default).</summary>
-    private static string ResolveOutputFolder(string? folder) =>
-        string.IsNullOrWhiteSpace(folder)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
-            : folder.Trim();
-
     private void PersistRenderSettings()
     {
-        // "Save to" is shared with Export and always remembered, like the Export dialog's — it is where
-        // the artist looks for results, not a per-render parameter.
-        Settings.OutputFolder = ResolveOutputFolder(OutputFolder);
-
+        // "Save to" is not written here: the shared OptionsVm persists it the moment it changes, and
+        // writing this dialog's view of it back used to undo a change made in Settings meanwhile.
         if (!Settings.RememberLastRenderSettings)
-        {
-            Settings.SettingsManager.Save();
             return;
-        }
 
         Settings.LastRenderMode = ResolveRenderMode();
         Settings.SplitFrame = SplitFrame;
@@ -870,14 +857,6 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     /// <summary>The quiet note beside the Frame field, e.g. "time slider · 1 – 100".</summary>
     [Notify]
     public string StillFrameHint { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Where results are saved ("Save to") — the same folder the Export dialog uses, seeded from
-    /// Settings ▸ Output. Kept on the job, so a render collected after the dialog closed (or after a
-    /// 3ds Max restart) still lands here.
-    /// </summary>
-    [Notify]
-    public string OutputFolder { get; set; } = string.Empty;
 
     [Notify]
     public MaxRenderStatus Status { get; set; } = null!;

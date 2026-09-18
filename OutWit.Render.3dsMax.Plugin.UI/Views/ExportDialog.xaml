@@ -84,7 +84,7 @@
                                 <TextBlock Text="Browse…" />
                             </StackPanel>
                         </Button>
-                        <TextBox Text="{Binding OutputFolder}" />
+                        <TextBox Text="{Binding OptionsVm.OutputFolder}" />
                     </DockPanel>
                 </GroupBox>
             </StackPanel>

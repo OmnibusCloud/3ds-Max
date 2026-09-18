@@ -224,7 +224,8 @@
                 </StackPanel>
             </GroupBox>
 
-            <!-- Save to — the same folder as the Export dialog (Settings ▸ Output). Results land here as
+            <!-- Save to — ONE live folder shared with the Export dialog and Settings ▸ Output (OptionsVm), so a
+                 change made in any of them shows up in the others at once. Results land here as
                  <scene>_<frame>.<ext>; an image sequence gets its own <scene>_<start>-<end> subfolder. -->
             <GroupBox Header="SAVE TO" Margin="0,14,0,0">
                 <DockPanel>
@@ -234,7 +235,7 @@
                             <TextBlock Text="Browse…" />
                         </StackPanel>
                     </Button>
-                    <TextBox Text="{Binding OutputFolder}" />
+                    <TextBox Text="{Binding OptionsVm.OutputFolder}" />
                 </DockPanel>
             </GroupBox>
 

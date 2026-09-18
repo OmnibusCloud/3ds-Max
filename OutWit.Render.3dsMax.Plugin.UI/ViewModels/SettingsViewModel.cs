@@ -107,7 +107,7 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         CloudUrl = CloudVm.CloudUrl;
         IdentityUrl = CloudVm.IdentityUrl;
         SelectedExportTarget = ExportTargetDisplay(Settings.ExportTarget);
-        OutputFolder = Settings.OutputFolder;
+        OutputFolder = OptionsVm.OutputFolder;
         SelectedVideoPreset = MaxRenderOutputCatalog.VideoPresetDisplay(Settings.VideoContainer);
         SelectedImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(Settings.ImageFormat);
         SelectedLogLevel = Coalesce(Settings.LogLevel, "Information");
@@ -120,7 +120,9 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
         Settings.ThemeMode = SelectedTheme;
         Settings.RememberLastRenderSettings = RememberLastRenderSettings;
         Settings.ExportTarget = ExportTargetKey(SelectedExportTarget);
-        Settings.OutputFolder = OutputFolder;
+        // Through the shared "Save to" (it persists itself): an open Render or Export dialog shows the
+        // new folder at once instead of keeping — and later writing back — the old one.
+        OptionsVm.OutputFolder = OutputFolder;
         Settings.VideoContainer = MaxRenderOutputCatalog.VideoPresetKeyFromDisplay(SelectedVideoPreset);
         Settings.ImageFormat = MaxRenderOutputCatalog.NormalizeImageFormat(SelectedImageFormat);
         Settings.LogLevel = SelectedLogLevel;
@@ -366,6 +368,9 @@ public sealed class SettingsViewModel : ViewModelBase<ApplicationViewModel>
     #region Services
 
     private MaxPluginSettings Settings => ApplicationVm.Settings;
+
+    /// <summary>The shared "Save to" the Render and Export dialogs show.</summary>
+    private ExportOptionsViewModel OptionsVm => ApplicationVm.MainVm.OptionsVm;
 
     private MaxConnectedExecutionScopeService ExecutionScope => ApplicationVm.ConnectedExecutionScopeService;
 
