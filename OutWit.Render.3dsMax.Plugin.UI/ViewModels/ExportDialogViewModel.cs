@@ -60,9 +60,6 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
             : ExportTarget.Blend;
         // Shared with the Render dialog — the user's bake preference applies to both round-trips.
         BakeVRayScannedMaterials = Settings.BakeVRayScannedMaterials;
-        OutputFolder = string.IsNullOrWhiteSpace(Settings.OutputFolder)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
-            : Settings.OutputFolder;
     }
 
     private void InitEvents()
@@ -167,7 +164,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         // Scene capture + write go through the single-threaded 3ds Max SDK: run synchronously on the
         // Max main thread (no Task.Run).
-        var result = SceneExport.ExportCurrentScene(OutputFolder, MaxSceneExportOutputFormat.Json);
+        var result = SceneExport.ExportCurrentScene(OptionsVm.EffectiveOutputFolder, MaxSceneExportOutputFormat.Json);
         DiagnosticsVm.Apply(result.Diagnostics);
 
         if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.OutputPath))
@@ -273,7 +270,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
     {
         StatusLine = "Saving the .blend…";
 
-        var delivery = ApplicationVm.ConnectedRenderDownloadService.Deliver(jobState, OutputFolder, SummaryVm.SceneName);
+        var delivery = ApplicationVm.ConnectedRenderDownloadService.Deliver(jobState, OptionsVm.EffectiveOutputFolder, SummaryVm.SceneName);
         DiagnosticsVm.Apply(delivery.Diagnostics);
 
         if (delivery.IsSuccess)
@@ -326,16 +323,17 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         var dialog = new OpenFolderDialog
         {
             Title = "Choose export folder",
-            InitialDirectory = Directory.Exists(OutputFolder) ? OutputFolder : string.Empty
+            InitialDirectory = Directory.Exists(OptionsVm.EffectiveOutputFolder) ? OptionsVm.EffectiveOutputFolder : string.Empty
         };
 
+        // The shared "Save to": persisted at once and seen by Render and Settings too.
         if (dialog.ShowDialog() == true)
-            OutputFolder = dialog.FolderName;
+            OptionsVm.OutputFolder = dialog.FolderName;
     }
 
     private void OpenFolder()
     {
-        var folder = string.IsNullOrWhiteSpace(ResultPath) ? OutputFolder : Path.GetDirectoryName(ResultPath);
+        var folder = string.IsNullOrWhiteSpace(ResultPath) ? OptionsVm.EffectiveOutputFolder : Path.GetDirectoryName(ResultPath);
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
             return;
 
@@ -393,8 +391,9 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void PersistSettings()
     {
+        // "Save to" is not written here: the shared OptionsVm persists it the moment it changes, and
+        // writing this dialog's view of it back used to undo a change made in Settings meanwhile.
         Settings.ExportTarget = Target == ExportTarget.DccJson ? "DccJson" : "Blend";
-        Settings.OutputFolder = OutputFolder;
         Settings.BakeVRayScannedMaterials = BakeVRayScannedMaterials;
         Settings.SettingsManager.Save();
     }
@@ -427,6 +426,9 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     public ExportDiagnosticsViewModel DiagnosticsVm => ApplicationVm.MainVm.DiagnosticsVm;
 
+    /// <summary>Session-wide output options — its OutputFolder is the one shared "Save to".</summary>
+    public ExportOptionsViewModel OptionsVm => ApplicationVm.MainVm.OptionsVm;
+
     public CloudSessionViewModel CloudVm => ApplicationVm.CloudSessionVm;
 
     [Notify]
@@ -440,9 +442,6 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     [Notify]
     public bool HasVRayScannedMaterials { get; set; }
-
-    [Notify]
-    public string OutputFolder { get; set; } = string.Empty;
 
     [Notify]
     public bool IsReady { get; set; }
