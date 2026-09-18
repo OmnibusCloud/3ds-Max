@@ -143,6 +143,8 @@
                                    Foreground="{DynamicResource Max.Brush.TextMuted}" />
                     </StackPanel>
                 </StackPanel>
+                <!-- Retry re-runs the SAME settings; New export is the way back to the configuration,
+                     without which a failure caused by those settings has no way out of this card. -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
                     <Button Margin="0,0,8,0" Command="{Binding CopyLogCommand}">
                         <StackPanel Orientation="Horizontal">
@@ -150,10 +152,16 @@
                             <TextBlock Text="Copy log" />
                         </StackPanel>
                     </Button>
-                    <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}" Command="{Binding RetryCommand}">
+                    <Button Margin="0,0,8,0" Command="{Binding RetryCommand}">
                         <StackPanel Orientation="Horizontal">
                             <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Refresh}" />
                             <TextBlock Text="Retry" />
+                        </StackPanel>
+                    </Button>
+                    <Button MinWidth="96" Style="{StaticResource Max.Button.Primary}" Command="{Binding NewExportCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Max.ButtonIcon}" Data="{StaticResource Max.Icon.Sliders}" />
+                            <TextBlock Text="New export" />
                         </StackPanel>
                     </Button>
                 </StackPanel>

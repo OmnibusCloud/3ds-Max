@@ -203,6 +203,21 @@ public sealed class MaxConnectedRenderJobTracker
     }
 
     /// <summary>
+    /// Drops a tracked FAILURE the artist has already been shown, so the next dialog open greets them
+    /// with the configuration view instead of the same failure card. A failure that happened while every
+    /// plugin window was closed is left alone — it has never been presented and still has to be.
+    /// </summary>
+    /// <returns>True when a presented failure was dropped.</returns>
+    public bool AcknowledgeFailure()
+    {
+        if (Status.Phase != MaxRenderPhase.Failed)
+            return false;
+
+        Clear();
+        return true;
+    }
+
+    /// <summary>
     /// Forgets the tracked job and its persisted record — the user acknowledged it (New render / Retry).
     /// A job still running on the farm is NOT cancelled by this; it is simply no longer followed.
     /// </summary>

@@ -223,6 +223,46 @@ public sealed class MaxConnectedRenderJobTrackerTests
     }
 
     [Test]
+    public async Task AcknowledgingAPresentedFailureFreesTheNextDialogOpenTest()
+    {
+        // Live-found: a failed render owned the dialog forever. Closing the window and asking for
+        // Render again re-attached to the SAME failure, so the configuration was unreachable and the
+        // only action left was Retry — which re-submitted the settings that had just failed.
+        var store = new MaxConnectedRenderJobStore(m_recordPath);
+        store.Save(CreateFailedJob());
+        var tracker = CreateTracker(new FakeMaxConnectedRenderSubmissionTransport(), store);
+        await tracker.RestoreAsync();
+        Assert.That(tracker.Status.Phase, Is.EqualTo(MaxRenderPhase.Failed));
+
+        Assert.That(tracker.AcknowledgeFailure(), Is.True);
+
+        Assert.That(tracker.HasTrackedJob, Is.False);
+        Assert.That(tracker.Status.IsReady, Is.True);
+
+        // And the record is gone too, so restarting 3ds Max does not resurrect the failure either.
+        Assert.That(store.Load(), Is.Null);
+        Assert.That(await tracker.RestoreAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task AcknowledgingLeavesACollectableResultAloneTest()
+    {
+        // The acknowledgement is scoped to failures: a finished render still has to wait for its
+        // artist, however many times the dialog is opened and closed in between.
+        var resultPath = CreateResultFile();
+        var store = new MaxConnectedRenderJobStore(m_recordPath);
+        store.Save(CreateCompletedJob(resultPath));
+        var tracker = CreateTracker(new FakeMaxConnectedRenderSubmissionTransport(), store);
+        await tracker.RestoreAsync();
+
+        Assert.That(tracker.AcknowledgeFailure(), Is.False);
+
+        Assert.That(tracker.Status.Phase, Is.EqualTo(MaxRenderPhase.Completed));
+        Assert.That(tracker.JobState!.PrimaryArtifactPath, Is.EqualTo(resultPath));
+        Assert.That(store.Load(), Is.Not.Null);
+    }
+
+    [Test]
     public async Task ClearForgetsTheJobAndItsRecordTest()
     {
         var store = new MaxConnectedRenderJobStore(m_recordPath);
@@ -288,6 +328,15 @@ public sealed class MaxConnectedRenderJobTrackerTests
             SubmittedUtc = DateTime.UtcNow.AddMinutes(-3),
             UpdatedUtc = DateTime.UtcNow.AddMinutes(-1)
         };
+    }
+
+    private static MaxConnectedRenderJobState CreateFailedJob()
+    {
+        var jobState = CreateRunningJob();
+        jobState.IsFailed = true;
+        jobState.ServerStatus = "Failed";
+        jobState.StatusText = "OmnibusCloud job status: Failed. Failed to process activity \"Render.CollectTiles\".";
+        return jobState;
     }
 
     private static MaxConnectedRenderJobState CreateCompletedJob(string resultPath)

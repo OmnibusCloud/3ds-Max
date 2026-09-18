@@ -13,6 +13,14 @@ public static class MaxRenderOutputCatalog
 
     public static readonly IReadOnlyList<string> ImageFormats = ["PNG", "JPEG", "EXR", "TIFF", "WEBP"];
 
+    /// <summary>
+    /// The subset a TILED still may use. The server stitches tiles through an 8-bit ffmpeg crop/pad
+    /// pipeline and rejects anything else outright ("Render.CollectTiles bootstrap implementation
+    /// currently supports PNG and JPEG only"), so offering the rest for a tiled launch only ever
+    /// produced a job that failed on the farm.
+    /// </summary>
+    public static readonly IReadOnlyList<string> TiledImageFormats = ["PNG", "JPEG"];
+
     /// <summary>Canonical persisted preset keys with the display labels the dialogs show.</summary>
     public static readonly IReadOnlyList<KeyValuePair<string, string>> VideoPresets =
     [
@@ -54,6 +62,18 @@ public static class MaxRenderOutputCatalog
         var upper = value?.ToUpperInvariant();
         return ImageFormats.Contains(upper ?? string.Empty) ? upper! : "PNG";
     }
+
+    /// <summary>True when the format can carry a tiled still through the server's stitcher.</summary>
+    public static bool IsTiledImageFormat(string? value) =>
+        TiledImageFormats.Contains(value?.ToUpperInvariant() ?? string.Empty);
+
+    /// <summary>
+    /// The format a tiled still will actually render in: the requested one when the stitcher supports
+    /// it, PNG otherwise. Falls back rather than failing — a tiled launch the farm cannot collect is
+    /// never the artist's intent.
+    /// </summary>
+    public static string NormalizeTiledImageFormat(string? value) =>
+        IsTiledImageFormat(value) ? value!.ToUpperInvariant() : "PNG";
 
     public static RenderFormat ParseImageFormat(string? value)
     {

@@ -81,6 +81,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         TilesX = Settings.TilesX > 0 ? Settings.TilesX : 2;
         TilesY = Settings.TilesY > 0 ? Settings.TilesY : 2;
         TileOverlap = Settings.TileOverlap > 0 ? Settings.TileOverlap : 8;
+
+        // A persisted EXR from an earlier build (which nudged tiled stills there) would otherwise be
+        // re-offered and fail on the farm again.
+        ApplyImageFormatConstraints();
     }
 
     private void InitEvents()
@@ -221,10 +225,15 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
     }
 
+    /// <summary>
+    /// Back to the configuration view. Offered from BOTH terminal cards: after a result was collected,
+    /// and after a failure — a failed render otherwise left no way back to the settings at all, so the
+    /// only action was Retry, which re-submitted the very settings that had just failed.
+    /// </summary>
     private void NewRender()
     {
-        // The result was collected: drop the tracked job (and its persisted record) so the next open
-        // greets the artist with the config view instead of yesterday's render.
+        // Drop the tracked job (and its persisted record) so the next open greets the artist with the
+        // config view instead of yesterday's render.
         JobTracker.Clear();
         ResultPath = string.Empty;
         Status = MaxRenderStatus.Ready();
@@ -490,6 +499,26 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         LaunchVm.SelectedRenderMode = ResolveRenderMode();
     }
 
+    /// <summary>
+    /// Narrows the offered image formats to what the chosen mode can actually produce. A tiled still is
+    /// collected by the server's 8-bit stitcher, which refuses everything but PNG and JPEG — an earlier
+    /// build instead NUDGED tiled stills to EXR, so the dialog itself steered the artist into a job the
+    /// farm was guaranteed to reject after the whole scene had already rendered.
+    /// </summary>
+    private void ApplyImageFormatConstraints()
+    {
+        var tiled = OutputAxis == RenderOutputAxis.Image && SplitFrame;
+
+        // The selection is moved BEFORE the list shrinks: a ComboBox whose ItemsSource no longer holds
+        // the selected item drops the selection (and writes an empty format back through the binding).
+        if (tiled)
+            SelectedImageFormat = MaxRenderOutputCatalog.NormalizeTiledImageFormat(SelectedImageFormat);
+
+        AvailableImageFormats = tiled
+            ? MaxRenderOutputCatalog.TiledImageFormats
+            : MaxRenderOutputCatalog.ImageFormats;
+    }
+
     private string ResolveRenderMode()
     {
         if (OutputAxis == RenderOutputAxis.Image)
@@ -551,10 +580,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         {
             PushAxesToRenderMode();
             UpdateStatus();
-
-            // Tiled stills stitch in EXR precision (mockup 4.1.2) — nudge the format when tiling on.
-            if (ShowTiles && SelectedImageFormat == "PNG")
-                SelectedImageFormat = "EXR";
+            ApplyImageFormatConstraints();
         }
 
         if (e.PropertyName == nameof(LockAspectRatio))
@@ -633,8 +659,10 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     #region IDisposable
 
     /// <summary>
-    /// Detaches from the session tracker. The tracked JOB is deliberately untouched: closing the dialog
-    /// is not a cancel, and the next open re-attaches to whatever is still running.
+    /// Detaches from the session tracker. A running or completed JOB is deliberately untouched: closing
+    /// the dialog is not a cancel, and the next open re-attaches to whatever is still running or waiting
+    /// to be collected. A FAILURE this dialog has already shown is dropped instead — re-presenting it on
+    /// every open made the window a dead end the artist could not configure their way out of.
     /// </summary>
     public override void Dispose()
     {
@@ -642,6 +670,11 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
         PropertyChanged -= OnPropertyChanged;
         LaunchVm.PropertyChanged -= OnLaunchPropertyChanged;
         CloudVm.PropertyChanged -= OnCloudPropertyChanged;
+
+        // Gated on the failed card having been on screen: a job that fails while every window is closed
+        // has never been seen, and still has to greet the artist on the next open.
+        if (ShowFailedActions)
+            JobTracker.AcknowledgeFailure();
 
         base.Dispose();
     }
@@ -684,7 +717,9 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public bool IsAnimationOutput { get; set; }
 
     // Quick output settings (design 4.1.2) — every value here actually travels in the launch request.
-    public IReadOnlyList<string> AvailableImageFormats => MaxRenderOutputCatalog.ImageFormats;
+    /// <summary>The formats the CURRENT mode can produce; tiled stills only ever offer PNG/JPEG.</summary>
+    [Notify]
+    public IReadOnlyList<string> AvailableImageFormats { get; set; } = MaxRenderOutputCatalog.ImageFormats;
 
     public IReadOnlyList<string> AvailableVideoPresets { get; } =
         MaxRenderOutputCatalog.VideoPresets.Select(me => me.Value).ToArray();
@@ -753,7 +788,7 @@ public sealed class RenderDialogViewModel : ViewModelBase<ApplicationViewModel>
     public bool ShowResultActions { get; set; }
 
     // Footer shows exactly one action set at a time: config (Details + Render), active (Cancel),
-    // result (Open + Open folder + New render) or failed (Copy log + Retry).
+    // result (Open + Open folder + New render) or failed (Copy log + Retry + New render).
     [Notify]
     public bool ShowConfigActions { get; set; } = true;
 
