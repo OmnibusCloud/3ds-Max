@@ -61,9 +61,9 @@ public sealed class MaxConnectedRenderPreflightService
         if (!VALID_RENDER_MODES.Contains(request.RenderMode))
             diagnostics.Add(CreateDiagnostic(MaxSceneDiagnosticSeverity.Error, $"Unsupported render mode '{request.RenderMode}'."));
 
-        // EVERY connected mode needs a compute target — including ExportBlend, whose server-side
-        // .blend build runs on the farm like any other job (unscoped only works with the
-        // whole-network right).
+        // EVERY connected mode needs a scope — including ExportBlend. Its .blend build never leaves the
+        // server (Render.Dcc is host-only), but the server checks the scope at submit time as
+        // permission to launch at all: unscoped only works with the whole-network right.
         var hasGroup = !string.IsNullOrWhiteSpace(request.SelectedGroupName);
         var hasProject = !string.IsNullOrWhiteSpace(request.SelectedProjectName);
 

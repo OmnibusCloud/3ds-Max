@@ -31,6 +31,11 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private MaxConnectedRenderJobState? m_activeJobState;
 
+    /// <summary>The scope the server-side build is submitted under — picked, never asked.</summary>
+    private MaxServerJobScope m_scope = new();
+
+    private bool m_scopeLoaded;
+
     #endregion
 
     #region Constructors
@@ -104,10 +109,11 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
     }
 
     /// <summary>
-    /// Loads the compute targets the server-side .blend build may run on. The export used to
-    /// submit UNSCOPED (all clients) — which the engine only allows for accounts with the global
-    /// grant, so every non-admin export died with "not authorized to launch on all clients".
-    /// Same unified project/group list as the Render dialog.
+    /// Resolves the scope the server-side .blend build is submitted under. The build never reaches a
+    /// render node (Render.Dcc is a host-only controller), so the scope is only the server's
+    /// submit-time permission check — an unscoped submit needs the whole-network right, which is why
+    /// non-admin exports once died with "not authorized to launch on all clients". It used to be a
+    /// "Run on" picker, a choice that changed nothing about where the build ran; it is now picked.
     /// </summary>
     private async Task LoadExecutionScopeAsync()
     {
@@ -121,19 +127,8 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         };
 
         var result = await Task.Run(() => ApplicationVm.ConnectedExecutionScopeService.LoadAsync(request));
-        if (!result.IsSuccess)
-            return;
-
-        AvailableTargets = result.Projects
-            .Select(me => new RenderTargetOption { IsProject = true, Name = me.Name })
-            .Concat(result.Groups.Select(me => new RenderTargetOption { IsProject = false, Name = me.Name }))
-            .ToArray();
-        CanRunOnAllClientsOption = result.CanRunOnAllClients;
-        // Historic behavior for accounts with the global grant: the export ran on the whole
-        // network. Everyone else defaults to their first project/group.
-        UseAllClients = result.CanRunOnAllClients;
-        if (!UseAllClients && SelectedTarget is null && AvailableTargets.Count > 0)
-            SelectedTarget = AvailableTargets[0];
+        m_scope = MaxServerJobScopeResolver.Resolve(result);
+        m_scopeLoaded = result.IsSuccess;
 
         UpdateStatus();
     }
@@ -185,20 +180,24 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private async Task ExportBlendAsync()
     {
-        StatusLine = "Converting to Blender on the server…";
+        StatusLine = "Preparing the scene…";
 
-        var outputFolder = Path.Combine(OutputFolder, "OmnibusCloudExports");
-        Directory.CreateDirectory(outputFolder);
+        // The launch package is the export's INPUT (the scene payload, often tens of MB with textures),
+        // not something the artist asked for: it goes to a working folder and is discarded once the
+        // .blend has been saved. It used to be written into the "Save to" folder while the .blend itself
+        // stayed in %TEMP% — exactly backwards.
+        var packageFolder = Path.Combine(Path.GetTempPath(), "OmnibusCloudExports");
+        Directory.CreateDirectory(packageFolder);
 
         var request = new MaxSceneLaunchPackageRequest
         {
             CloudUrl = CloudVm.CloudUrl,
             IdentityUrl = CloudVm.IdentityUrl,
             RenderMode = "ExportBlend",
-            OutputFolder = outputFolder,
-            UseAllClients = UseAllClients,
-            SelectedGroupName = SelectedTarget is { IsProject: false } group ? group.Name : string.Empty,
-            SelectedProjectName = SelectedTarget is { IsProject: true } project ? project.Name : string.Empty,
+            OutputFolder = packageFolder,
+            UseAllClients = m_scope.UseAllClients,
+            SelectedGroupName = m_scope.GroupName,
+            SelectedProjectName = m_scope.ProjectName,
             // The server packs every attachment into the .blend (pack_all), so a baked scanned
             // material travels inside the returned file like any authored texture.
             BakeVRayScannedMaterials = HasVRayScannedMaterials && BakeVRayScannedMaterials,
@@ -218,6 +217,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
 
         m_activeJobState = jobState;
+        var buildStartedUtc = DateTime.UtcNow;
 
         try
         {
@@ -244,15 +244,13 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
                 m_activeJobState = jobState;
                 DiagnosticsVm.Apply(jobState.Diagnostics);
 
-                // Prefer the farm's own sub-task axis when the job reports one: the engine's coarse
-                // axis parks inside a distributed stage and reads as a frozen percentage.
-                var percent = jobState.DistributedProgressPercent > 0d
-                    ? jobState.DistributedProgressPercent
-                    : jobState.ProgressPercent;
-
+                // No percentage: the build is ONE long server-side step of a three-activity script
+                // (unzip, build, clear), and the engine's axis counts finished activities — it read
+                // 33% for the whole build and then jumped to done. Nothing distributed, so there is
+                // no finer axis either. Elapsed time is the honest signal that it is still working.
                 StatusLine = m_cancelRequested
                     ? "Cancelling…"
-                    : $"Converting to Blender on the server… {percent:0}%";
+                    : $"Building the .blend on the server · {FormatElapsed(DateTime.UtcNow - buildStartedUtc)}";
             }
         }
         finally
@@ -261,10 +259,33 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
 
         if (jobState.IsCompleted && !string.IsNullOrWhiteSpace(jobState.PrimaryArtifactPath))
-            Complete(jobState.PrimaryArtifactPath);
+            Complete(DeliverResult(jobState));
         else if (!m_cancelRequested)
             Fail(jobState.StatusText);
     }
+
+    /// <summary>
+    /// Moves the downloaded .blend into the "Save to" folder under the scene's name, then drops the
+    /// launch package. When the folder cannot be written the file stays where it was downloaded and the
+    /// completed card points there (Open folder), with the reason in the diagnostics.
+    /// </summary>
+    private string DeliverResult(MaxConnectedRenderJobState jobState)
+    {
+        StatusLine = "Saving the .blend…";
+
+        var delivery = ApplicationVm.ConnectedRenderDownloadService.Deliver(jobState, OutputFolder, SummaryVm.SceneName);
+        DiagnosticsVm.Apply(delivery.Diagnostics);
+
+        if (delivery.IsSuccess)
+            ApplicationVm.LaunchPreparationService.Discard(jobState.PackageFolderPath, jobState.PackageArchivePath);
+
+        return string.IsNullOrWhiteSpace(delivery.DownloadedFilePath) ? jobState.PrimaryArtifactPath : delivery.DownloadedFilePath;
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        elapsed.TotalHours >= 1
+            ? $"{(int)elapsed.TotalHours}:{elapsed.Minutes:00}:{elapsed.Seconds:00}"
+            : $"{elapsed.Minutes}:{elapsed.Seconds:00}";
 
     private void Complete(string resultPath)
     {
@@ -358,15 +379,16 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void UpdateStatus()
     {
-        // The Blender target is a server round-trip and needs a session PLUS a compute target
-        // (project/group or the whole-network right) for the server-side build; DCC JSON is local.
-        var hasComputeTarget = UseAllClients || SelectedTarget is not null;
-        var targetReady = Target == ExportTarget.DccJson || (CloudVm.IsSignedIn && hasComputeTarget);
+        // The Blender target is a server round-trip and needs a session PLUS an authorizing scope for
+        // the submit (see LoadExecutionScopeAsync); DCC JSON is local.
+        var targetReady = Target == ExportTarget.DccJson || (CloudVm.IsSignedIn && m_scope.IsResolved);
         CanExport = targetReady && !IsExporting && !IsCompleted;
         CanCancel = IsExporting;
         IsBlend = Target == ExportTarget.Blend;
         IsReady = !IsExporting && !IsCompleted && !IsFailed;
-        ShowNoTargetsHint = IsBlend && CloudVm.IsSignedIn && !hasComputeTarget && AvailableTargets.Count == 0;
+
+        // Only once the scope is known to be empty — not while it is still loading.
+        ShowNoTargetsHint = IsBlend && CloudVm.IsSignedIn && m_scopeLoaded && !m_scope.IsResolved;
     }
 
     private void PersistSettings()
@@ -383,8 +405,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
     private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(Target) or nameof(IsExporting) or nameof(IsCompleted) or nameof(IsFailed)
-            or nameof(SelectedTarget) or nameof(UseAllClients))
+        if (e.PropertyName is nameof(Target) or nameof(IsExporting) or nameof(IsCompleted) or nameof(IsFailed))
             UpdateStatus();
     }
 
@@ -453,19 +474,7 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
     [Notify]
     public bool CanCancel { get; set; }
 
-    /// <summary>Compute targets for the server-side .blend build (projects first, then groups).</summary>
-    [Notify]
-    public IReadOnlyList<RenderTargetOption> AvailableTargets { get; set; } = [];
-
-    [Notify]
-    public RenderTargetOption? SelectedTarget { get; set; }
-
-    [Notify]
-    public bool UseAllClients { get; set; }
-
-    [Notify]
-    public bool CanRunOnAllClientsOption { get; set; }
-
+    /// <summary>The signed-in account has no scope the server would accept for the build.</summary>
     [Notify]
     public bool ShowNoTargetsHint { get; set; }
 
