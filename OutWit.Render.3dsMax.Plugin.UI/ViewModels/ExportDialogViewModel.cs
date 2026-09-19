@@ -214,7 +214,10 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
         }
 
         m_activeJobState = jobState;
-        var buildStartedUtc = DateTime.UtcNow;
+
+        // Until the first poll comes back the server has not said anything yet; the upload line would
+        // otherwise sit there as if the upload were still running.
+        StatusLine = "Submitted — waiting for the server…";
 
         try
         {
@@ -241,13 +244,12 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
                 m_activeJobState = jobState;
                 DiagnosticsVm.Apply(jobState.Diagnostics);
 
-                // No percentage: the build is ONE long server-side step of a three-activity script
-                // (unzip, build, clear), and the engine's axis counts finished activities — it read
-                // 33% for the whole build and then jumped to done. Nothing distributed, so there is
-                // no finer axis either. Elapsed time is the honest signal that it is still working.
+                // The step being run, not a percentage: the engine's axis counts finished activities,
+                // so it read a frozen 33% for the whole build. The same fraction does say WHICH of the
+                // script's three activities is running, and that name is the useful part.
                 StatusLine = m_cancelRequested
                     ? "Cancelling…"
-                    : $"Building the .blend on the server · {FormatElapsed(DateTime.UtcNow - buildStartedUtc)}";
+                    : MaxExportBlendPhase.Describe(jobState.ServerStatus, jobState.ProgressPercent);
             }
         }
         finally
@@ -278,11 +280,6 @@ public sealed class ExportDialogViewModel : ViewModelBase<ApplicationViewModel>
 
         return string.IsNullOrWhiteSpace(delivery.DownloadedFilePath) ? jobState.PrimaryArtifactPath : delivery.DownloadedFilePath;
     }
-
-    private static string FormatElapsed(TimeSpan elapsed) =>
-        elapsed.TotalHours >= 1
-            ? $"{(int)elapsed.TotalHours}:{elapsed.Minutes:00}:{elapsed.Seconds:00}"
-            : $"{elapsed.Minutes}:{elapsed.Seconds:00}";
 
     private void Complete(string resultPath)
     {
